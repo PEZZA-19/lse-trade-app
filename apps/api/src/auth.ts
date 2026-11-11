@@ -38,10 +38,10 @@ const isHttps = (c: Context) =>
   new URL(c.req.url).protocol === 'https:' || c.req.header('x-forwarded-proto') === 'https';
 /** __Host- prefix (HTTPS only) pins the cookie to this exact host and path. */
 const cookieName = (c: Context) => (isHttps(c) ? '__Host-lse_session' : 'lse_session');
-const clientIp = (c: Context) =>
+export const clientIp = (c: Context) =>
   c.req.header('cf-connecting-ip') ?? c.req.header('x-real-ip') ?? 'unknown';
 
-async function hit(sql: Sql, key: string, limit: RateLimit) {
+export async function hit(sql: Sql, key: string, limit: RateLimit) {
   const [row] = await sql<
     { ok: boolean }[]
   >`SELECT rate_limit_hit(${key}, ${limit.windowSeconds}, ${limit.max}) AS ok`;

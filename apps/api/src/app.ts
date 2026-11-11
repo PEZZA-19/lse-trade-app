@@ -31,6 +31,11 @@ import {
   billCreate,
   billUpdate,
   billReadRequest,
+  publicEnquiry,
+  spamReason,
+  enquiryCreate,
+  enquiryConvert,
+  enquiryReject,
   supplierInput,
   supplierUpdate,
   type ApiErrorBody,
@@ -39,7 +44,17 @@ import {
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
-import { checkCsrf, mountAuthRoutes, readSession, type AuthConfig } from './auth';
+import {
+  checkCsrf,
+  clientIp,
+  hit,
+  mountAuthRoutes,
+  readSession,
+  type AuthConfig,
+  type RateLimit,
+} from './auth';
+import { StubTurnstile, type TurnstileVerifier } from './lib/turnstile';
+import * as enquiries from './services/enquiries';
 import { withTenant, type Sql } from './db/client';
 import { AppError, notFound } from './lib/errors';
 import { idempotent } from './lib/idempotency';
@@ -67,6 +82,9 @@ export interface AppDeps {
   corsOrigins?: string[];
   /** Model calls (drafts only). Absent: AI helpers are off and say so. */
   ai?: AiGateway;
+  /** Website enquiry form checks. Defaults to the stub (no Cloudflare account yet). */
+  turnstile?: TurnstileVerifier;
+  enquiryLimits?: { perIp: RateLimit; perForm: RateLimit };
 }
 
 /** `If-Match: 7` or `If-Match: "7"` -> 7. Absent means "don't check" (online edits from the latest copy). */
@@ -121,6 +139,38 @@ export function createApp(deps: AppDeps) {
   }
 
   app.get('/api/health', (c) => c.json({ ok: true }));
+
+  /* ------------------------- public enquiry form ------------------------ */
+  // No session and any origin (Joe's website posts here), so it sits before the session and CSRF
+  // checks, never uses cookies, and can only create an enquiry through public_enquiry_submit().
+  const turnstile = deps.turnstile ?? new StubTurnstile();
+  const enquiryLimits = deps.enquiryLimits ?? {
+    perIp: { max: 5, windowSeconds: 10 * 60 },
+    perForm: { max: 60, windowSeconds: 60 * 60 },
+  };
+  app.use(
+    '/api/public/*',
+    cors({ origin: '*', allowMethods: ['POST'], allowHeaders: ['Content-Type'] }),
+  );
+  app.post('/api/public/enquiries/:formKey', async (c) => {
+    const formKey = c.req.param('formKey');
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(formKey)) throw notFound('Form');
+    const sql = deps.getSql(c);
+    const ip = clientIp(c);
+    await hit(sql, `enquiry:ip:${ip}`, enquiryLimits.perIp);
+    await hit(sql, `enquiry:form:${formKey}`, enquiryLimits.perForm);
+    const input = parse(publicEnquiry, await jsonBody(c.req));
+    if (!(await turnstile.verify(input.turnstileToken, ip)))
+      throw new AppError(400, 'turnstile_failed', 'Please complete the check and send again.');
+    // Likely spam is accepted and dropped: bots learn nothing from the response.
+    const accepted = { ok: true, message: 'Thanks, your message has been sent.' };
+    if (spamReason(input)) return c.json(accepted, 202);
+    const [row] = await sql<{ ok: boolean }[]>`
+      SELECT public_enquiry_submit(${formKey}, ${input.name}, ${input.email}, ${input.phone},
+                                   ${input.address}, ${input.message}) AS ok`;
+    if (!row?.ok) throw notFound('Form');
+    return c.json(accepted, 202);
+  });
 
   /* ------------------------------ auth ------------------------------ */
   mountAuthRoutes(app, deps.getSql, deps.auth);
@@ -649,6 +699,53 @@ export function createApp(deps: AppDeps) {
     await c.var.tx((tx) => bills.deleteBill(tx, c.var.auth, id));
     return c.body(null, 204);
   });
+  /* ----------------------------- enquiries ----------------------------- */
+  app.get('/api/enquiries', async (c) => {
+    const which = c.req.query('status') === 'done' ? 'done' : 'todo';
+    return c.json(await c.var.tx((tx) => enquiries.listEnquiries(tx, which)));
+  });
+  app.get('/api/enquiries/counts', async (c) =>
+    c.json(await c.var.tx((tx) => enquiries.enquiryCounts(tx))),
+  );
+  app.post('/api/enquiries', async (c) => {
+    const input = parse(enquiryCreate, await jsonBody(c.req));
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, `enquiry:${JSON.stringify(input)}`, async () => ({
+        status: 201,
+        body: await enquiries.createEnquiry(tx, c.var.auth, input),
+      })),
+    );
+    return c.json(result.body, result.status as 201);
+  });
+  app.get('/api/enquiries/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => enquiries.getEnquiry(tx, id)));
+  });
+  app.post('/api/enquiries/:id/actioned', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => enquiries.markActioned(tx, c.var.auth, id, ifMatch(c))));
+  });
+  app.post('/api/enquiries/:id/reject', async (c) => {
+    const id = uuidParam(c);
+    const { reason } = parse(enquiryReject, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => enquiries.reject(tx, c.var.auth, id, reason, ifMatch(c))));
+  });
+  app.post('/api/enquiries/:id/convert', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(enquiryConvert, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => enquiries.convert(tx, c.var.auth, id, input, ifMatch(c))));
+  });
+  app.get('/api/settings/enquiry-form', async (c) =>
+    c.json(await c.var.tx((tx) => enquiries.getForm(tx))),
+  );
+  app.post('/api/settings/enquiry-form', async (c) => {
+    if (c.var.auth.role !== 'owner')
+      throw new AppError(403, 'forbidden', 'Only the business owner can change the website form');
+    const { on } = parse(z.object({ on: z.boolean() }), await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => enquiries.setForm(tx, c.var.auth, on)));
+  });
+
   // AI fallback for PDFs the built-in readers don't know: returns a draft to review, saves nothing.
   app.post('/api/supplier-bills/read', async (c) => {
     const input = parse(billReadRequest, await jsonBody(c.req));
