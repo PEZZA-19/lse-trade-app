@@ -44,7 +44,7 @@ describe('CEF reader (synthetic copy of the layout)', () => {
       ['GUR/900101', '2026-11-07', '2026-12-07', 'DEMO HALL', 2625, true],
       ['GUR/900102', '2026-11-07', '2026-12-07', 'STOCK', 1690, true],
       ['GUR/900151', '2026-11-09', '2026-12-09', 'OLD BAKERY REWIRE', 612, true],
-      ['GUR/900152', '2026-11-09', '2026-12-09', 'GENERATOR LINK', 3980, true],
+      ['GUR/900152', '2026-11-09', '2026-12-09', 'DEMO GENERATOR', 3980, true],
     ]);
     const [first, second] = r.bills;
     expect(first!.supplier).toBe('CEF');
@@ -220,14 +220,14 @@ describe('turning a read bill into a draft', () => {
   it('suggests the job named in the order box, never for stock or a tie', () => {
     const jobs = [
       { id: 'a', number: '120', title: 'Old Bakery rewire', customerName: 'Sam Example' },
-      { id: 'b', number: '121', title: 'Board upgrade', customerName: 'Redacted Demo' },
+      { id: 'b', number: '121', title: 'Board upgrade', customerName: 'Harbour Demo' },
       { id: 'c', number: '122', title: 'Kitchen lights', customerName: 'Alex Example' },
     ];
     expect(suggestJob(['OLD BAKERY REWIRE'], jobs)).toMatchObject({
       jobId: 'a',
       why: 'The reference mentions bakery, rewire',
     });
-    expect(suggestJob(['700543', 'REDACTED REF'], jobs)).toMatchObject({ jobId: 'b' });
+    expect(suggestJob(['700543', 'HARBOUR REPLACEMENT'], jobs)).toMatchObject({ jobId: 'b' });
     expect(suggestJob(['122'], jobs)).toMatchObject({
       jobId: 'c',
       why: 'The reference is job 122',

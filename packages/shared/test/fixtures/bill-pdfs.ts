@@ -199,7 +199,7 @@ export const CEF_INVOICES: CefInvoice[] = [
   {
     number: 'GUR/900152',
     date: '09 Nov 2026',
-    order: 'GENERATOR LINK',
+    order: 'DEMO GENERATOR',
     lines: [
       {
         qty: 1,

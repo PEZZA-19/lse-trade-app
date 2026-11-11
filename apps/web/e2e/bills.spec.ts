@@ -125,7 +125,10 @@ test('credit note on a sent invoice: drafted, owner approves, balance drops, not
   await page.goto(`/invoices/${inv.id}`);
   await page.getByRole('button', { name: 'New credit note…' }).click();
   const sheet = page.getByRole('dialog', { name: 'New Credit Note' });
+  // Wait for the balance to load (the sheet resets its fields once it has it), then type.
+  await expect(sheet.getByText(/Up to £102\.50/)).toBeVisible();
   await sheet.getByLabel('Amount (£)').fill('10');
+  await expect(sheet.getByLabel('Amount (£)')).toHaveValue('10');
   await sheet.getByLabel('Reason').fill('Spur moved, not replaced');
   await expect(sheet.getByText('would then be owed £92.50')).toBeVisible();
   await sheet.getByRole('button', { name: 'Save' }).click();

@@ -84,7 +84,7 @@ const words = (s: string) =>
 
 /**
  * The job an order number or "your reference" points at: Joe types the job or customer name
- * into the merchant's order box ("OLD BAKERY REWIRE", "REDACTED REF"). Returns the
+ * into the merchant's order box ("OLD BAKERY REWIRE", "HARBOUR REPLACEMENT"). Returns the
  * single best match, or nothing when it is stock, unclear, or a tie.
  */
 export function suggestJob(refs: (string | null)[], jobs: JobLike[]): JobSuggestion | null {
