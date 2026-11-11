@@ -378,8 +378,7 @@ Tests now: shared 135 (+1 local-only skipped), API 194, web 52, e2e 32 mobile + 
   readers get `listbox`/`option`/`aria-selected`/`aria-activedescendant`. The list opens in a portal
   with fixed position so cards never clip it, flips upwards near the bottom of the screen and closes
   on resize. Checked in desktop Chrome light and dark. e2e `stages.spec.ts` covers mouse and keyboard;
-  `offline.spec.ts` updated. Existing job screenshots still show the old closed dropdown: refresh
-  them next session.
+  `offline.spec.ts` updated. All screenshots refreshed; new `62-stage-picker-open` (desktop light and dark).
 - **Prices hidden** from anyone without Quotes and pricing or Accounts access (Q31): see Q31 below.
 - **Private demo with Joe's real jobs** (outside the repo; never in git, tests or the preview):
   `/workspace/lse-demo-local-build/real-jobs-calls.mjs` reads
