@@ -1,0 +1,77 @@
+import type { ApiErrorBody } from '@lse/shared';
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly fields: Record<string, string> = {},
+    public readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+  get isNetwork() {
+    return this.code === 'network';
+  }
+}
+
+export interface RequestOptions {
+  idempotencyKey?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Thin fetch wrapper. Errors are always ApiError with a plain-English message.
+ * A network failure says clearly that nothing was saved, never pretending otherwise.
+ */
+export async function api<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts: RequestOptions = {},
+): Promise<T> {
+  if (import.meta.env.VITE_DEMO === '1') {
+    // Static preview build: an in-browser stand-in for the API (see src/demo/mockApi.ts).
+    const { handle } = await import('../demo/mockApi');
+    return (await handle(method, path, body)) as T;
+  }
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  if (opts.idempotencyKey) headers['idempotency-key'] = opts.idempotencyKey;
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: opts.signal ?? null,
+    });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e;
+    throw new ApiError(0, 'network', 'No connection. Nothing was saved.');
+  }
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* non-JSON error page */
+  }
+  if (!res.ok) {
+    const err = (data as ApiErrorBody | null)?.error;
+    const fields = ((err?.details as { fields?: Record<string, string> } | undefined)?.fields ??
+      {}) as Record<string, string>;
+    throw new ApiError(
+      res.status,
+      err?.code ?? 'http_error',
+      err?.message ?? `Request failed (${res.status})`,
+      fields,
+      err?.details,
+    );
+  }
+  return data as T;
+}
+
+export const newIdempotencyKey = () => `web-${crypto.randomUUID()}`;
