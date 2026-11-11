@@ -3,6 +3,7 @@ import {
   formatMarkup,
   formatPence,
   parsePounds,
+  validMonthDay,
   parseQty,
   type SequenceDto,
   type SettingsDto,
@@ -23,6 +24,7 @@ import { resizeLogo } from '../lib/image';
 import { useToast } from '../components/Toast';
 import { SaveStatus } from '../components/SaveStatus';
 import { JobStagesSection } from './JobStagesSection';
+import { TeamSection } from './TeamSection';
 import { useSync } from '../offline';
 import {
   Button,
@@ -31,6 +33,7 @@ import {
   ListSkeleton,
   Page,
   Section,
+  SelectField,
   StaticRow,
   TextAreaField,
   TextField,
@@ -58,7 +61,10 @@ type Form = Record<
   | 'invoiceTerms'
   | 'bankAccountName'
   | 'bankSortCode'
-  | 'bankAccountNumber',
+  | 'bankAccountNumber'
+  | 'yearStartMonth'
+  | 'yearStartDay'
+  | 'yearEffectiveFrom',
   string
 > & {
   sequences: { kind: SequenceDto['kind']; prefix: string; padding: string; nextValue: string }[];
@@ -80,6 +86,9 @@ const toForm = (s: SettingsDto): Form => ({
   bankAccountName: s.bankAccountName ?? '',
   bankSortCode: s.bankSortCode ?? '',
   bankAccountNumber: s.bankAccountNumber ?? '',
+  yearStartMonth: s.yearStart.slice(0, 2),
+  yearStartDay: s.yearStart.slice(3, 5),
+  yearEffectiveFrom: s.yearEffectiveFrom,
   sequences: s.sequences.map((q) => ({
     kind: q.kind,
     prefix: q.prefix,
@@ -104,6 +113,9 @@ export function formToPatch(f: Form): { patch: SettingsUpdate; errors: Record<st
   if (valid === null) errors.quoteValidDays = 'Whole days';
   const terms = int(f.paymentTermsDays);
   if (terms === null) errors.paymentTermsDays = 'Whole days';
+  const yearStart = `${f.yearStartMonth}-${f.yearStartDay}`;
+  if (!validMonthDay(yearStart)) errors.yearStart = 'That day isn’t in that month';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.yearEffectiveFrom)) errors.yearEffectiveFrom = 'Pick a date';
   const sequences = f.sequences.map((q) => {
     const padding = int(q.padding);
     const nextValue = int(q.nextValue);
@@ -133,6 +145,8 @@ export function formToPatch(f: Form): { patch: SettingsUpdate; errors: Record<st
       bankAccountName: f.bankAccountName,
       bankSortCode: f.bankSortCode,
       bankAccountNumber: f.bankAccountNumber,
+      yearStart,
+      yearEffectiveFrom: f.yearEffectiveFrom,
       sequences,
     },
   };
@@ -216,6 +230,7 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
       )}
       <LogoSection logo={initial.logoDataUrl} name={initial.name} isOwner={isOwner} />
       {isOwner && <EnquiryFormSection />}
+      {isOwner && <TeamSection />}
       <fieldset disabled={!isOwner} style={{ border: 0, padding: 0, margin: 0 }}>
         <Section header="Business" footer="Shown on quotes and invoices.">
           <List className="form-list">
@@ -388,6 +403,44 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
             })}
           </List>
         </Section>
+
+        <Section
+          header="Reports"
+          footer={`“This Year” in Reports starts on this day from ${formatDay(form.yearEffectiveFrom)}. Before then it is the calendar year, so earlier reports never change.`}
+        >
+          <List className="form-list">
+            <SelectField
+              label="Year starts (month)"
+              value={form.yearStartMonth}
+              onChange={set('yearStartMonth')}
+            >
+              {MONTHS.map((m, i) => (
+                <option key={m} value={String(i + 1).padStart(2, '0')}>
+                  {m}
+                </option>
+              ))}
+            </SelectField>
+            <SelectField
+              label="Year starts (day)"
+              value={form.yearStartDay}
+              onChange={set('yearStartDay')}
+              error={err('yearStart')}
+            >
+              {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map((d) => (
+                <option key={d} value={d}>
+                  {Number(d)}
+                </option>
+              ))}
+            </SelectField>
+            <TextField
+              label="Applies from"
+              type="date"
+              value={form.yearEffectiveFrom}
+              onChange={set('yearEffectiveFrom')}
+              error={err('yearEffectiveFrom')}
+            />
+          </List>
+        </Section>
       </fieldset>
 
       <div className="action-bar">
@@ -403,6 +456,30 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
     </form>
   );
 }
+
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+const formatDay = (iso: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(iso)
+    ? new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    : 'the date below';
 
 function AccountSection() {
   const session = useSession();

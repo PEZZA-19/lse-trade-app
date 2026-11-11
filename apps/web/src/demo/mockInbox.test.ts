@@ -1,4 +1,10 @@
-import type { EnquiryDto, ProposalDto, ReportsDto } from '@lse/shared';
+import type {
+  EnquiryDto,
+  JobCostingDto,
+  ProposalDto,
+  ReportsDto,
+  TeamMemberDto,
+} from '@lse/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handle, resetDemo } from './mockApi';
 
@@ -110,5 +116,42 @@ describe('demo reports', () => {
       );
     expect(r.time.totalMinutes).toBe(r.time.byJob.reduce((s, j) => s + j.minutes, 0));
     await expect(get('/reports?from=2026-02-01&to=2026-01-01')).rejects.toThrow();
+  });
+});
+
+describe('demo team cost rates', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetDemo();
+  });
+
+  it('seeds placeholder cost rates, saves real ones, and profit uses them', async () => {
+    const team = await get<TeamMemberDto[]>('/team');
+    expect(team.map((t) => [t.name, t.costRatePence, t.isPlaceholder])).toEqual([
+      ['Joe', 2400, true],
+      ['Sam Spark', 2400, true],
+    ]);
+    const joe = team[0]!;
+    const saved = await handle('PUT', `/team/${joe.userId}/cost`, {
+      baseCostPence: 2000,
+      onCostPence: 455,
+    });
+    expect(saved).toMatchObject({
+      costRatePence: 2455,
+      isPlaceholder: false,
+      chargeOutPence: 4500,
+    });
+    await expect(
+      handle('PUT', `/team/${joe.userId}/cost`, { baseCostPence: -5, onCostPence: 0 }),
+    ).rejects.toThrow();
+    const t = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(new Date());
+    const r = await get<ReportsDto>(`/reports?from=2000-01-01&to=${t}`);
+    for (const j of r.jobs) {
+      expect(j.revenuePence).toBe(j.quotedPence ?? j.lineValuePence);
+      expect(j.profitPence).toBe(j.revenuePence - j.labourPence - j.materialsCostPence);
+    }
+    const job = r.jobs[0]!;
+    const costing = await get<JobCostingDto>(`/jobs/${job.jobId}/costing`);
+    expect(costing.profit.profitPence).toBe(job.profitPence);
   });
 });

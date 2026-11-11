@@ -1873,3 +1873,22 @@ select.field__input {
 .report-list .row__sub {
   white-space: normal;
 }
+
+/* Settings › Team: cost per hour on the right of each person. */
+.team-cost {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.team-cost--unset {
+  color: var(--label-2);
+}
+.report-range {
+  margin: 8px 20px 0;
+  color: var(--label-2);
+  font: var(--text-subhead);
+  font-variant-numeric: tabular-nums;
+}
+.costing-person {
+  padding-left: 12px;
+  color: var(--label-2);
+}

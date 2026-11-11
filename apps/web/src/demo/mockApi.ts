@@ -6,6 +6,7 @@
  */
 import {
   reportQuery,
+  costRate,
   creditNoteDocument,
   invoiceDocument,
   quoteDocument,
@@ -76,7 +77,8 @@ import {
   type BillingCtx,
   type BillingDb,
 } from './mockBilling';
-import { demoReports } from './mockReports';
+import { demoJobCosting, demoReports, type ReportsCtx } from './mockReports';
+import { freshTeam, teamRoute, type TeamDb } from './mockTeam';
 // Joe's own logo (his choice to show it in the preview); cleaned by tools/logo.py.
 import demoLogo from '../../../../assets/lse-logo.png?inline';
 
@@ -151,11 +153,22 @@ interface Db {
   }[];
   assignees: { jobId: string; userId: string; name: string }[];
   timers: { id: string; jobId: string; startedAt: string; stoppedAt: string | null }[];
-  timesheets: { id: string; jobId: string; startedAt: string; endedAt: string }[];
+  timesheets: {
+    id: string;
+    jobId: string;
+    startedAt: string;
+    endedAt: string;
+    /** Added in chunk 7; older demo data is the demo owner's timer time. */
+    userId?: string;
+    source?: 'timer' | 'manual';
+    note?: string | null;
+    invoiced?: boolean;
+  }[];
   /** Added after v1 shipped; filled in on load if missing. */
   settings?: DemoSettings;
   billing?: BillingDb;
   inbox?: InboxDb;
+  team?: TeamDb;
 }
 type DemoSettings = Omit<SettingsDto, 'sequences'> & {
   numbering: Record<SequenceDto['kind'], { prefix: string; padding: number }>;
@@ -173,6 +186,8 @@ const defaultSettings = (): DemoSettings => ({
   quoteValidDays: 30,
   paymentTermsDays: 14,
   taxRateBp: 0,
+  yearStart: '01-01',
+  yearEffectiveFrom: '2027-01-01',
   quoteTerms: null,
   invoiceTerms: null,
   bankAccountName: null,
@@ -188,7 +203,11 @@ const defaultSettings = (): DemoSettings => ({
   },
   seqExtra: { invoice: 1, credit_note: 1 },
 });
-const S = () => (db!.settings ??= defaultSettings());
+const S = () => {
+  // Older demo data saved before a setting existed: fill it in with the default.
+  db!.settings = { ...defaultSettings(), ...db!.settings };
+  return db!.settings;
+};
 const fmt = (kind: SequenceDto['kind'], value: number) =>
   formatDocNumber(S().numbering[kind].prefix, S().numbering[kind].padding, value);
 
@@ -421,12 +440,15 @@ const jobDetail = (j: Job): JobDetailDto => ({
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
     .map((t) => ({
       id: t.id,
-      userId: DEMO_USER.id,
-      userName: DEMO_USER.name,
+      userId: t.userId ?? DEMO_USER.id,
+      userName:
+        MEMBERS.find((m) => m.userId === (t.userId ?? DEMO_USER.id))?.name ?? DEMO_USER.name,
       startedAt: t.startedAt,
       endedAt: t.endedAt,
       minutes: minutesBetween(t.startedAt, t.endedAt),
-      source: 'timer' as const,
+      source: t.source ?? ('timer' as const),
+      note: t.note ?? null,
+      invoiced: !!t.invoiced,
     })),
   totalMinutes: db!.timesheets
     .filter((t) => t.jobId === j.id)
@@ -616,24 +638,36 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     (a === 'quotes' || a === 'invoices' || a === 'credit-notes')
   )
     return documentFor(a, id!);
+  const team = (db!.team ??= freshTeam(MEMBERS.map((m) => m.userId)));
+  const reportsCtx = (): ReportsCtx => ({
+    call: (m, p) => {
+      const u = new URL(p, 'http://demo');
+      return route(m, u.pathname, u.searchParams, undefined);
+    },
+    jobIds: db!.jobs.map((j) => j.id),
+    timesheets: db!.timesheets,
+    user: DEMO_USER,
+    members: MEMBERS,
+    costRate: (uid) => {
+      const t = team[uid];
+      return t ? costRate(t.base, t.on) : null;
+    },
+    labourRatePence: S().labourRatePence,
+    today: billingToday(),
+  });
   if (method === 'GET' && a === 'reports' && !id) {
     const r = parse(reportQuery, { from: query.get('from'), to: query.get('to') });
-    return demoReports(
-      {
-        call: (m, p) => {
-          const u = new URL(p, 'http://demo');
-          return route(m, u.pathname, u.searchParams, undefined);
-        },
-        jobIds: db!.jobs.map((j) => j.id),
-        timesheets: db!.timesheets,
-        user: DEMO_USER,
-        labourRatePence: S().labourRatePence,
-        today: billingToday(),
-      },
-      r.from,
-      r.to,
-    );
+    return demoReports(reportsCtx(), r.from, r.to);
   }
+  if (method === 'GET' && a === 'jobs' && sub === 'costing')
+    return demoJobCosting(reportsCtx(), id!);
+  const teamResult = teamRoute(
+    { team, members: MEMBERS, labourRatePence: S().labourRatePence, parse, fail },
+    method,
+    seg,
+    body,
+  );
+  if (teamResult !== undefined) return teamResult;
   const inbox = inboxRoute(
     {
       db: (db!.inbox ??= freshInbox()),
@@ -963,6 +997,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
                 unitSellPence: sell,
                 totalPence: lineTotal(l.qtyMilli, sell),
                 source: 'quote' as const,
+                invoiced: false,
               };
             }),
         };

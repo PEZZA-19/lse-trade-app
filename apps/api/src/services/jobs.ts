@@ -136,7 +136,8 @@ export async function getJob(tx: Tx, id: string): Promise<JobDetailDto> {
         SELECT id, customer_id, label, address, notes FROM sites WHERE id = ${row.siteId}`
     : [];
   const lines = await tx<JobLineDto[]>`
-    SELECT id, position, kind, description, qty_milli, unit_cost_pence, unit_sell_pence, total_pence, source
+    SELECT id, position, kind, description, qty_milli, unit_cost_pence, unit_sell_pence, total_pence, source,
+           invoice_id IS NOT NULL AS invoiced
       FROM job_lines WHERE job_id = ${id} ORDER BY position`;
   const assignees = await tx<{ userId: string; name: string }[]>`
     SELECT a.user_id, u.name FROM job_assignees a JOIN users u ON u.id = a.user_id
@@ -156,9 +157,12 @@ export async function getJob(tx: Tx, id: string): Promise<JobDetailDto> {
       startedAt: Date;
       endedAt: Date;
       source: TimesheetDto['source'];
+      note: string | null;
+      invoiced: boolean;
     }[]
   >`
-    SELECT t.id, t.user_id, u.name AS user_name, t.started_at, t.ended_at, t.source
+    SELECT t.id, t.user_id, u.name AS user_name, t.started_at, t.ended_at, t.source, t.note,
+           t.invoice_id IS NOT NULL AS invoiced
       FROM timesheets t JOIN users u ON u.id = t.user_id
      WHERE t.job_id = ${id} ORDER BY t.started_at DESC`;
   const sheets = timesheets.map((t): TimesheetDto => {

@@ -21,7 +21,7 @@ async function shot(page: Page, name: string, vp: string, scheme: string) {
 for (const vp of VIEWPORTS) {
   for (const scheme of SCHEMES) {
     test(`${vp.name} ${scheme}`, async ({ browser }) => {
-      test.setTimeout(480_000); // 52 screens per pass
+      test.setTimeout(540_000); // 55 screens per pass
       const ctx = await browser.newContext({
         viewport: { width: vp.width, height: vp.height },
         deviceScaleFactor: vp.scale,
@@ -267,6 +267,23 @@ for (const vp of VIEWPORTS) {
         .setInputFiles(sample('sample-cilighting-statement.pdf'));
       await expect(page.getByText('Balance checks')).toBeVisible();
       await shot(page, '52-statement-check', vp.name, scheme);
+
+      // Cost rates (placeholders in the demo) and true profit on the job.
+      await page.goto('/settings');
+      const team = page.getByRole('list', { name: 'Team' });
+      await expect(team).toContainText('Sam Spark');
+      await team.scrollIntoViewIfNeeded();
+      await shot(page, '53-settings-team', vp.name, scheme);
+      await team.getByRole('button', { name: /Joe/ }).click();
+      await expect(page.getByText('Total cost per hour')).toBeVisible();
+      await shot(page, '54-team-cost-sheet', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/jobs');
+      await page.getByText('Barn rewire and LED lighting').click();
+      const qva = page.getByRole('list', { name: 'Quote vs actual' });
+      await qva.scrollIntoViewIfNeeded();
+      await expect(qva).toContainText('Labour at cost');
+      await shot(page, '55-job-quote-vs-actual', vp.name, scheme);
 
       await page.goto('/settings');
       await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');

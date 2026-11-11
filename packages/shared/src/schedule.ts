@@ -62,6 +62,9 @@ export interface TimesheetDto {
   endedAt: string;
   minutes: number;
   source: 'timer' | 'manual';
+  note: string | null;
+  /** Already on an invoice: fixed from then on. */
+  invoiced: boolean;
 }
 
 export interface RunningTimerDto {

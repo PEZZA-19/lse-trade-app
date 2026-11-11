@@ -1,6 +1,9 @@
 import {
   jobProfit,
   labourValue,
+  personLabourCost,
+  type JobCostingDto,
+  type LabourCostRow,
   type BillSummaryDto,
   type InvoiceDetailDto,
   type InvoiceSummaryDto,
@@ -13,8 +16,11 @@ import {
 export interface ReportsCtx {
   call: (method: string, path: string) => unknown;
   jobIds: string[];
-  timesheets: { jobId: string; startedAt: string; endedAt: string }[];
+  timesheets: { jobId: string; startedAt: string; endedAt: string; userId?: string }[];
   user: { id: string; name: string };
+  members: { userId: string; name: string }[];
+  /** Base + on-cost per hour, or null when not set. */
+  costRate: (userId: string) => number | null;
   labourRatePence: number;
   today: string;
 }
@@ -47,59 +53,42 @@ export function demoReports(c: ReportsCtx, from: string, to: string): ReportsDto
   const jobs: JobProfitDto[] = c.jobIds
     .map((id) => c.call('GET', `/jobs/${id}`) as JobDetailDto)
     .filter((j) => j.stage.systemKey !== 'cancelled')
-    .map((j) => {
-      const quoteLines = j.lines.filter((l) => l.source === 'quote');
-      const minutes = sum(
-        c.timesheets.filter((s) => s.jobId === j.id),
-        minutesOf,
-      );
-      const parts = {
-        quotedPence: quoteLines.length ? sum(quoteLines, (l) => l.totalPence) : null,
-        lineValuePence: sum(j.lines, (l) => l.totalPence),
-        labourPence: labourValue(minutes, c.labourRatePence),
-        materialsCostPence: sum(
-          j.lines.filter((l) => l.kind === 'material' && l.source !== 'quote'),
-          (l) => Math.round(((l.unitCostPence ?? 0) * l.qtyMilli) / 1000),
-        ),
-      };
-      return {
-        jobId: j.id,
-        number: j.number,
-        title: j.title,
-        customerName: j.customerName,
-        stage: j.stage.name,
-        ...parts,
-        minutes,
-        invoicedPence: sum(
-          details.filter((d) => d.jobId === j.id),
-          (d) => d.subtotalPence,
-        ),
-        profitPence: jobProfit(parts),
-      };
-    })
+    .map((j) => jobProfitFor(c, j, details))
     .filter((j) => j.quotedPence !== null || j.minutes > 0 || j.materialsCostPence > 0);
 
   const sheets = c.timesheets.filter((s) => inRange(localDate(s.startedAt)));
   const byJob = new Map<string, TimeReportDto['byJob'][number]>();
+  const people = new Map<string, { id: string; name: string; minutes: number }>();
   for (const s of sheets) {
     const m = minutesOf(s);
     const j = jobs.find((x) => x.jobId === s.jobId);
+    const uid = s.userId ?? c.user.id;
+    const name = c.members.find((x) => x.userId === uid)?.name ?? c.user.name;
     const row = byJob.get(s.jobId) ?? {
       id: s.jobId,
       name: j?.title ?? 'Job',
       number: j?.number ?? '',
       minutes: 0,
-      byPerson: [{ ...c.user, minutes: 0 }],
+      byPerson: [],
     };
     row.minutes += m;
-    row.byPerson[0]!.minutes += m;
+    const p = row.byPerson.find((x) => x.id === uid);
+    if (p) p.minutes += m;
+    else row.byPerson.push({ id: uid, name, minutes: m });
     byJob.set(s.jobId, row);
+    const q = people.get(uid) ?? { id: uid, name, minutes: 0 };
+    q.minutes += m;
+    people.set(uid, q);
   }
   const total = sum(sheets, minutesOf);
   return {
     from,
     to,
     labourRatePence: c.labourRatePence,
+    costRates: (() => {
+      const people = [...new Set(c.timesheets.map((t) => t.userId ?? c.user.id))];
+      return { set: people.filter((p) => c.costRate(p) !== null).length, people: people.length };
+    })(),
     money: {
       inPence: sum(payments, (p) => p.amountPence),
       paymentCount: payments.length,
@@ -117,8 +106,105 @@ export function demoReports(c: ReportsCtx, from: string, to: string): ReportsDto
     jobs,
     time: {
       totalMinutes: total,
-      byPerson: total ? [{ ...c.user, minutes: total }] : [],
+      byPerson: [...people.values()].sort((a, b) => b.minutes - a.minutes),
       byJob: [...byJob.values()].sort((a, b) => b.minutes - a.minutes),
     },
+  };
+}
+
+const sumOf = <T>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
+
+/** Labour rows for one job: minutes per person at their cost rate (labour rate if unset). */
+function labourRows(c: ReportsCtx, jobId: string): LabourCostRow[] {
+  const by = new Map<string, number>();
+  for (const t of c.timesheets.filter((x) => x.jobId === jobId)) {
+    const u = t.userId ?? c.user.id;
+    by.set(u, (by.get(u) ?? 0) + minutesOf(t));
+  }
+  return [...by.entries()]
+    .map(([userId, minutes]) => {
+      const rate = c.costRate(userId);
+      return {
+        userId,
+        name: c.members.find((m) => m.userId === userId)?.name ?? c.user.name,
+        minutes,
+        ratePence: rate ?? c.labourRatePence,
+        rateIsDefault: rate === null,
+        costPence: personLabourCost(minutes, rate, c.labourRatePence),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function jobProfitFor(c: ReportsCtx, j: JobDetailDto, details: InvoiceDetailDto[]): JobProfitDto {
+  const quoteLines = j.lines.filter((l) => l.source === 'quote');
+  const rows = labourRows(c, j.id);
+  const minutes = sumOf(rows, (r) => r.minutes);
+  const parts = {
+    quotedPence: quoteLines.length ? sumOf(quoteLines, (l) => l.totalPence) : null,
+    lineValuePence: sumOf(j.lines, (l) => l.totalPence),
+    labourPence: sumOf(rows, (r) => r.costPence),
+    materialsCostPence: sumOf(
+      j.lines.filter((l) => l.kind === 'material' && l.source !== 'quote'),
+      (l) => Math.round(((l.unitCostPence ?? 0) * l.qtyMilli) / 1000),
+    ),
+  };
+  return {
+    jobId: j.id,
+    number: j.number,
+    title: j.title,
+    customerName: j.customerName,
+    stage: j.stage.name,
+    ...parts,
+    minutes,
+    revenuePence: parts.quotedPence ?? parts.lineValuePence,
+    chargeOutPence: labourValue(minutes, c.labourRatePence),
+    missingCostRates: rows.filter((r) => r.rateIsDefault).length,
+    invoicedPence: sumOf(
+      details.filter((d) => d.jobId === j.id),
+      (d) => d.subtotalPence,
+    ),
+    profitPence: jobProfit(parts),
+  };
+}
+
+/** GET /jobs/:id/costing in the demo (same rules as the server). */
+export function demoJobCosting(c: ReportsCtx, jobId: string): JobCostingDto {
+  const j = c.call('GET', `/jobs/${jobId}`) as JobDetailDto;
+  const invoices = (c.call('GET', `/invoices?filter=all&jobId=${jobId}`) as InvoiceSummaryDto[])
+    .filter((i) => i.status !== 'draft' && i.jobId === jobId)
+    .map((i) => c.call('GET', `/invoices/${i.id}`) as InvoiceDetailDto);
+  const q = j.lines.filter((l) => l.source === 'quote');
+  const rows = labourRows(c, jobId);
+  return {
+    profit: jobProfitFor(c, j, invoices),
+    quoted: {
+      labourMinutes: Math.round(
+        (sumOf(
+          q.filter((l) => l.kind === 'labour'),
+          (l) => l.qtyMilli,
+        ) *
+          60) /
+          1000,
+      ),
+      labourPence: sumOf(
+        q.filter((l) => l.kind === 'labour'),
+        (l) => l.totalPence,
+      ),
+      materialsPence: sumOf(
+        q.filter((l) => l.kind === 'material'),
+        (l) => l.totalPence,
+      ),
+      otherPence: sumOf(
+        q.filter((l) => l.kind !== 'labour' && l.kind !== 'material'),
+        (l) => l.totalPence,
+      ),
+    },
+    labour: rows,
+    extraMaterialsSellPence: sumOf(
+      j.lines.filter((l) => l.kind === 'material' && l.source !== 'quote'),
+      (l) => l.totalPence,
+    ),
+    allRatesSet: rows.every((r) => !r.rateIsDefault),
   };
 }

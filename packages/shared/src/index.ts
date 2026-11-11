@@ -20,3 +20,4 @@ export * from './enquiries';
 export * from './proposals';
 export * from './fakeAi';
 export * from './reports';
+export * from './jobdetail';

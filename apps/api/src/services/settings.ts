@@ -29,7 +29,8 @@ export async function getSettings(tx: Tx): Promise<SettingsDto> {
   const [t] = await tx<Omit<SettingsDto, 'sequences'>[]>`
     SELECT name, legal_name, address, phone, email, labour_rate_pence, default_markup_bp, quote_valid_days,
            payment_terms_days, tax_rate_bp, quote_terms, invoice_terms, bank_account_name, bank_sort_code,
-           bank_account_number, currency, timezone, logo_data_url
+           bank_account_number, currency, timezone, logo_data_url, year_start,
+           year_effective_from::text AS year_effective_from
       FROM tenants WHERE id = app_current_tenant()`;
   if (!t) throw new AppError(403, 'forbidden', 'No business selected');
   const seqs = await tx<Omit<SequenceDto, 'lastUsed'>[]>`
@@ -73,6 +74,8 @@ const COLUMNS = {
   bankAccountName: 'bank_account_name',
   bankSortCode: 'bank_sort_code',
   bankAccountNumber: 'bank_account_number',
+  yearStart: 'year_start',
+  yearEffectiveFrom: 'year_effective_from',
 } as const;
 
 type ParsedUpdate = z.output<typeof settingsUpdate>;

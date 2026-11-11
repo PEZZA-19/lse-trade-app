@@ -38,6 +38,7 @@ import {
   enquiryReject,
   proposalEdit,
   reportQuery,
+  memberCostUpdate,
   supplierInput,
   supplierUpdate,
   type ApiErrorBody,
@@ -77,6 +78,7 @@ import * as bills from './services/bills';
 import * as creditNotes from './services/creditNotes';
 import * as billRead from './services/billRead';
 import * as reports from './services/reports';
+import * as team from './services/team';
 import { AiGateway } from './ai/gateway';
 
 export interface AppDeps {
@@ -768,6 +770,18 @@ export function createApp(deps: AppDeps) {
     ownerOnly(c, 'see the reports');
     const q = parse(reportQuery, { from: c.req.query('from'), to: c.req.query('to') });
     return c.json(await c.var.tx((tx) => reports.getReports(tx, q)));
+  });
+
+  /* --------------------------- team and costs -------------------------- */
+  app.get('/api/team', async (c) => c.json(await c.var.tx((tx) => team.listTeam(tx, c.var.auth))));
+  app.put('/api/team/:userId/cost', async (c) => {
+    const userId = parse(z.uuid(), c.req.param('userId'));
+    const input = parse(memberCostUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => team.setMemberCost(tx, c.var.auth, userId, input)));
+  });
+  app.get('/api/jobs/:id/costing', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => team.jobCosting(tx, c.var.auth, id)));
   });
 
   app.get('/api/proposals', async (c) => {

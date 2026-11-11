@@ -11,6 +11,7 @@ import { formatDayShort, formatRange, formatTime } from '../lib/dates';
 import { AppointmentSheet, type AppointmentSheetState } from './sheets/AppointmentSheet';
 import { AssignSheet } from './sheets/AssignSheet';
 import { JobInvoicesSection } from './invoices/JobInvoicesSection';
+import { QuoteVsActual } from './job/QuoteVsActual';
 import { useParams } from 'react-router';
 import { useJob, useJobStages, useMembers } from '../api/hooks';
 import { StageDot, StagePill, useChangeStage } from '../components/Stage';
@@ -292,6 +293,8 @@ export function JobScreen() {
           </li>
         </List>
       </Section>
+
+      <QuoteVsActual jobId={j.id} />
 
       {j.history.length > 0 && (
         <Section header="History" footer="Every stage change, automatic or by hand.">

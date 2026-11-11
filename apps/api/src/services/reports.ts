@@ -1,6 +1,8 @@
 import {
   jobProfit,
   labourValue,
+  personLabourCost,
+  type LabourCostRow,
   type JobProfitDto,
   type ReportQuery,
   type ReportsDto,
@@ -46,60 +48,7 @@ export async function getReports(tx: Tx, q: ReportQuery): Promise<ReportsDto> {
               FROM invoices WHERE status IN ('approved', 'sent', 'part_paid')) o
      WHERE bal > 0`;
 
-  // Profit per job: every job that is not cancelled and has a price, time or costs.
-  const jobRows = await tx<
-    {
-      jobId: string;
-      number: string;
-      title: string;
-      customerName: string;
-      stage: string;
-      quoted: string | null;
-      lineValue: string;
-      minutes: string;
-      materials: string;
-      invoiced: string;
-    }[]
-  >`
-    SELECT j.id AS job_id, j.number, j.title, c.name AS customer_name, st.name AS stage,
-           (SELECT SUM(total_pence) FROM job_lines l WHERE l.job_id = j.id AND l.source = 'quote')
-             AS quoted,
-           (SELECT COALESCE(SUM(total_pence), 0) FROM job_lines l WHERE l.job_id = j.id) AS line_value,
-           (SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (ended_at - started_at)) / 60), 0)::bigint
-              FROM timesheets s WHERE s.job_id = j.id) AS minutes,
-           (SELECT COALESCE(SUM(ROUND(COALESCE(l.unit_cost_pence, 0) * l.qty_milli / 1000.0)), 0)
-              FROM job_lines l
-             WHERE l.job_id = j.id AND l.kind = 'material' AND l.source <> 'quote') AS materials,
-           (SELECT COALESCE(SUM(v.subtotal_pence), 0) FROM invoices v
-             WHERE v.job_id = j.id AND v.status <> 'draft') AS invoiced
-      FROM jobs j
-      JOIN customers c ON c.id = j.customer_id
-      JOIN job_stages st ON st.id = j.stage_id
-     WHERE st.system_key IS DISTINCT FROM 'cancelled'
-     ORDER BY j.created_at DESC
-     LIMIT 300`;
-  const jobs: JobProfitDto[] = jobRows
-    .map((r) => {
-      const minutes = n(r.minutes);
-      const parts = {
-        quotedPence: r.quoted === null ? null : n(r.quoted),
-        lineValuePence: n(r.lineValue),
-        labourPence: labourValue(minutes, rate),
-        materialsCostPence: n(r.materials),
-      };
-      return {
-        jobId: r.jobId,
-        number: r.number,
-        title: r.title,
-        customerName: r.customerName,
-        stage: r.stage,
-        ...parts,
-        minutes,
-        invoicedPence: n(r.invoiced),
-        profitPence: jobProfit(parts),
-      };
-    })
-    .filter((j) => j.quotedPence !== null || j.minutes > 0 || j.materialsCostPence > 0);
+  const { jobs } = await jobProfits(tx, rate);
 
   // Time in the period, by person and by job (a timesheet counts on the day it started).
   const timeRows = await tx<
@@ -149,6 +98,7 @@ export async function getReports(tx: Tx, q: ReportQuery): Promise<ReportsDto> {
     from: q.from,
     to: q.to,
     labourRatePence: rate,
+    costRates: await costRateCoverage(tx),
     money: {
       inPence: n(pay?.total),
       paymentCount: n(pay?.count),
@@ -162,4 +112,115 @@ export async function getReports(tx: Tx, q: ReportQuery): Promise<ReportsDto> {
     jobs,
     time,
   };
+}
+
+/** Of the people who have logged time, how many have their own cost rate. */
+async function costRateCoverage(tx: Tx) {
+  const [r] = await tx<{ people: string; set: string }[]>`
+    SELECT COUNT(DISTINCT s.user_id) AS people, COUNT(DISTINCT mc.user_id) AS set
+      FROM timesheets s LEFT JOIN member_costs mc ON mc.user_id = s.user_id`;
+  return { people: n(r?.people), set: n(r?.set) };
+}
+
+/**
+ * Profit for whole jobs (every job not cancelled with a price, time or costs, or just one job):
+ * revenue (quote ex VAT, else job lines) − labour at each person's cost rate − materials at cost.
+ * A person with no cost rate is costed at the labour rate and counted in missingCostRates.
+ */
+export async function jobProfits(
+  tx: Tx,
+  rate: number,
+  jobId?: string,
+): Promise<{ jobs: JobProfitDto[]; labour: Map<string, LabourCostRow[]> }> {
+  const one = jobId ?? null;
+  const jobRows = await tx<
+    {
+      jobId: string;
+      number: string;
+      title: string;
+      customerName: string;
+      stage: string;
+      quoted: string | null;
+      lineValue: string;
+      materials: string;
+      invoiced: string;
+    }[]
+  >`
+    SELECT j.id AS job_id, j.number, j.title, c.name AS customer_name, st.name AS stage,
+           (SELECT SUM(total_pence) FROM job_lines l WHERE l.job_id = j.id AND l.source = 'quote')
+             AS quoted,
+           (SELECT COALESCE(SUM(total_pence), 0) FROM job_lines l WHERE l.job_id = j.id) AS line_value,
+           (SELECT COALESCE(SUM(ROUND(COALESCE(l.unit_cost_pence, 0) * l.qty_milli / 1000.0)), 0)
+              FROM job_lines l
+             WHERE l.job_id = j.id AND l.kind = 'material' AND l.source <> 'quote') AS materials,
+           (SELECT COALESCE(SUM(v.subtotal_pence), 0) FROM invoices v
+             WHERE v.job_id = j.id AND v.status <> 'draft') AS invoiced
+      FROM jobs j
+      JOIN customers c ON c.id = j.customer_id
+      JOIN job_stages st ON st.id = j.stage_id
+     WHERE (${one}::uuid IS NULL OR j.id = ${one}::uuid)
+       AND (${one}::uuid IS NOT NULL OR st.system_key IS DISTINCT FROM 'cancelled')
+     ORDER BY j.created_at DESC
+     LIMIT 300`;
+  const people = await tx<
+    {
+      jobId: string;
+      userId: string;
+      name: string;
+      minutes: string;
+      costRate: string | null;
+    }[]
+  >`
+    SELECT s.job_id, s.user_id, u.name,
+           SUM(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60)::bigint AS minutes,
+           mc.base_cost_pence + mc.on_cost_pence AS cost_rate
+      FROM timesheets s
+      JOIN users u ON u.id = s.user_id
+      LEFT JOIN member_costs mc ON mc.user_id = s.user_id
+     WHERE (${one}::uuid IS NULL OR s.job_id = ${one}::uuid)
+     GROUP BY s.job_id, s.user_id, u.name, mc.base_cost_pence, mc.on_cost_pence
+     ORDER BY u.name`;
+  const labour = new Map<string, LabourCostRow[]>();
+  for (const p of people) {
+    const minutes = n(p.minutes);
+    const costRate = p.costRate === null ? null : n(p.costRate);
+    const row: LabourCostRow = {
+      userId: p.userId,
+      name: p.name,
+      minutes,
+      ratePence: costRate ?? rate,
+      rateIsDefault: costRate === null,
+      costPence: personLabourCost(minutes, costRate, rate),
+    };
+    labour.set(p.jobId, [...(labour.get(p.jobId) ?? []), row]);
+  }
+  const jobs = jobRows
+    .map((r): JobProfitDto => {
+      const rows = labour.get(r.jobId) ?? [];
+      const minutes = rows.reduce((t, x) => t + x.minutes, 0);
+      const parts = {
+        quotedPence: r.quoted === null ? null : n(r.quoted),
+        lineValuePence: n(r.lineValue),
+        labourPence: rows.reduce((t, x) => t + x.costPence, 0),
+        materialsCostPence: n(r.materials),
+      };
+      return {
+        jobId: r.jobId,
+        number: r.number,
+        title: r.title,
+        customerName: r.customerName,
+        stage: r.stage,
+        ...parts,
+        minutes,
+        revenuePence: parts.quotedPence ?? parts.lineValuePence,
+        chargeOutPence: labourValue(minutes, rate),
+        missingCostRates: rows.filter((x) => x.rateIsDefault).length,
+        invoicedPence: n(r.invoiced),
+        profitPence: jobProfit(parts),
+      };
+    })
+    .filter(
+      (j) => one !== null || j.quotedPence !== null || j.minutes > 0 || j.materialsCostPence > 0,
+    );
+  return { jobs, labour };
 }

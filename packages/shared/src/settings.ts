@@ -55,8 +55,21 @@ export const settingsUpdate = z
     ),
     bankAccountNumber: digitsField(8, 'Account number is 8 digits').transform((v) => v || null),
     sequences: z.array(sequenceUpdate).max(4),
+    /** Reporting year start as MM-DD (e.g. 01-01 calendar year, 04-06 UK tax year). */
+    yearStart: z
+      .string()
+      .regex(/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, 'Use MM-DD')
+      .refine(validMonthDay, 'That day isn’t in that month'),
+    /** The year start applies from this date; earlier periods keep the calendar-year rule. */
+    yearEffectiveFrom: z.iso.date(),
   })
   .partial();
+
+/** MM-DD that exists in every year (29 Feb is refused). */
+export function validMonthDay(md: string): boolean {
+  const [m, d] = md.split('-').map(Number) as [number, number];
+  return d <= [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]!;
+}
 export type SettingsUpdate = z.input<typeof settingsUpdate>;
 
 export interface SequenceDto {
@@ -89,6 +102,9 @@ export interface SettingsDto {
   timezone: string;
   /** PNG or JPEG data URL; null shows the business initials instead. */
   logoDataUrl: string | null;
+  /** Reporting year start (MM-DD) and the date it applies from. */
+  yearStart: string;
+  yearEffectiveFrom: string;
   sequences: SequenceDto[];
 }
 

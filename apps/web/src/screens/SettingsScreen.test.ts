@@ -17,6 +17,9 @@ const base = {
   bankAccountName: '',
   bankSortCode: '',
   bankAccountNumber: '',
+  yearStartMonth: '01',
+  yearStartDay: '01',
+  yearEffectiveFrom: '2027-01-01',
   sequences: [{ kind: 'quote' as const, prefix: 'Q-', padding: '4', nextValue: '7' }],
 };
 
@@ -34,7 +37,18 @@ describe('formToPatch', () => {
       defaultMarkupBp: 12500,
       taxRateBp: 0,
       sequences: [{ kind: 'quote', prefix: 'Q-', padding: 4, nextValue: 7 }],
+      yearStart: '01-01',
+      yearEffectiveFrom: '2027-01-01',
     });
+  });
+
+  it('reporting year: a day that is not in the month is refused', () => {
+    expect(formToPatch({ ...base, yearStartMonth: '04', yearStartDay: '31' }).errors).toEqual({
+      yearStart: 'That day isn’t in that month',
+    });
+    expect(formToPatch({ ...base, yearStartMonth: '04', yearStartDay: '06' }).patch.yearStart).toBe(
+      '04-06',
+    );
   });
 
   it('flags invalid numbers instead of sending them', () => {

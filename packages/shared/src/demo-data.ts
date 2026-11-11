@@ -481,6 +481,10 @@ export async function runDemoScript(post: Post, patch: Patch, get?: Get): Promis
   if (drafts[0])
     await post(`/supplier-bills/${drafts[0].id}/suggest-prices`).catch(() => undefined);
 
+  // Yesterday at the barn: 2 h 15 min on the timer (gives Reports and job costs real time).
+  await post(`/jobs/${job122.id}/timer/start`, { at: ago(26 * 60) });
+  await post(`/jobs/${job122.id}/timer/stop`, { at: ago(26 * 60 - 135) });
+
   // On site at the barn now: starting the timer moves job 122 to In Progress (automatic).
   await post(`/jobs/${job122.id}/timer/start`, { at: ago(95) });
 }

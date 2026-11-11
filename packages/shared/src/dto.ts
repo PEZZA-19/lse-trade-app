@@ -140,6 +140,8 @@ export interface JobLineDto {
   unitSellPence: number;
   totalPence: number;
   source: 'quote' | 'manual' | 'supplier_bill';
+  /** Already on an invoice: fixed from then on. */
+  invoiced: boolean;
 }
 
 export interface JobDetailDto extends JobSummaryDto {

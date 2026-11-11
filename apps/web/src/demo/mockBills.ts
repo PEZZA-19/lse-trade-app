@@ -274,6 +274,7 @@ function apply(c: BillingCtx, b: DemoBill, dryRun: boolean): BillApplyResultDto 
         unitSellPence: sell,
         totalPence: total,
         source: 'supplier_bill',
+        invoiced: false,
       });
       l.jobLineId = id;
     }

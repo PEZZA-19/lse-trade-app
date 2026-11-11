@@ -70,6 +70,12 @@ try {
       (p, b) => call('PATCH', p, b),
       (p) => call('GET', p),
     );
+    // Cost rates: obvious placeholders (£20.00 + £4.00 on-costs) until Joe enters the real ones.
+    await admin`
+      INSERT INTO member_costs (tenant_id, user_id, base_cost_pence, on_cost_pence, is_placeholder)
+      SELECT m.tenant_id, m.user_id, 2000, 400, true
+        FROM memberships m JOIN tenants t ON t.id = m.tenant_id WHERE t.slug = 'lse'
+      ON CONFLICT DO NOTHING`;
     console.log('Seeded demo data for Little Sark Electric');
   }
   console.log(

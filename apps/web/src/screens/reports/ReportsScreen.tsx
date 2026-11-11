@@ -1,7 +1,15 @@
-import { formatMinutes, formatPence, marginBp, type JobProfitDto } from '@lse/shared';
+import {
+  formatMinutes,
+  formatPence,
+  marginBp,
+  reportPeriodRange,
+  reportsCsv,
+  type JobProfitDto,
+  type ReportPeriod,
+} from '@lse/shared';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useMe } from '../../api/hooks';
+import { useMe, useSettings } from '../../api/hooks';
 import { useReports } from '../../api/reports';
 import { IconChart } from '../../components/icons';
 import {
@@ -16,29 +24,22 @@ import {
   Segmented,
 } from '../../components/ui';
 
-type Period = 'month' | 'last' | 'year';
-
 const iso = (d: Date) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(d);
+const shortDate = (d: string) =>
+  new Date(`${d}T12:00:00Z`).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 
-/** Calendar periods in the business's own time zone, ending today at the latest. */
-export function periodRange(p: Period, now = new Date()): { from: string; to: string } {
-  const today = iso(now);
-  const [y, m] = today.split('-').map(Number) as [number, number];
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (p === 'year') return { from: `${y}-01-01`, to: today };
-  if (p === 'month') return { from: `${y}-${pad(m)}-01`, to: today };
-  const ly = m === 1 ? y - 1 : y;
-  const lm = m === 1 ? 12 : m - 1;
-  const last = new Date(Date.UTC(ly, lm, 0)).getUTCDate();
-  return { from: `${ly}-${pad(lm)}-01`, to: `${ly}-${pad(lm)}-${pad(last)}` };
-}
-
-const PERIOD_LABEL: Record<Period, string> = {
+const PERIOD_LABEL: Record<ReportPeriod, string> = {
   month: 'this month',
   last: 'last month',
   year: 'this year',
 };
+const signed = (p: number) => `${p < 0 ? '−' : ''}${formatPence(Math.abs(p))}`;
 
 function Profit({ j }: { j: JobProfitDto }) {
   const bp = marginBp(j);
@@ -47,23 +48,40 @@ function Profit({ j }: { j: JobProfitDto }) {
       className="report-profit"
       style={{ color: j.profitPence < 0 ? 'var(--red)' : 'var(--green)' }}
     >
-      {j.profitPence < 0 ? '−' : ''}
-      {formatPence(Math.abs(j.profitPence))}
+      {signed(j.profitPence)}
       {bp !== null && <small> {Math.round(bp / 100)}%</small>}
     </span>
   );
 }
 
+/** Saves the CSV: the share sheet on phones that support files, else a download. */
+async function exportCsv(csv: string, name: string) {
+  const file = new File([csv], name, { type: 'text/csv' });
+  const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
+  if (nav.canShare?.({ files: [file] })) {
+    await nav.share({ files: [file], title: name }).catch(() => undefined);
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /**
- * Owner reports under More: money in and owed, profit per job (price against actual time and
- * materials) and time by person and job. Read-only; every figure links back to its records.
+ * Owner reports under More: money in and owed, true profit per job (revenue − labour at each
+ * person's cost rate − materials at cost) and time by person and job. Read-only.
  */
 export function ReportsScreen() {
   const me = useMe();
+  const settings = useSettings();
   const owner = me.data?.role === 'owner';
-  const [period, setPeriod] = useState<Period>('month');
-  const { from, to } = periodRange(period);
-  const r = useReports(from, to, owner);
+  const [period, setPeriod] = useState<ReportPeriod>('month');
+  const year = settings.data ?? { yearStart: '01-01', yearEffectiveFrom: '2027-01-01' };
+  const { from, to } = reportPeriodRange(period, iso(new Date()), year);
+  const r = useReports(from, to, owner && !!settings.data);
   const back = { label: 'More', to: '/more' };
 
   if (me.data && !owner)
@@ -79,8 +97,22 @@ export function ReportsScreen() {
 
   const d = r.data;
   const rate = d ? formatPence(d.labourRatePence) : '';
+  const missing = d ? d.costRates.people - d.costRates.set : 0;
   return (
-    <Page title="Reports" back={back}>
+    <Page
+      title="Reports"
+      back={back}
+      actions={
+        d && (
+          <Button
+            variant="plain"
+            onClick={() => void exportCsv(reportsCsv(d), `lse-reports-${d.from}-to-${d.to}.csv`)}
+          >
+            Export CSV
+          </Button>
+        )
+      }
+    >
       <Segmented
         label="Period"
         value={period}
@@ -91,6 +123,9 @@ export function ReportsScreen() {
           { value: 'year', label: 'This Year' },
         ]}
       />
+      <p className="report-range" aria-live="polite">
+        {shortDate(from)} – {shortDate(to)}
+      </p>
       {r.isError ? (
         <EmptyState
           icon={<IconChart />}
@@ -139,8 +174,15 @@ export function ReportsScreen() {
 
           <Section
             header="Profit per Job"
-            footer={`Price is the accepted quote (ex VAT), or the job’s lines when it wasn’t quoted. Time is valued at your ${rate}/h labour rate and materials at what you paid. Whole jobs, not just this period.`}
+            footer={`Profit = revenue − labour at each person’s cost rate − materials at cost. Revenue is the accepted quote (ex VAT), or the job’s lines when it wasn’t quoted. Charge-out is the same time at ${rate}/h. Whole jobs, not just this period.`}
           >
+            {missing > 0 && (
+              <p className="readiness" role="note">
+                {missing === 1 ? '1 person has' : `${missing} people have`} no cost rate, so their
+                time is costed at the {rate}/h charge-out rate.{' '}
+                <Link to="/settings">Set cost rates in Settings › Team</Link>
+              </p>
+            )}
             {d.jobs.length ? (
               <List className="report-list" label="Profit per job">
                 {d.jobs.map((j) => (
@@ -148,7 +190,7 @@ export function ReportsScreen() {
                     <LinkRow
                       to={`/jobs/${j.jobId}`}
                       title={`${j.number} · ${j.title}`}
-                      sub={`${j.quotedPence !== null ? `Quoted ${formatPence(j.quotedPence)}` : `Not quoted · lines ${formatPence(j.lineValuePence)}`} · time ${formatMinutes(j.minutes)} (${formatPence(j.labourPence)}) · materials ${formatPence(j.materialsCostPence)}`}
+                      sub={`Revenue ${formatPence(j.revenuePence)}${j.quotedPence === null ? ' (not quoted)' : ''} · ${formatMinutes(j.minutes)}: ${formatPence(j.labourPence)} at cost, ${formatPence(j.chargeOutPence)} charge-out · materials ${formatPence(j.materialsCostPence)}`}
                       meta={<Profit j={j} />}
                     />
                   </li>
