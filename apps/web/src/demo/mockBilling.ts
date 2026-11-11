@@ -45,6 +45,7 @@ import {
   type ReadinessDto,
 } from '@lse/shared';
 import type { z } from 'zod';
+import type { DemoBill, DemoSupplier } from './mockBills';
 
 interface Item extends PriceItem {
   id: string;
@@ -98,6 +99,8 @@ export interface BillingDb {
   /** timesheet id -> invoice id */
   billed: Record<string, string>;
   invoiceCount: Record<string, number>;
+  suppliers?: DemoSupplier[];
+  bills?: DemoBill[];
 }
 export const freshBilling = (): BillingDb => ({
   items: [],
@@ -142,7 +145,7 @@ export interface BillingCtx {
 }
 
 const notFound = (c: BillingCtx, what: string) => c.fail(404, 'not_found', `${what} not found`);
-const today = () =>
+export const today = () =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(new Date());
 
 /* ------------------------------ price list ------------------------------ */
@@ -196,7 +199,7 @@ function history(
 }
 
 /** Applies item changes, writes history, and records each affected kit's old and new cost. */
-function applyPatches(
+export function applyPatches(
   c: BillingCtx,
   patches: { item: Item; next: Partial<PriceItem> }[],
   source: PriceSource,
@@ -253,7 +256,7 @@ function createItem(c: BillingCtx, input: PriceItem, source: PriceSource = 'crea
   return item;
 }
 
-function matcher(c: BillingCtx) {
+export function matcher(c: BillingCtx) {
   return (q: { code: string | null; supplier: string | null; description: string }) =>
     (q.code
       ? c.b.items.find((i) => i.code && i.code.toLowerCase() === q.code!.toLowerCase())
@@ -443,6 +446,9 @@ function quoteState(c: BillingCtx, jobId: string) {
 }
 const minutesOf = (t: { startedAt: string; endedAt: string }) =>
   Math.max(1, Math.round((Date.parse(t.endedAt) - Date.parse(t.startedAt)) / 60000));
+/** Job lines that aren't from the quote (materials from supplier bills) and not yet invoiced. */
+const unbilledLines = (c: BillingCtx, lines: JobLineDto[]) =>
+  lines.filter((l) => l.source !== 'quote' && !c.b.billed[l.id]);
 const unbilled = (c: BillingCtx, jobId: string) =>
   c.timesheets(jobId).filter((t) => !c.b.billed[t.id]);
 const dayLabel = (iso: string) =>
@@ -463,7 +469,8 @@ function createInvoice(c: BillingCtx, jobId: string, input: z.output<typeof invo
   const reserve: string[] = [];
   if (input.source === 'job') {
     const ts = unbilled(c, jobId);
-    if (!ts.length)
+    const materials = unbilledLines(c, j.lines);
+    if (!ts.length && !materials.length)
       c.fail(422, 'validation_failed', 'There is no unbilled time or materials on this job yet.');
     for (const t of ts) {
       const m = minutesOf(t);
@@ -475,6 +482,16 @@ function createInvoice(c: BillingCtx, jobId: string, input: z.output<typeof invo
         taxRateBp: tax,
       });
       reserve.push(t.id);
+    }
+    for (const l of materials) {
+      lines.push({
+        kind: l.kind,
+        description: l.description,
+        qtyMilli: l.qtyMilli,
+        unitPricePence: l.unitSellPence,
+        taxRateBp: tax,
+      });
+      reserve.push(l.id);
     }
   } else {
     const q =
@@ -678,7 +695,10 @@ export function billingRoute(
           taxRateBp: 0,
         })),
       ).subtotalPence,
-      unbilledMaterialsPence: 0,
+      unbilledMaterialsPence: unbilledLines(c, c.job(id).lines).reduce(
+        (t, l) => t + l.totalPence,
+        0,
+      ),
       invoices: c.b.invoices.filter((i) => i.jobId === id).map((i) => summary(c, i)),
     };
   }

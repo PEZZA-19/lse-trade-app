@@ -64,6 +64,7 @@ import {
 } from '@lse/shared';
 import type { z } from 'zod';
 import { ApiError } from '../api/client';
+import { billsRoute } from './mockBills';
 import { billingRoute, freshBilling, type BillingCtx, type BillingDb } from './mockBilling';
 
 type LineIn = z.output<typeof quoteCreate>['lines'][number];
@@ -176,7 +177,7 @@ const S = () => (db!.settings ??= defaultSettings());
 const fmt = (kind: SequenceDto['kind'], value: number) =>
   formatDocNumber(S().numbering[kind].prefix, S().numbering[kind].padding, value);
 
-const KEY = 'lse-demo-db-v4'; // v4: price list, kits, invoices
+const KEY = 'lse-demo-db-v5'; // v5: suppliers and supplier bills
 let db: Db | null = null;
 let seeding: Promise<void> | null = null;
 
@@ -579,6 +580,8 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
   const user = { ...DEMO_USER, email: 'owner@lse.example' };
   if (method === 'GET' && sub === 'document' && (a === 'quotes' || a === 'invoices'))
     return documentFor(a, id!);
+  const bills = billsRoute(billingCtx(), method, seg, query, body);
+  if (bills !== undefined) return bills;
   const billed = billingRoute(billingCtx(), method, seg, query, body);
   if (billed !== undefined) return billed;
   if (method === 'GET' && a === 'me')

@@ -11,11 +11,13 @@ import {
   IconInvoice,
   IconTag,
   IconBox,
+  IconReceipt,
+  IconTruck,
 } from './icons';
 import { OfflineBanner } from './OfflineBanner';
 import { SyncBadge } from './SyncBadge';
 
-/** Phones: five tabs at most (Apple HIG); Invoices, Customers, Price List, Kits and Settings live under More. */
+/** Phones: five tabs at most (Apple HIG); Invoices, Bills, Customers, Price List, Kits, Suppliers and Settings live under More. */
 const TABS = [
   { to: '/home', label: 'Home', Icon: IconHome },
   { to: '/jobs', label: 'Jobs', Icon: IconJobs },
@@ -31,14 +33,18 @@ const UNDER_MORE = [
   '/invoices',
   '/price-list',
   '/kits',
+  '/bills',
+  '/suppliers',
 ];
 /** Desktop sidebar has room for everything. */
 const SIDEBAR = [
   ...TABS.slice(0, 4),
   { to: '/invoices', label: 'Invoices', Icon: IconInvoice },
+  { to: '/bills', label: 'Supplier Bills', Icon: IconReceipt },
   { to: '/customers', label: 'Customers', Icon: IconCustomers },
   { to: '/price-list', label: 'Price List', Icon: IconTag },
   { to: '/kits', label: 'Kits', Icon: IconBox },
+  { to: '/suppliers', label: 'Suppliers', Icon: IconTruck },
   { to: '/settings', label: 'Settings', Icon: IconSettings },
 ];
 

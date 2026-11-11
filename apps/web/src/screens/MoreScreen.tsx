@@ -1,6 +1,15 @@
 import { formatPence } from '@lse/shared';
 import { useInvoices } from '../api/billing';
-import { IconBox, IconCustomers, IconInvoice, IconSettings, IconTag } from '../components/icons';
+import {
+  IconBox,
+  IconCustomers,
+  IconInvoice,
+  IconReceipt,
+  IconSettings,
+  IconTag,
+  IconTruck,
+} from '../components/icons';
+import { useBills } from '../api/bills';
 import { useSync } from '../offline';
 import { LinkRow, List, Page, Section } from '../components/ui';
 
@@ -13,6 +22,7 @@ export function MoreScreen() {
   const items = unpaid.data ?? [];
   const overdue = items.filter((i) => i.displayStatus === 'overdue').length;
   const owed = items.reduce((a, i) => a + i.balancePence, 0);
+  const toCheck = useBills('draft').data?.length ?? 0;
   return (
     <Page title="More">
       <Section header="Money">
@@ -26,6 +36,18 @@ export function MoreScreen() {
                 items.length
                   ? `${items.length} unpaid · ${formatPence(owed)}${overdue ? ` · ${overdue} overdue` : ''}`
                   : 'Nothing waiting to be paid'
+              }
+            />
+          </li>
+          <li>
+            <LinkRow
+              to="/bills"
+              lead={icon(IconReceipt)}
+              title="Supplier Bills"
+              sub={
+                toCheck
+                  ? `${toCheck} to check and apply`
+                  : 'Bills and credit notes from your suppliers'
               }
             />
           </li>
@@ -47,6 +69,14 @@ export function MoreScreen() {
               lead={icon(IconBox)}
               title="Kits"
               sub="Sets of items to add to a quote in one go"
+            />
+          </li>
+          <li>
+            <LinkRow
+              to="/suppliers"
+              lead={icon(IconTruck)}
+              title="Suppliers"
+              sub="Merchants, their bills and spend"
             />
           </li>
         </List>
