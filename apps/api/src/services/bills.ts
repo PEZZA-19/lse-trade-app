@@ -2,7 +2,6 @@ import {
   billLineTotal,
   billTotal,
   itemSell,
-  lineTotal,
   sellFromCost,
   signedLineTotal,
   type Allocation,

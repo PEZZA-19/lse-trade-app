@@ -10,7 +10,6 @@ import {
   billTotal,
   billUpdate,
   itemSell,
-  lineTotal,
   sellFromCost,
   signedLineTotal,
   supplierInput,
