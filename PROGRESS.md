@@ -368,6 +368,34 @@ a link, then sees them once switched on), all passing.
 
 Tests now: shared 135 (+1 local-only skipped), API 194, web 52, e2e 32 mobile + 1 skipped, all passing.
 
+### Done (session 3, 11 Nov late evening: stage picker, prices hidden, private demo with real jobs)
+
+- **Job stage picker** (Joe's Windows feedback: the native dropdown was faint, small, right-aligned
+  and every stage looked the same): replaced with an accessible listbox (`components/Stage.tsx`,
+  `StagePicker`). Each stage shows its own colour dot (the same palette as the stage pill and
+  pipeline, separate light and dark shades), full-contrast 16px left-aligned system-font text, a
+  tick on the current stage. Keyboard: arrows, Home/End, Enter/Space, Escape, type-ahead; screen
+  readers get `listbox`/`option`/`aria-selected`/`aria-activedescendant`. The list opens in a portal
+  with fixed position so cards never clip it, flips upwards near the bottom of the screen and closes
+  on resize. Checked in desktop Chrome light and dark. e2e `stages.spec.ts` covers mouse and keyboard;
+  `offline.spec.ts` updated. Existing job screenshots still show the old closed dropdown: refresh
+  them next session.
+- **Prices hidden** from anyone without Quotes and pricing or Accounts access (Q31): see Q31 below.
+- **Private demo with Joe's real jobs** (outside the repo; never in git, tests or the preview):
+  `/workspace/lse-demo-local-build/real-jobs-calls.mjs` reads
+  `/workspace/lse-private-data/real-jobs.json` and replays it through the demo's mock API at build
+  time. The invented example jobs go; the real CEF/DOCI bills and CI Lighting statement stay. Mapping:
+  Quoting → a sent quote (not a job yet); In progress → In Progress; Completed (work done, invoice
+  not sent) → To Invoice with a draft invoice; Invoiced → Complete with an approved, sent invoice;
+  Paid → paid; the `on_hold_not_billable` flag → On Hold. No VAT. Result: 47 customers, 44 jobs,
+  3 open quotes, 8 sent invoices. Known gaps: negative lines (credits, e.g. "Rent payments" on job 14
+  and one each on jobs 79, 108, 110, 111) aren't in the demo, because quote lines can't be negative,
+  so those totals differ from Joe's sheet; job 52 (paid) has no customer email, so its invoice stays a
+  draft (approving needs a bill payer email); job numbers are the app's own, not Joe's. Smoke test:
+  all checks pass from file:// with the real data.
+
+Tests now: shared 136 (+1 local-only skipped), API 196, web 52, e2e mobile all passing.
+
 ### Design note: two-way calendar sync (Google and Microsoft), not built
 
 - **Connect**: per person, Settings › Calendar › "Connect Google" / "Connect Microsoft 365" via OAuth
