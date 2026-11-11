@@ -272,7 +272,7 @@ for (const vp of VIEWPORTS) {
       await page.goto('/settings');
       const team = page.getByRole('list', { name: 'Team' });
       await expect(team).toContainText('Sam Spark');
-      await team.scrollIntoViewIfNeeded();
+      await team.evaluate((el) => el.scrollIntoView({ block: 'center' }));
       await shot(page, '53-settings-team', vp.name, scheme);
       await team.getByRole('button', { name: /Joe/ }).click();
       await expect(page.getByText('Total cost per hour')).toBeVisible();

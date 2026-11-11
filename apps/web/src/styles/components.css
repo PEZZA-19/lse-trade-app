@@ -1875,6 +1875,9 @@ select.field__input {
 }
 
 /* Settings › Team: cost per hour on the right of each person. */
+.form-list--wide-labels .field__label {
+  flex-basis: 55%;
+}
 .team-cost {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

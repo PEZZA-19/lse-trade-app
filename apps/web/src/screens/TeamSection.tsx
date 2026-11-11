@@ -98,17 +98,17 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
       }
     >
       <Section
-        header="Cost per hour"
+        header="Cost per hour (£)"
         footer={
           m.isPlaceholder
             ? 'These are placeholder figures from the demo set-up. Replace them with the real cost.'
             : 'Only you see this. Changing it updates profit in Reports straight away.'
         }
       >
-        <List className="form-list">
+        <List className="form-list form-list--wide-labels">
           <KeyValueRow label="Charge-out rate" value={`${formatPence(m.chargeOutPence)}/h`} />
           <TextField
-            label="Base cost (£/h)"
+            label="Base cost"
             inputMode="decimal"
             value={base}
             onChange={(e) => setBase(e.target.value)}
@@ -116,7 +116,7 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
             data-autofocus
           />
           <TextField
-            label="Tax and on-costs (£/h)"
+            label="Tax and on-costs"
             inputMode="decimal"
             value={on}
             onChange={(e) => setOn(e.target.value)}

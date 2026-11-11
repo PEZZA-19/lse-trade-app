@@ -8,8 +8,8 @@ test('owner sets a cost rate (base + on-costs) in Settings › Team; job and rep
   await team.getByRole('button', { name: /Joe/ }).click();
   const sheet = page.getByRole('dialog', { name: 'Joe' });
   await expect(sheet).toContainText('£45.00/h');
-  await sheet.getByLabel('Base cost (£/h)').fill('20.00');
-  await sheet.getByLabel('Tax and on-costs (£/h)').fill('4.55');
+  await sheet.getByLabel('Base cost', { exact: true }).fill('20.00');
+  await sheet.getByLabel('Tax and on-costs', { exact: true }).fill('4.55');
   await expect(sheet.getByText('£24.55/h')).toBeVisible();
   await expect(sheet.getByText('£20.45')).toBeVisible(); // left per hour charged
   await sheet.getByRole('button', { name: 'Save' }).click();
