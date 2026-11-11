@@ -53,4 +53,10 @@ describe('useSerialSave', () => {
     expect(calls).toEqual([7, 7]);
     expect(result.current.state).toBe('saved');
   });
+
+  it('says "saved on this device" (not "saved") when the edit is only queued locally', async () => {
+    const { result } = renderHook(() => useSerialSave<number>(async () => 'queued'));
+    await act(async () => result.current.save(1));
+    expect(result.current.state).toBe('queued');
+  });
 });

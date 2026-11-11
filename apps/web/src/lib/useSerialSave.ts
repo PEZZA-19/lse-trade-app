@@ -4,7 +4,8 @@ import type { SaveState } from '../components/SaveStatus';
 /**
  * Sends saves one at a time, always ending with the latest edit (no out-of-order writes).
  * State is honest: "saving" while any write is in flight or queued, "saved" only after the
- * server confirmed the final one, "error" (kept visible, retryable) if it failed.
+ * server confirmed the final one, "queued" if it is stored on the device waiting to sync,
+ * "error" (kept visible, retryable) if it failed.
  */
 export function useSerialSave<P>(send: (patch: P) => Promise<unknown>) {
   const [state, setState] = useState<SaveState>('idle');
@@ -25,11 +26,12 @@ export function useSerialSave<P>(send: (patch: P) => Promise<unknown>) {
     inFlight.current = true;
     setState('saving');
     try {
-      await sendRef.current(patch);
+      const result = await sendRef.current(patch);
       lastFailed.current = null;
       inFlight.current = false;
       if (queued.current !== null) void pumpRef.current();
-      else setState('saved');
+      // 'queued' = safely on this device (outbox) but not yet on the server.
+      else setState(result === 'queued' ? 'queued' : 'saved');
     } catch (e) {
       inFlight.current = false;
       lastFailed.current = queued.current ?? patch;

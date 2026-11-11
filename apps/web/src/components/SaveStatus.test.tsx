@@ -13,3 +13,10 @@ describe('SaveStatus', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Saved');
   });
 });
+
+describe('SaveStatus queued', () => {
+  it('is explicit that a queued edit is only on this device', () => {
+    const { container } = render(<SaveStatus state="queued" />);
+    expect(container).toHaveTextContent('Saved on this device · will sync');
+  });
+});

@@ -1,6 +1,7 @@
 import { formatPence, formatQty, JOB_STATUSES, type JobStatus } from '@lse/shared';
 import { useParams } from 'react-router';
 import { useJob, useSetJobStatus } from '../api/hooks';
+import { NeedsAttentionError } from '../offline';
 import { IconJobs, IconQuotes } from '../components/icons';
 import { useToast } from '../components/Toast';
 import {
@@ -69,8 +70,17 @@ export function JobScreen() {
               setStatus.mutate(
                 { id: j.id, status: e.target.value as JobStatus },
                 {
+                  onSuccess: (r) => {
+                    if (r === 'queued')
+                      toast.show('Saved on this device. It will sync when you’re back online.');
+                  },
                   onError: (err) =>
-                    toast.show(`Status not changed. ${err.message}`, { tone: 'error' }),
+                    toast.show(
+                      err instanceof NeedsAttentionError
+                        ? err.message
+                        : `Status not changed. ${err.message}`,
+                      { tone: 'error' },
+                    ),
                 },
               )
             }

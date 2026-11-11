@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router';
 import { useMe } from '../api/hooks';
 import { IconCustomers, IconJobs, IconQuotes, IconSettings } from './icons';
 import { OfflineBanner } from './OfflineBanner';
+import { SyncBadge } from './SyncBadge';
 
 const TABS = [
   { to: '/jobs', label: 'Jobs', Icon: IconJobs },
@@ -29,6 +30,7 @@ export function AppShell() {
       </nav>
       <main className="shell__main">
         <OfflineBanner />
+        <SyncBadge />
         {import.meta.env.VITE_DEMO === '1' && <DemoBanner />}
         <Outlet />
       </main>

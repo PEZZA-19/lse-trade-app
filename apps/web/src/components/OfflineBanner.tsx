@@ -15,13 +15,17 @@ export const useOnline = () =>
     () => true,
   );
 
-/** Until the offline data layer lands, we say plainly that changes cannot be saved offline. */
+/**
+ * Says exactly what works offline. Job status and quote edits are saved on the device and sync later;
+ * creating new records still needs a connection (and says so when you try).
+ */
 export function OfflineBanner() {
   const online = useOnline();
   if (online) return null;
   return (
     <div className="offline-banner" role="status">
-      You’re offline. You can look around, but changes can’t be saved until you’re back in signal.
+      You’re offline. Job status and quote edits are saved on this device and will sync. Adding new
+      customers, quotes or jobs needs signal.
     </div>
   );
 }

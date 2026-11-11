@@ -1,0 +1,130 @@
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+
+/** Server-side helper using the same signed-in session (cookie) plus its CSRF token. */
+async function serverApi(request: APIRequestContext) {
+  const session = await (await request.get('/api/auth/session')).json();
+  const headers = { 'x-csrf-token': session.csrfToken as string };
+  return {
+    get: async (path: string) => (await request.get(`/api${path}`)).json(),
+    post: async (path: string, data: unknown) =>
+      (await request.post(`/api${path}`, { data, headers })).json(),
+    patch: async (path: string, data: unknown) =>
+      (await request.patch(`/api${path}`, { data, headers })).json(),
+  };
+}
+
+async function newJob(page: Page, title: string) {
+  const api = await serverApi(page.request);
+  const customers = await api.get('/customers?q=Demo%20Farm');
+  const job = await api.post('/jobs', { customerId: customers.items[0].id, title });
+  return { api, job };
+}
+
+const statusSelect = (page: Page) => page.getByRole('combobox', { name: 'Status' });
+
+test('offline: a status change is kept on the device and syncs when signal returns', async ({
+  page,
+  context,
+}) => {
+  const { api, job } = await newJob(page, `Offline test ${Date.now()}`);
+  await page.goto(`/jobs/${job.id}`);
+  await expect(statusSelect(page)).toHaveValue('open');
+
+  await context.setOffline(true);
+  await expect(page.getByText('You’re offline.')).toBeVisible();
+  await statusSelect(page).selectOption('scheduled');
+  await expect(page.getByText('Saved on this device. It will sync')).toBeVisible();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: '1 change saved on this device, waiting for signal' }),
+  ).toBeVisible();
+  // Honest: the server still has the old value.
+  expect((await api.get(`/jobs/${job.id}`)).status).toBe('open');
+
+  await context.setOffline(false);
+  await expect(page.getByRole('link', { name: /waiting/ })).toHaveCount(0);
+  await expect.poll(async () => (await api.get(`/jobs/${job.id}`)).status).toBe('scheduled');
+  await page.reload();
+  await expect(statusSelect(page)).toHaveValue('scheduled');
+});
+
+test('offline conflict: same field changed elsewhere → asks, and "Keep mine" wins', async ({
+  page,
+  context,
+}) => {
+  const { api, job } = await newJob(page, `Conflict test ${Date.now()}`);
+  await page.goto(`/jobs/${job.id}`);
+  await expect(statusSelect(page)).toHaveValue('open');
+
+  await context.setOffline(true);
+  await statusSelect(page).selectOption('completed');
+  await expect(page.getByText('Saved on this device. It will sync')).toBeVisible();
+  // Meanwhile, someone else cancels the job from another device.
+  await api.patch(`/jobs/${job.id}`, { status: 'cancelled' });
+
+  await context.setOffline(false);
+  const badge = page.getByRole('status').filter({ hasText: '1 change needs your attention' });
+  await expect(badge).toBeVisible();
+  await badge.click();
+  await expect(page.getByText(/changed on another device/)).toBeVisible();
+  await expect(page.getByText('Yours: Done · Other device: Cancelled')).toBeVisible();
+  await page.getByRole('button', { name: 'Keep mine' }).click();
+  await expect(page.getByRole('heading', { name: 'Everything is synced' })).toBeVisible();
+  expect((await api.get(`/jobs/${job.id}`)).status).toBe('completed');
+});
+
+test('offline: different fields changed elsewhere merge without asking', async ({
+  page,
+  context,
+}) => {
+  const { api, job } = await newJob(page, `Merge test ${Date.now()}`);
+  await page.goto(`/jobs/${job.id}`);
+  await expect(statusSelect(page)).toHaveValue('open');
+  await context.setOffline(true);
+  await statusSelect(page).selectOption('in_progress');
+  await api.patch(`/jobs/${job.id}`, { title: 'Renamed on the laptop' });
+  await context.setOffline(false);
+  await expect.poll(async () => (await api.get(`/jobs/${job.id}`)).status).toBe('in_progress');
+  const server = await api.get(`/jobs/${job.id}`);
+  expect(server.title).toBe('Renamed on the laptop');
+  await expect(page.getByRole('status').filter({ hasText: 'needs your attention' })).toHaveCount(0);
+});
+
+test('offline quote edit: saved on the device, "Mark as sent" waits until it reaches the server', async ({
+  page,
+  context,
+}) => {
+  const api = await serverApi(page.request);
+  const customers = await api.get('/customers?q=Demo%20Farm');
+  const quote = await api.post('/quotes', {
+    customerId: customers.items[0].id,
+    title: `Offline quote ${Date.now()}`,
+    lines: [],
+  });
+  await page.goto(`/quotes/${quote.id}`);
+  await expect(page.getByRole('heading', { name: quote.number })).toBeVisible();
+
+  await context.setOffline(true);
+  await page.getByRole('button', { name: 'Add line' }).click();
+  const line = page.getByRole('dialog', { name: 'Add Line' });
+  await line.getByRole('button', { name: 'Labour' }).click();
+  await line.getByLabel('Description').fill('Fault finding');
+  await line.getByLabel('Hours').fill('2');
+  await line.getByRole('button', { name: 'Add' }).click();
+
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Saved on this device · will sync' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mark as sent' })).toBeDisabled();
+  await expect(page.getByText('haven’t reached the server yet')).toBeVisible();
+  expect((await api.get(`/quotes/${quote.id}`)).current.lines).toHaveLength(0);
+
+  await context.setOffline(false);
+  await expect(page.getByRole('status').filter({ hasText: /^Saved$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mark as sent' })).toBeEnabled();
+  const server = await api.get(`/quotes/${quote.id}`);
+  expect(server.current.lines.map((l: { description: string }) => l.description)).toEqual([
+    'Fault finding',
+  ]);
+});

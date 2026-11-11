@@ -35,7 +35,12 @@ export function JobsScreen() {
     setStatus.mutate(
       { id, status: 'completed' },
       {
-        onSuccess: () => toast.show(`Job ${number} marked done`),
+        onSuccess: (r) =>
+          toast.show(
+            r === 'queued'
+              ? `Job ${number} marked done on this device. It will sync when you’re back online.`
+              : `Job ${number} marked done`,
+          ),
         onError: (e) =>
           toast.show(`Job ${number} not updated. ${e.message}`, {
             tone: 'error',

@@ -13,6 +13,7 @@ import { QuoteScreen } from './screens/QuoteScreen';
 import { QuotesScreen } from './screens/QuotesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SignInScreen, VerifyScreen } from './screens/SignInScreen';
+import { SyncScreen } from './screens/SyncScreen';
 
 /** Shows the app only with a live session; otherwise the sign-in screen. */
 function RequireSession() {
@@ -46,6 +47,7 @@ export function App() {
           <Route path="customers" element={<CustomersScreen />} />
           <Route path="customers/:id" element={<CustomerScreen />} />
           <Route path="settings" element={<SettingsScreen />} />
+          <Route path="sync" element={<SyncScreen />} />
           <Route path="*" element={<Navigate to="/jobs" replace />} />
         </Route>
       </Route>

@@ -50,7 +50,12 @@ export async function api<T>(
   if (import.meta.env.VITE_DEMO === '1') {
     // Static preview build: an in-browser stand-in for the API (see src/demo/mockApi.ts).
     const { handle } = await import('../demo/mockApi');
-    return (await handle(method, path, body, opts.ifMatch ? { 'if-match': String(opts.ifMatch) } : {})) as T;
+    return (await handle(
+      method,
+      path,
+      body,
+      opts.ifMatch ? { 'if-match': String(opts.ifMatch) } : {},
+    )) as T;
   }
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';

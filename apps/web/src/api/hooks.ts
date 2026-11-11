@@ -18,6 +18,8 @@ import type {
 } from '@lse/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { getOutbox, NeedsAttentionError, saveJob, saveQuote } from '../offline';
+import { persister } from '../offline/persist';
 import { api, ApiError, newIdempotencyKey, setCsrfToken } from './client';
 
 export interface Me {
@@ -98,7 +100,12 @@ export const useVerifyLink = () => {
 export const useSignOut = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api<void>('POST', '/auth/logout'),
+    mutationFn: async () => {
+      await api<void>('POST', '/auth/logout');
+      // Nothing from this business stays on the device after signing out.
+      await getOutbox().clear();
+      await persister.removeClient();
+    },
     onSuccess: () => {
       setCsrfToken(null);
       // Drop every cached record so nothing from this business stays on screen.
@@ -216,10 +223,10 @@ export function useUpdateQuote(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ['quote-save', id],
-    mutationFn: (patch: QuotePatch) => api<QuoteDetailDto>('PATCH', `/quotes/${id}`, patch),
-    onSuccess: (q) => {
-      qc.setQueryData(keys.quote(id), q);
-      void qc.invalidateQueries({ queryKey: ['quotes'] });
+    // Through the outbox: on the device first, then the server (cache updates when it confirms).
+    mutationFn: (patch: QuotePatch) => saveQuote(id, { ...patch }),
+    onSuccess: (result) => {
+      if (result === 'synced') void qc.invalidateQueries({ queryKey: ['quotes'] });
     },
   });
 }
@@ -278,30 +285,41 @@ export function useCreateJob() {
 }
 
 /**
- * Optimistic status change: the list updates instantly, but the row is marked "Saving…"
- * until the server confirms. On failure it rolls back and the caller shows an error.
+ * Status change: the list updates instantly and the change is written to the device (outbox).
+ * Resolves 'synced' once the server confirmed, or 'queued' if it will sync later. Rolls back
+ * only if it couldn't even be stored on the device.
  */
 export function useSetJobStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: JobStatus }) =>
-      api<JobDetailDto>('PATCH', `/jobs/${id}`, { status }),
-    onMutate: async ({ id, status }) => {
+    // Through the outbox: saved on the device first, so it works with no signal.
+    mutationFn: async ({ id, status }: { id: string; status: JobStatus }) => {
       await qc.cancelQueries({ queryKey: ['jobs'] });
       const snapshots = qc.getQueriesData<Page<JobSummaryDto>>({ queryKey: ['jobs'] });
-      for (const [key, data] of snapshots) {
-        if (!data) continue;
-        qc.setQueryData<Page<JobSummaryDto>>(key, {
-          ...data,
-          items: data.items.map((j) => (j.id === id ? { ...j, status } : j)),
-        });
+      const detail = qc.getQueryData<JobDetailDto>(keys.job(id));
+      const showLocally = () => {
+        for (const [key, data] of snapshots) {
+          if (!data) continue;
+          qc.setQueryData<Page<JobSummaryDto>>(key, {
+            ...data,
+            items: data.items.map((j) => (j.id === id ? { ...j, status } : j)),
+          });
+        }
+        if (detail) qc.setQueryData<JobDetailDto>(keys.job(id), { ...detail, status });
+      };
+      try {
+        return await saveJob(id, { status }, showLocally);
+      } catch (e) {
+        // Stored on the device but needs a decision: keep showing it (the Sync screen explains).
+        if (!(e instanceof NeedsAttentionError)) {
+          for (const [key, data] of snapshots) qc.setQueryData(key, data);
+          if (detail) qc.setQueryData(keys.job(id), detail);
+        }
+        throw e;
       }
-      return { snapshots };
     },
-    onError: (_e, _v, ctx) => {
-      for (const [key, data] of ctx?.snapshots ?? []) qc.setQueryData(key, data);
+    onSettled: (result) => {
+      if (result === 'synced') void qc.invalidateQueries({ queryKey: ['jobs'] });
     },
-    onSuccess: (job) => qc.setQueryData(keys.job(job.id), job),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   });
 }

@@ -41,7 +41,8 @@ const ifMatch = (c: Context): number | undefined => {
   const h = c.req.header('if-match');
   if (!h) return undefined;
   const n = Number(h.replace(/^W\//, '').replace(/"/g, ''));
-  if (!Number.isSafeInteger(n) || n < 1) throw new AppError(400, 'bad_if_match', 'If-Match must be a version number');
+  if (!Number.isSafeInteger(n) || n < 1)
+    throw new AppError(400, 'bad_if_match', 'If-Match must be a version number');
   return n;
 };
 

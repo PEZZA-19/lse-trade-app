@@ -55,7 +55,8 @@ export const toSite = (r: {
 });
 
 const CONTACT_COLS = 'id, customer_id, site_id, name, role, email, phone, notes';
-const COLS = 'id, name, email, phone, billing_address, notes, markup_bp, created_at, updated_at, version';
+const COLS =
+  'id, name, email, phone, billing_address, notes, markup_bp, created_at, updated_at, version';
 
 export async function listCustomers(
   tx: Tx,

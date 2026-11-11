@@ -1,4 +1,4 @@
-export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'queued' | 'error';
 
 /**
  * Honest save indicator. "Saved" only appears after the server has confirmed the write.
@@ -18,7 +18,9 @@ export function SaveStatus(props: {
         ? 'Saving…'
         : state === 'saved'
           ? 'Saved'
-          : (props.errorMessage ?? 'Not saved');
+          : state === 'queued'
+            ? 'Saved on this device · will sync'
+            : (props.errorMessage ?? 'Not saved');
   const tone = state === 'saved' ? 'saved' : state === 'error' ? 'error' : 'pending';
   return (
     <span className={`save-status save-status--${tone}`} role="status" aria-live="polite">

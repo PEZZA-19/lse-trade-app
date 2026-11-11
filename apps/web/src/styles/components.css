@@ -939,3 +939,27 @@ select.field__input {
 .seq .list {
   margin: var(--space-2) 0 0;
 }
+
+/* Sync badge: what's waiting to reach the server */
+.sync-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: var(--space-1) var(--space-4);
+  background: var(--orange-soft);
+  color: var(--orange);
+  font: var(--text-footnote);
+  text-decoration: none;
+}
+.sync-badge--alert {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.sync-badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}

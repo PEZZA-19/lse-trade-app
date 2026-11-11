@@ -35,19 +35,11 @@ import {
 } from '../components/ui';
 import { LINE_KIND_LABEL, QUOTE_STATUS } from '../lib/status';
 import { useSerialSave } from '../lib/useSerialSave';
+import { useSync } from '../offline';
+import { quoteLinesToInput } from '../offline/fields';
 import { LineSheet } from './sheets/LineSheet';
 
-const toInput = (q: QuoteDetailDto): QuoteLineInput[] =>
-  q.current.lines.map((l) => ({
-    kind: l.kind,
-    description: l.description,
-    qtyMilli: l.qtyMilli,
-    unitCostPence: l.unitCostPence,
-    markupBp: l.markupBp,
-    unitPricePence: l.unitPricePence,
-    optionLabel: l.optionLabel,
-    taxRateBp: l.taxRateBp,
-  }));
+const toInput = quoteLinesToInput;
 
 export function QuoteScreen() {
   const { id = '' } = useParams();
@@ -87,6 +79,9 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   const readiness = useReadiness();
   const readinessMissing = readiness.data?.quote.missing ?? [];
   const notReady = readinessMissing.length > 0;
+  // Never mark as sent while the latest edits are only on this device.
+  const sync = useSync();
+  const unsynced = sync.ops.some((o) => o.entity === 'quote' && o.entityId === q.id);
   const editable = q.status === 'draft';
   const labourRate = me.data?.tenant.labourRatePence ?? 4500;
 
@@ -165,10 +160,16 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
           block
           onClick={() => run('send', 'Marked as sent')}
           loading={action.isPending}
-          disabled={busy || lines.length === 0 || totals.corePence <= 0 || notReady}
+          disabled={busy || lines.length === 0 || totals.corePence <= 0 || notReady || unsynced}
         >
           Mark as sent
         </Button>
+        {unsynced && !notReady && (
+          <p className="send-blocked" role="note">
+            Your latest changes are saved on this device but haven’t reached the server yet.{' '}
+            <Link to="/sync">See sync</Link>
+          </p>
+        )}
         {notReady && (
           <p className="send-blocked" role="note">
             Add your {readinessMissing.map((m) => m.label.toLowerCase()).join(', ')} in{' '}
@@ -274,7 +275,8 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
       back={{ label: 'Quotes', to: '/quotes' }}
       actions={
         <SaveStatus
-          state={saver.state}
+          // Once the outbox has delivered it, "on this device" becomes plain "Saved".
+          state={saver.state === 'queued' && !unsynced ? 'saved' : saver.state}
           onRetry={saver.retry}
           errorMessage={saver.error ? `Not saved: ${saver.error}` : undefined}
         />

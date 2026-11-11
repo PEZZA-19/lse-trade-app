@@ -12,6 +12,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import { useReadiness, useSession, useSettings, useSignOut, useUpdateSettings } from '../api/hooks';
 import { SaveStatus } from '../components/SaveStatus';
+import { useSync } from '../offline';
 import {
   Button,
   List,
@@ -391,7 +392,14 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
 function AccountSection() {
   const session = useSession();
   const signOut = useSignOut();
+  const sync = useSync();
+  const [confirming, setConfirming] = useState(false);
   if (!session.data) return null;
+  const unsynced = sync.ops.length;
+  const onSignOut = () => {
+    if (unsynced && !confirming) return setConfirming(true);
+    signOut.mutate();
+  };
   return (
     <Section header="Account" footer={signOut.isError ? signOut.error.message : undefined}>
       <List>
@@ -403,13 +411,17 @@ function AccountSection() {
           </StaticRow>
         </li>
       </List>
-      <Button
-        variant="destructive"
-        block
-        loading={signOut.isPending}
-        onClick={() => signOut.mutate()}
-      >
-        Sign out
+      {confirming && unsynced > 0 && (
+        <p className="readiness" role="alert">
+          <strong>
+            {unsynced} change{unsynced === 1 ? ' hasn’t' : 's haven’t'} reached the server yet.
+          </strong>{' '}
+          Signing out deletes {unsynced === 1 ? 'it' : 'them'} from this device. Get signal and let
+          it sync first, or tap again to discard.
+        </p>
+      )}
+      <Button variant="destructive" block loading={signOut.isPending} onClick={onSignOut}>
+        {confirming && unsynced ? 'Sign out and discard' : 'Sign out'}
       </Button>
     </Section>
   );
