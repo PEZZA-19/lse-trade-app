@@ -1,10 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createApp } from '../src/app';
+import { DEFAULT_ORIGIN, signIn, type SessionClient } from '../src/dev/session-client';
+import { ConsoleMailer } from '../src/lib/mailer';
 import { appSql, newTenant } from './helpers';
 
 export interface Client {
   tenantId: string;
   userId: string;
+  email: string;
+  session: SessionClient;
   req: <T = any>(
     method: string,
     path: string,
@@ -13,22 +17,44 @@ export interface Client {
   ) => Promise<{ status: number; body: T; headers: Headers }>;
 }
 
-const app = createApp({ getSql: () => appSql, authMode: 'dev' });
+/** Captures sign-in links instead of emailing them. */
+export const mailer = new ConsoleMailer(() => {});
+const generous = { max: 10_000, windowSeconds: 60 };
+export const app = createApp({
+  getSql: () => appSql,
+  auth: {
+    mailer,
+    appOrigin: DEFAULT_ORIGIN,
+    rateLimits: { linkPerIp: generous, verifyPerIp: generous },
+  },
+});
 
-export async function client(opts: { nextJobNumber?: number } = {}): Promise<Client> {
-  const t = await newTenant(opts);
+export async function toResult(res: Response) {
+  const text = await res.text();
+  return { status: res.status, body: text ? JSON.parse(text) : null, headers: res.headers };
+}
+
+/** Signs in through the real magic-link flow and returns a client bound to that session. */
+export async function clientFor(
+  email: string,
+  ids: { tenantId: string; userId: string },
+): Promise<Client> {
+  const session = await signIn(app, mailer, email);
   return {
-    ...t,
-    async req(method, path, body, headers = {}) {
-      const res = await app.request(path, {
-        method,
-        headers: { 'content-type': 'application/json', 'x-user-id': t.userId, ...headers },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      const text = await res.text();
-      return { status: res.status, body: text ? JSON.parse(text) : null, headers: res.headers };
-    },
+    ...ids,
+    email,
+    session,
+    req: async (method, path, body, headers) =>
+      toResult(await session.request(method, path, body, headers)),
   };
+}
+
+/** A new business (complete details unless `incomplete`), signed in as its owner. */
+export async function client(
+  opts: { nextJobNumber?: number; incomplete?: boolean } = {},
+): Promise<Client> {
+  const t = await newTenant(opts);
+  return clientFor(t.ownerEmail, t);
 }
 
 export async function rawRequest(path: string, init: RequestInit) {

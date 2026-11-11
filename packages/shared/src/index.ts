@@ -4,3 +4,4 @@ export * from './quote-calc';
 export * from './schemas';
 export * from './dto';
 export * from './demo-data';
+export * from './settings';

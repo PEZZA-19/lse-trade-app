@@ -11,12 +11,14 @@ import {
   quoteRevisionUpdate,
   quoteStatus,
   siteInput,
+  settingsUpdate,
   type ApiErrorBody,
 } from '@lse/shared';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
-import { withTenant, withUser, type Sql } from './db/client';
+import { checkCsrf, mountAuthRoutes, readSession, type AuthConfig } from './auth';
+import { withTenant, type Sql } from './db/client';
 import { AppError, notFound } from './lib/errors';
 import { idempotent } from './lib/idempotency';
 import type { AppEnv, Auth } from './lib/types';
@@ -24,16 +26,13 @@ import { isUuid, jsonBody, parse } from './lib/validate';
 import * as customers from './services/customers';
 import * as jobs from './services/jobs';
 import * as quotes from './services/quotes';
+import * as settings from './services/settings';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
   getSql: (c: Context) => Sql;
-  /**
-   * 'dev' trusts an X-User-Id header (or devUserId) — local development and tests ONLY.
-   * Real sign-in (magic link / passkey) replaces this before any deployment.
-   */
-  authMode: 'dev';
-  devUserId?: string | undefined;
+  /** Magic-link sign-in, sessions and CSRF (see auth.ts). */
+  auth: AuthConfig;
   corsOrigins?: string[];
 }
 
@@ -71,7 +70,8 @@ export function createApp(deps: AppDeps) {
       '/api/*',
       cors({
         origin: deps.corsOrigins,
-        allowHeaders: ['Content-Type', 'Idempotency-Key', 'X-User-Id', 'X-Tenant-Id'],
+        allowHeaders: ['Content-Type', 'Idempotency-Key', 'X-CSRF-Token'],
+        credentials: true,
       }),
     );
   }
@@ -79,34 +79,35 @@ export function createApp(deps: AppDeps) {
   app.get('/api/health', (c) => c.json({ ok: true }));
 
   /* ------------------------------ auth ------------------------------ */
+  mountAuthRoutes(app, deps.getSql, deps.auth);
+
+  // Everything else under /api needs a live session with a business selected.
   app.use('/api/*', async (c, next) => {
     const sql = deps.getSql(c);
     c.set('sql', sql);
-    const userId = c.req.header('x-user-id') ?? deps.devUserId;
-    if (!userId || !isUuid(userId)) throw new AppError(401, 'unauthenticated', 'Please sign in');
-    const wanted = c.req.header('x-tenant-id');
-    const memberships = await withUser(
-      sql,
-      userId,
-      (tx) =>
-        tx<
-          { tenantId: string; role: Auth['role'] }[]
-        >`SELECT tenant_id, role FROM memberships WHERE user_id = ${userId}`,
-    );
-    const m = wanted
-      ? memberships.find((x) => x.tenantId === wanted)
-      : memberships.length === 1
-        ? memberships[0]
-        : undefined;
-    if (!m) {
-      throw memberships.length > 1 && !wanted
-        ? new AppError(400, 'tenant_required', 'Choose a business (X-Tenant-Id)')
-        : new AppError(403, 'forbidden', 'You do not have access to this business');
+    const session = await readSession(c, sql);
+    if (!session) throw new AppError(401, 'unauthenticated', 'Please sign in');
+    checkCsrf(c, deps.auth, session);
+    if (!session.tenantId || !session.role) {
+      throw new AppError(403, 'forbidden', 'You do not have access to this business');
     }
-    const auth: Auth = { userId, tenantId: m.tenantId, role: m.role };
+    const auth: Auth = { userId: session.userId, tenantId: session.tenantId, role: session.role };
     c.set('auth', auth);
     c.set('tx', (fn) => withTenant(sql, auth, fn));
     await next();
+  });
+
+  /* ----------------------------- settings ---------------------------- */
+  app.get('/api/settings', async (c) => c.json(await c.var.tx((tx) => settings.getSettings(tx))));
+  app.get('/api/settings/readiness', async (c) =>
+    c.json(await c.var.tx((tx) => settings.getReadiness(tx))),
+  );
+  app.patch('/api/settings', async (c) => {
+    if (c.var.auth.role !== 'owner') {
+      throw new AppError(403, 'forbidden', 'Only the business owner can change settings');
+    }
+    const input = parse(settingsUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => settings.updateSettings(tx, c.var.auth, input)));
   });
 
   /* ------------------------------- me ------------------------------- */
@@ -117,7 +118,7 @@ export function createApp(deps: AppDeps) {
         { id: string; name: string; email: string }[]
       >`SELECT id, name, email FROM users WHERE id = ${auth.userId}`;
       const [tenant] =
-        await tx`SELECT id, name, default_markup_bp, labour_rate_pence, quote_valid_days, timezone, currency FROM tenants`;
+        await tx`SELECT id, name, default_markup_bp, labour_rate_pence, quote_valid_days, timezone, currency FROM tenants WHERE id = app_current_tenant()`;
       return { user, tenant, role: auth.role };
     });
     return c.json(data);

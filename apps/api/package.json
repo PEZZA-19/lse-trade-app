@@ -11,7 +11,8 @@
     "seed:reset": "tsx src/db/seed-cli.ts --reset",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "build": "wrangler deploy --dry-run --outdir dist"
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "sign-in-link": "tsx src/dev/sign-in-link.ts"
   },
   "dependencies": {
     "@lse/shared": "workspace:*",

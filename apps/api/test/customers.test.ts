@@ -8,10 +8,11 @@ describe('auth and tenancy', () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('unauthenticated');
   });
 
-  it('rejects a business the user is not a member of', async () => {
+  it('cannot read another business’s customer by id', async () => {
     const [a, b] = await Promise.all([client(), client()]);
-    const r = await a.req('GET', '/api/customers', undefined, { 'x-tenant-id': b.tenantId });
-    expect(r.status).toBe(403);
+    const cust = await seedCustomer(b);
+    const r = await a.req('GET', `/api/customers/${cust.id}`);
+    expect(r.status).toBe(404);
   });
 
   it('returns the signed-in user and business defaults', async () => {
@@ -70,7 +71,11 @@ describe('customers', () => {
     const c = await client();
     const res = await rawRequest('/api/customers', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-user-id': c.userId },
+      headers: {
+        'content-type': 'application/json',
+        cookie: c.session.cookie,
+        'x-csrf-token': c.session.csrfToken,
+      },
       body: '{nope',
     });
     expect(res.status).toBe(422);

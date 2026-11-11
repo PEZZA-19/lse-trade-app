@@ -1,11 +1,12 @@
 // Cloudflare Workers entry. Postgres (Neon) is reached through a Hyperdrive binding.
 import { createApp } from './app';
 import { createSql, type Sql } from './db/client';
+import { UnconfiguredMailer } from './lib/mailer';
 
 export interface Env {
   HYPERDRIVE: Hyperdrive;
-  AUTH_MODE: 'dev';
-  DEV_USER_ID?: string;
+  /** Public URL of the web app, e.g. https://app.example. Used for sign-in links and Origin checks. */
+  APP_ORIGIN: string;
 }
 
 export default {
@@ -14,8 +15,8 @@ export default {
     let sql: Sql | undefined;
     const app = createApp({
       getSql: () => (sql ??= createSql(env.HYPERDRIVE.connectionString, { max: 5 })),
-      authMode: env.AUTH_MODE,
-      devUserId: env.DEV_USER_ID,
+      // No email provider is wired up yet: sign-in requests fail loudly rather than pretend.
+      auth: { mailer: new UnconfiguredMailer(), appOrigin: env.APP_ORIGIN },
     });
     try {
       return await app.fetch(request, env, ctx);

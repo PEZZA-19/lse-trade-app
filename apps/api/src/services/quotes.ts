@@ -20,6 +20,7 @@ import type { Tx } from '../db/client';
 import { conflict, invalid, notFound } from '../lib/errors';
 import { iso, isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
+import { assertReadyToSendQuote } from './settings';
 import { assertSiteOfCustomer, toSite } from './customers';
 
 type LineIn = z.output<typeof quoteLineInput>;
@@ -221,7 +222,7 @@ interface TenantDefaults {
 export async function tenantDefaults(tx: Tx): Promise<TenantDefaults> {
   const [t] = await tx<
     TenantDefaults[]
-  >`SELECT default_markup_bp, labour_rate_pence, quote_valid_days FROM tenants`;
+  >`SELECT default_markup_bp, labour_rate_pence, quote_valid_days FROM tenants WHERE id = app_current_tenant()`;
   if (!t) throw notFound('Business');
   return t;
 }
@@ -338,6 +339,8 @@ export async function markSent(tx: Tx, auth: Auth, id: string): Promise<QuoteDet
   // Never record a £0 quote as sent (a known trap in other apps: see docs/REQUIREMENTS_FROM_REVIEWS.md, M8/A4).
   const totals = quoteTotals(lines.map(priced), { markupBp: rev.defaultMarkupBp }, []);
   if (totals.corePence <= 0) throw invalid('This quote totals £0. Add prices before sending.');
+  // Pre-send completeness check: the customer must be able to see who it's from and how to reply.
+  await assertReadyToSendQuote(tx);
   await tx`UPDATE quote_revisions SET sent_at = now() WHERE id = ${rev.id}`;
   await tx`UPDATE quotes SET status = 'sent' WHERE id = ${id}`;
   await audit(tx, auth, 'send', 'quote', id, { revision: q.currentRevision });

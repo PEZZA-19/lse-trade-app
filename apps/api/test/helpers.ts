@@ -15,12 +15,37 @@ afterAll(async () => {
   await Promise.all([adminSql.end(), appSql.end()]);
 });
 
-export async function newTenant(opts: { nextJobNumber?: number } = {}): Promise<SeededTenant> {
+export interface TestTenant extends SeededTenant {
+  ownerEmail: string;
+}
+
+/** A new business with complete details (pass `incomplete: true` for a fresh, half-set-up one). */
+export async function newTenant(
+  opts: { nextJobNumber?: number; incomplete?: boolean } = {},
+): Promise<TestTenant> {
   const suffix = randomUUID().slice(0, 8);
-  return seedTenant(adminSql, {
+  const ownerEmail = `owner-${suffix}@example.test`;
+  const t = await seedTenant(adminSql, {
     name: `Test Electrical ${suffix}`,
     slug: `test-${suffix}`,
-    owner: { email: `owner-${suffix}@example.test`, name: 'Test Owner' },
+    owner: { email: ownerEmail, name: 'Test Owner' },
     nextJobNumber: opts.nextJobNumber ?? 122,
+    details: opts.incomplete
+      ? {}
+      : { address: '1 Test Lane, Sark', phone: '01481 000000', email: ownerEmail },
   });
+  return { ...t, ownerEmail };
+}
+
+/** Adds a user to a business with a role. Returns their email. */
+export async function addMember(
+  tenantId: string,
+  role: 'owner' | 'staff' | 'subcontractor' | 'accountant',
+  email = `${role}-${randomUUID().slice(0, 8)}@example.test`,
+): Promise<string> {
+  const [u] = await adminSql<{ id: string }[]>`
+    INSERT INTO users (email, name) VALUES (${email}, ${role}) ON CONFLICT (email) DO UPDATE SET name = users.name
+    RETURNING id`;
+  await adminSql`INSERT INTO memberships (tenant_id, user_id, role) VALUES (${tenantId}, ${u!.id}, ${role})`;
+  return email;
 }

@@ -3,7 +3,7 @@ import type { ZodError } from 'zod';
 /** An error safe to show the user. `code` is stable for clients; `message` is plain English. */
 export class AppError extends Error {
   constructor(
-    public readonly status: 400 | 401 | 403 | 404 | 409 | 422 | 500,
+    public readonly status: 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503,
     public readonly code: string,
     message: string,
     public readonly details?: unknown,

@@ -1,11 +1,12 @@
 // Seeds the LOCAL dev database with the LSE business and clearly fictional demo data.
 // Never point this at production: it refuses unless the database is on localhost.
 // `pnpm db:seed -- --reset` rebuilds the local database and seeds it again.
-import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runDemoScript } from '@lse/shared';
 import { createApp } from '../app';
+import { DEFAULT_ORIGIN, signIn } from '../dev/session-client';
+import { ConsoleMailer } from '../lib/mailer';
 import { createSql } from './client';
 import { migrate } from './migrate';
 import { seedTenant } from './seed';
@@ -27,23 +28,26 @@ try {
   await migrate(admin, path.resolve(here, '../../migrations'), console.log);
   const [existing] = await admin<{ userId: string }[]>`
     SELECT m.user_id FROM tenants t JOIN memberships m ON m.tenant_id = t.id AND m.role = 'owner' WHERE t.slug = 'lse'`;
-  let userId = existing?.userId;
-  if (!userId) {
-    const t = await seedTenant(admin, {
+  if (!existing) {
+    await seedTenant(admin, {
       name: 'Little Sark Electric',
       slug: 'lse',
       owner: { email: 'owner@lse.example', name: 'Joe' },
       nextJobNumber: 122,
       nextQuoteNumber: 1,
+      // Fictional details (the real ones are entered by Joe in Settings).
+      details: {
+        address: 'Demo Workshop, La Sablonnerie Lane, Little Sark (fictional)',
+        phone: '01481 000000',
+        email: 'owner@lse.example',
+        labourRatePence: 4500,
+      },
     });
-    userId = t.userId;
-    const app = createApp({ getSql: () => appSql, authMode: 'dev', devUserId: userId });
+    const mailer = new ConsoleMailer(() => {});
+    const app = createApp({ getSql: () => appSql, auth: { mailer, appOrigin: DEFAULT_ORIGIN } });
+    const client = await signIn(app, mailer, 'owner@lse.example');
     const call = async (method: string, p: string, body?: unknown) => {
-      const res = await app.request(`/api${p}`, {
-        method,
-        headers: { 'content-type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      const res = await client.request(method, `/api${p}`, body);
       if (!res.ok) throw new Error(`${method} ${p}: ${res.status} ${await res.text()}`);
       return res.json();
     };
@@ -53,8 +57,9 @@ try {
     );
     console.log('Seeded demo data for Little Sark Electric');
   }
-  writeFileSync(path.resolve(here, '../../.dev.vars'), `AUTH_MODE=dev\nDEV_USER_ID=${userId}\n`);
-  console.log(`DEV_USER_ID=${userId} (written to apps/api/.dev.vars)`);
+  console.log(
+    'Sign in as owner@lse.example: run `pnpm sign-in-link` after requesting a link in the app.',
+  );
 } finally {
   await Promise.all([admin.end(), appSql.end()]);
 }
