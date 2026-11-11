@@ -5,6 +5,7 @@
  * The real rules (numbering in Postgres, RLS, idempotency) live in apps/api.
  */
 import {
+  reportQuery,
   creditNoteDocument,
   invoiceDocument,
   quoteDocument,
@@ -68,7 +69,14 @@ import type { z } from 'zod';
 import { ApiError } from '../api/client';
 import { billsRoute } from './mockBills';
 import { freshInbox, inboxRoute, type InboxDb } from './mockInbox';
-import { billingRoute, freshBilling, type BillingCtx, type BillingDb } from './mockBilling';
+import {
+  billingRoute,
+  freshBilling,
+  today as billingToday,
+  type BillingCtx,
+  type BillingDb,
+} from './mockBilling';
+import { demoReports } from './mockReports';
 // Joe's own logo (his choice to show it in the preview); cleaned by tools/logo.py.
 import demoLogo from '../../../../assets/lse-logo.png?inline';
 
@@ -608,6 +616,24 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     (a === 'quotes' || a === 'invoices' || a === 'credit-notes')
   )
     return documentFor(a, id!);
+  if (method === 'GET' && a === 'reports' && !id) {
+    const r = parse(reportQuery, { from: query.get('from'), to: query.get('to') });
+    return demoReports(
+      {
+        call: (m, p) => {
+          const u = new URL(p, 'http://demo');
+          return route(m, u.pathname, u.searchParams, undefined);
+        },
+        jobIds: db!.jobs.map((j) => j.id),
+        timesheets: db!.timesheets,
+        user: DEMO_USER,
+        labourRatePence: S().labourRatePence,
+        today: billingToday(),
+      },
+      r.from,
+      r.to,
+    );
+  }
   const inbox = inboxRoute(
     {
       db: (db!.inbox ??= freshInbox()),

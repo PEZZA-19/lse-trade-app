@@ -1,4 +1,4 @@
-import type { EnquiryDto, ProposalDto } from '@lse/shared';
+import type { EnquiryDto, ProposalDto, ReportsDto } from '@lse/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handle, resetDemo } from './mockApi';
 
@@ -90,3 +90,25 @@ function resetDemoKeep() {
   resetDemo();
   if (saved) localStorage.setItem('lse-demo-db-v6', saved);
 }
+
+describe('demo reports', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetDemo();
+  });
+
+  it('shows money, profit per job and time from the seeded demo', async () => {
+    const t = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(new Date());
+    const r = await get<ReportsDto>(`/reports?from=2000-01-01&to=${t}`);
+    expect(r.labourRatePence).toBe(4500);
+    expect(r.money.inPence).toBeGreaterThan(0);
+    expect(r.money.owedPence).toBeGreaterThanOrEqual(r.money.overduePence);
+    expect(r.jobs.length).toBeGreaterThan(0);
+    for (const j of r.jobs)
+      expect(j.profitPence).toBe(
+        (j.quotedPence ?? j.lineValuePence) - j.labourPence - j.materialsCostPence,
+      );
+    expect(r.time.totalMinutes).toBe(r.time.byJob.reduce((s, j) => s + j.minutes, 0));
+    await expect(get('/reports?from=2026-02-01&to=2026-01-01')).rejects.toThrow();
+  });
+});
