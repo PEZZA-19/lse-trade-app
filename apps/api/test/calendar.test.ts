@@ -59,6 +59,12 @@ describe('calendar feed (one-way iCal subscription)', () => {
     const feed = await fetchFeed(mine.body.path);
     expect(feed.status).toBe(200);
     expect(feed.type).toBe('text/calendar; charset=utf-8');
+    // Not readable by other websites' scripts (only the enquiry form allows any origin).
+    const cross = await app.request(mine.body.path, {
+      headers: { Origin: 'https://evil.example' },
+    });
+    expect(cross.headers.get('access-control-allow-origin')).toBeNull();
+    expect((await app.request(mine.body.path, { method: 'HEAD' })).status).toBe(200);
     const u = unfold(feed.text);
     expect(u.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n')).toBe(true);
     expect(u).toContain(`UID:${staffAppt.id}@lse-trade`);

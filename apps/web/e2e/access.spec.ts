@@ -49,6 +49,14 @@ test('admin sets what Sam can open; Sam’s app and links follow, both ways', as
     await expect(sam.page.getByRole('button', { name: 'New quote' })).toHaveCount(0);
     await sam.page.goto('/invoices');
     await expect(sam.page.getByText('Not available to you')).toBeVisible();
+    // No prices anywhere on a job, and no adding priced materials.
+    await sam.page.goto('/jobs');
+    await sam.page.getByRole('searchbox').fill('Barn rewire');
+    await sam.page.getByText('Barn rewire and LED lighting').click();
+    await expect(sam.page.getByText('Quoted work')).toBeVisible();
+    await expect(sam.page.getByText('Quoted total')).toHaveCount(0);
+    await expect(sam.page.getByRole('button', { name: /Add Material/ })).toHaveCount(0);
+    expect(await sam.page.locator('main').innerText()).not.toMatch(/£/);
 
     // Switch accounts and reports on: they appear for Sam.
     await setSam(page, 'Office', 'Reports and profit');
@@ -60,6 +68,10 @@ test('admin sets what Sam can open; Sam’s app and links follow, both ways', as
     await expect(sam.page.getByRole('link', { name: /Invoices/ })).toBeVisible();
     await sam.page.goto('/invoices');
     await expect(sam.page.getByRole('heading', { name: 'Invoices', level: 1 })).toBeVisible();
+    await sam.page.goto('/jobs');
+    await sam.page.getByRole('searchbox').fill('Barn rewire');
+    await sam.page.getByText('Barn rewire and LED lighting').click();
+    await expect(sam.page.getByText('Quoted total')).toBeVisible();
     await sam.ctx.close();
   } finally {
     await setSam(page, 'Office');

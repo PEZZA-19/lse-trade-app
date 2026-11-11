@@ -11,6 +11,13 @@ declare module 'virtual:lse-demo-seed' {
   const seed: {
     bills: BillCreate[];
     statement: { statement: ReadStatement; fileName: string } | null;
+    /**
+     * Private local demo only: the business's own records, replayed through the demo API in order.
+     * `{name}` in a path and a body string "$ref:name" are replaced with the id saved by an earlier
+     * call's `save`. With `replaceExamples`, the invented example jobs are left out.
+     */
+    calls?: { method: string; path: string; body?: unknown; save?: string }[];
+    replaceExamples?: boolean;
   };
   export default seed;
 }

@@ -1275,7 +1275,9 @@ async function ready() {
       const u = new URL(p, 'http://demo');
       return structuredClone(route(m, u.pathname, u.searchParams, b));
     };
-    await runDemoScript(call('POST'), call('PATCH'), call('GET'));
+    if (!(demoSeed.replaceExamples && demoSeed.calls?.length))
+      await runDemoScript(call('POST'), call('PATCH'), call('GET'));
+    await replaySeedCalls(call);
     // Private local demo only: real supplier bills, read from their PDFs at build time, as drafts.
     for (const b of demoSeed.bills) {
       try {
@@ -1287,6 +1289,30 @@ async function ready() {
     save();
   })();
   await seeding;
+}
+
+/** Private local demo: replays the business's own records (see `calls` in the seed). */
+async function replaySeedCalls(call: (m: string) => (p: string, b?: unknown) => Promise<unknown>) {
+  const refs: Record<string, string> = {};
+  const fill = (v: unknown): unknown => {
+    if (typeof v === 'string') {
+      const m = /^\$ref:([\w-]+)$/.exec(v);
+      return m ? (refs[m[1]!] ?? null) : v;
+    }
+    if (Array.isArray(v)) return v.map(fill);
+    if (v && typeof v === 'object')
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)]));
+    return v;
+  };
+  for (const c of demoSeed.calls ?? []) {
+    try {
+      const path = c.path.replace(/\{([\w-]+)\}/g, (_, n: string) => refs[n] ?? n);
+      const out = (await call(c.method)(path, fill(c.body))) as { id?: string } | undefined;
+      if (c.save && out?.id) refs[c.save] = out.id;
+    } catch (e) {
+      console.warn('Demo record not added', c.method, c.path, e);
+    }
+  }
 }
 
 /** Same contract as the real fetch: returns JSON-shaped data or throws ApiError. */

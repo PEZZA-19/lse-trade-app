@@ -18,7 +18,7 @@ import { NotesSection } from './job/NotesSection';
 import { PhotosSection } from './job/PhotosSection';
 import { useParams } from 'react-router';
 import { canSee } from '@lse/shared';
-import { useAccess, useJob, useJobStages, useMembers } from '../api/hooks';
+import { useAccess, useJob, useJobStages, useMembers, usePricesVisible } from '../api/hooks';
 import { StageDot, StagePill, useChangeStage } from '../components/Stage';
 import { formatDateTime } from './syncFormat';
 import { IconCalendar, IconJobs, IconQuotes } from '../components/icons';
@@ -41,6 +41,7 @@ const PLACE = { sark: 'Sark', guernsey: 'Guernsey', other: 'Elsewhere' } as cons
 
 export function JobScreen() {
   const access = useAccess();
+  const prices = usePricesVisible();
   const { id = '' } = useParams();
   const job = useJob(id);
   const stages = useJobStages();
@@ -258,11 +259,13 @@ export function JobScreen() {
         >
           <List>
             {quoted.map((l) => (
-              <JobLineRow key={l.id} line={l} />
+              <JobLineRow key={l.id} line={l} prices={prices} />
             ))}
-            <li>
-              <KeyValueRow label="Quoted total" value={formatPence(j.quotedTotalPence)} strong />
-            </li>
+            {prices && (
+              <li>
+                <KeyValueRow label="Quoted total" value={formatPence(j.quotedTotalPence)} strong />
+              </li>
+            )}
           </List>
         </Section>
       )}
@@ -304,7 +307,7 @@ export function JobScreen() {
   );
 }
 
-function JobLineRow({ line: l }: { line: JobLineDto }) {
+function JobLineRow({ line: l, prices }: { line: JobLineDto; prices: boolean }) {
   return (
     <li>
       <div className="row">
@@ -312,12 +315,15 @@ function JobLineRow({ line: l }: { line: JobLineDto }) {
           <span className="row__title">{l.description}</span>
           <span className="row__sub">
             {l.source === 'supplier_bill' ? 'From supplier bill' : LINE_KIND_LABEL[l.kind]} ·{' '}
-            {formatQty(l.qtyMilli)} × {formatPence(l.unitSellPence)}
+            {formatQty(l.qtyMilli)}
+            {prices && <> × {formatPence(l.unitSellPence)}</>}
           </span>
         </span>
-        <span className="row__meta num" style={{ color: 'var(--label)' }}>
-          {formatPence(l.totalPence)}
-        </span>
+        {prices && (
+          <span className="row__meta num" style={{ color: 'var(--label)' }}>
+            {formatPence(l.totalPence)}
+          </span>
+        )}
       </div>
     </li>
   );

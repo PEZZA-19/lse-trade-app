@@ -86,3 +86,20 @@ export function areaForPath(method: string, path: string): AccessArea | null {
   if (/^\/api\/job-stages(\/|$)/.test(path) && method !== 'GET') return 'settings';
   return null;
 }
+
+/** Prices and money are for people with Quotes and pricing or Accounts access (Joe, 11 Nov 2026). */
+export const canSeePrices = (a: Access) => canSee(a, 'quotes') || canSee(a, 'financials');
+
+/** Money fields end in Pence (amounts) or Bp (markups, rates). */
+const MONEY_KEY = /(Pence|Bp)$/;
+
+/** A copy with every money field set to null, at any depth (for people who can't see prices). */
+export function redactPrices<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => redactPrices(v)) as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = MONEY_KEY.test(k) ? null : redactPrices(v);
+    return out as T;
+  }
+  return value;
+}

@@ -1,4 +1,5 @@
 import {
+  canSee,
   formatPence,
   formatQty,
   parsePounds,
@@ -10,7 +11,7 @@ import {
 } from '@lse/shared';
 import { useState } from 'react';
 import { ApiError } from '../../api/client';
-import { useMe } from '../../api/hooks';
+import { useAccess, useMe, usePricesVisible } from '../../api/hooks';
 import { useAddJobLine, useDeleteJobLine, useUpdateJobLine } from '../../api/jobDetail';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
@@ -34,14 +35,21 @@ const pounds = (p: number | null) => (p === null ? '' : formatPence(p).replace(/
 export function MaterialsSection({ job: j }: { job: JobDetailDto }) {
   const me = useMe();
   const [editing, setEditing] = useState<Editing | null>(null);
-  const canRecord = !!me.data && me.data.role !== 'accountant';
+  const prices = usePricesVisible();
+  const accounts = canSee(useAccess(), 'financials');
+  // Materials carry prices, so only people who can see prices add or change them.
+  const canRecord = !!me.data && me.data.role !== 'accountant' && prices;
   const extra = j.lines.filter((l) => l.source !== 'quote');
   const editable = (l: JobLineDto) => canRecord && l.source === 'manual' && !l.invoiced;
 
   return (
     <Section
       header="Materials and extras"
-      footer="From supplier bills and by hand. On a time-and-materials invoice these are billed at the price shown. Lines on an invoice are locked."
+      footer={
+        prices
+          ? 'From supplier bills and by hand. On a time-and-materials invoice these are billed at the price shown. Lines on an invoice are locked.'
+          : 'What has been used on this job so far.'
+      }
     >
       <List label="Materials and extras">
         {extra.map((l) => {
@@ -49,12 +57,12 @@ export function MaterialsSection({ job: j }: { job: JobDetailDto }) {
             l.source === 'supplier_bill'
               ? 'From supplier bill'
               : `${LINE_KIND_LABEL[l.kind]} · by hand`
-          } · ${formatQty(l.qtyMilli)} × ${formatPence(l.unitSellPence)}${l.invoiced ? ' · invoiced' : ''}`;
-          const meta = (
+          } · ${formatQty(l.qtyMilli)}${prices ? ` × ${formatPence(l.unitSellPence)}` : ''}${l.invoiced ? ' · invoiced' : ''}`;
+          const meta = prices ? (
             <span className="num" style={{ color: 'var(--label)' }}>
               {formatPence(l.totalPence)}
             </span>
-          );
+          ) : undefined;
           return (
             <li key={l.id}>
               {editable(l) ? (
@@ -77,7 +85,7 @@ export function MaterialsSection({ job: j }: { job: JobDetailDto }) {
             </li>
           );
         })}
-        {extra.length > 0 && (
+        {prices && extra.length > 0 && (
           <li>
             <KeyValueRow
               label="Total"
@@ -94,13 +102,15 @@ export function MaterialsSection({ job: j }: { job: JobDetailDto }) {
             />
           </li>
         )}
-        <li>
-          <LinkRow
-            to="/bills"
-            title="Supplier Bills"
-            sub="Enter a bill and pick this job to add its materials"
-          />
-        </li>
+        {accounts && (
+          <li>
+            <LinkRow
+              to="/bills"
+              title="Supplier Bills"
+              sub="Enter a bill and pick this job to add its materials"
+            />
+          </li>
+        )}
       </List>
       {editing && (
         <MaterialSheet

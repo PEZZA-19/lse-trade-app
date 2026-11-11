@@ -623,14 +623,34 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     them too?
 30. Access presets: Office = accounts, quotes and settings (view); Field worker and Subcontractor see
     jobs, schedule, customers and their own time only. Is that right for Sam and any subcontractors?
-31. Access: a job's quoted work and materials still show prices to everyone who can open the job
-    (a customer's quotes are already hidden without quote access). Should field workers and
-    subcontractors see jobs without any prices?
+31. ANSWERED 11 Nov 2026 by Joe: yes, hide all prices from anyone without Quotes and pricing or
+    Accounts access (field workers, subcontractors). Done: the API takes every money field out of
+    what it sends them and refuses changes to priced job lines; the job screen shows no prices,
+    totals or Add Material.
 32. Calendar: the one-way link is live now (More › Calendar). For two-way sync (design note above),
     which first, Google or Microsoft 365? And should a move made in Google/Outlook apply straight
     away, or wait in Approvals for you?
 33. Calendar events show the customer's phone number and site address so whoever is booked can get
     there. OK, or leave the phone out?
+
+## Next session, top priority (Joe, 11 Nov 2026, late)
+
+1. **Business overview dashboard (Xero-style)** for admins, shown only with Accounts and Reports
+   access (enforced on the API like every area): bank and cash position, money owed to the business
+   (aged receivables: current, 1-30, 31-60, 61-90, 90+ days) and money it owes (supplier bills due),
+   cash flow over time (money in and out by month), profit for the period (honest "so far" and
+   "expected" figures, as in Reports), unpaid invoices and unpaid bills lists, and the job pipeline
+   by stage (counts and value). Apple-quality design: large clear figures, simple charts, light and
+   dark, phone and desktop. No bank feed exists yet, so "bank and cash" needs a source: payments
+   recorded in the app to start with, a bank feed later (ask Joe).
+   It also includes **Xero-like reports**: Profit and Loss, Balance Sheet, Aged Receivables and Aged
+   Payables, Cash Flow, a tax summary (GST/VAT, if any applies on Sark; ask Joe), Budget vs Actual
+   and Account Transactions. Each has date ranges, comparison periods (previous period, same period
+   last year) and CSV and PDF export. A Balance Sheet and Account Transactions need proper ledger
+   accounts (a chart of accounts and double-entry postings from invoices, payments, bills and credit
+   notes), so that comes first.
+2. **Two-way calendar sync** (Google and Microsoft): see the design note above. The one-way link is
+   done.
 
 ## Next session, top priority (Joe, 11 Nov 2026)
 

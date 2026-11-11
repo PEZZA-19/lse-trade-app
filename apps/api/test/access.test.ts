@@ -1,6 +1,6 @@
 import { ACCESS_AREAS, type AccessArea } from '@lse/shared';
 import { describe, expect, it } from 'vitest';
-import { client, clientFor, type Client } from './api-helpers';
+import { client, clientFor, seedCustomer, type Client } from './api-helpers';
 import { addMember, adminSql } from './helpers';
 
 const today = new Date().toISOString().slice(0, 10);
@@ -132,5 +132,58 @@ describe('access: admin chooses who sees what (enforced by the API)', () => {
       (await other.req('PUT', `/api/team/${staff.id}/access`, { isAdmin: true, areas: [] })).status,
     ).toBe(422);
     expect(await statusOf(staff.s, 'reports')).toBe(403);
+  });
+
+  it('prices: hidden from people without quotes or accounts access, shown with either', async () => {
+    const c = await client();
+    const staff = await member(c, 'staff');
+    const cust = await seedCustomer(c);
+    const job = (await c.req('POST', '/api/jobs', { customerId: cust.id, title: 'Price test' }))
+      .body;
+    const added = await c.req('POST', `/api/jobs/${job.id}/lines`, {
+      description: 'RCBO',
+      qtyMilli: 2000,
+      unitCostPence: 1000,
+    });
+    expect(added.status).toBe(201);
+    const lineId = added.body.lines[0].id;
+    const money = (j: { lines: Record<string, unknown>[] }) => ({
+      sell: j.lines[0]!.unitSellPence,
+      cost: j.lines[0]!.unitCostPence,
+      total: j.lines[0]!.totalPence,
+    });
+
+    // Field worker: the job, its lines and quantities, but no money anywhere; can't change lines.
+    await c.req('PUT', `/api/team/${staff.id}/access`, { isAdmin: false, areas: [] });
+    const seen = await staff.s.req('GET', `/api/jobs/${job.id}`);
+    expect(seen.status).toBe(200);
+    expect(seen.body.lines[0]).toMatchObject({ description: 'RCBO', qtyMilli: 2000 });
+    expect(money(seen.body)).toEqual({ sell: null, cost: null, total: null });
+    expect(JSON.stringify(seen.body)).not.toMatch(/"\w+(Pence|Bp)":\s*\d/);
+    const list = await staff.s.req('GET', '/api/jobs?filter=all');
+    expect(JSON.stringify(list.body)).not.toMatch(/"\w+(Pence|Bp)":\s*\d/);
+    const cust2 = await staff.s.req('GET', `/api/customers/${cust.id}`);
+    expect(JSON.stringify(cust2.body)).not.toMatch(/"\w+(Pence|Bp)":\s*\d/);
+    expect(JSON.stringify((await staff.s.req('GET', '/api/me')).body)).not.toMatch(
+      /"\w+(Pence|Bp)":\s*\d/,
+    );
+    for (const [m, p, b] of [
+      ['POST', `/api/jobs/${job.id}/lines`, { description: 'x', qtyMilli: 1000, unitCostPence: 1 }],
+      ['PATCH', `/api/job-lines/${lineId}`, { qtyMilli: 3000 }],
+      ['DELETE', `/api/job-lines/${lineId}`, undefined],
+    ] as const) {
+      const r = await staff.s.req(m, p, b);
+      expect(r.status, `${m} ${p}`).toBe(403);
+      expect(r.body.error.code).toBe('no_access');
+    }
+
+    // Either Quotes and pricing or Accounts brings the prices back.
+    for (const areas of [['quotes'], ['financials']]) {
+      await c.req('PUT', `/api/team/${staff.id}/access`, { isAdmin: false, areas });
+      const j = (await staff.s.req('GET', `/api/jobs/${job.id}`)).body;
+      expect(money(j), areas[0]).toEqual({ sell: 1300, cost: 1000, total: 2600 });
+    }
+    // The owner always sees them.
+    expect(money((await c.req('GET', `/api/jobs/${job.id}`)).body).total).toBe(2600);
   });
 });

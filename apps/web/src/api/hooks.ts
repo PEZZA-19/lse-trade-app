@@ -1,4 +1,4 @@
-import { defaultAccess, type Access } from '@lse/shared';
+import { canSeePrices, defaultAccess, type Access } from '@lse/shared';
 import type {
   AppointmentCreate,
   AppointmentListItemDto,
@@ -174,6 +174,9 @@ export const useMe = () =>
  * What the signed-in person may see. Until /me loads, nothing is assumed (so blocked areas never
  * flash on screen); the API enforces the same rules either way.
  */
+/** Prices and money show only with Quotes and pricing or Accounts access (the API strips them too). */
+export const usePricesVisible = () => canSeePrices(useAccess());
+
 export function useAccess(): Access & { ready: boolean } {
   const me = useMe().data;
   if (!me) return { isAdmin: false, areas: [], ready: false };

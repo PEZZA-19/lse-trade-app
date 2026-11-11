@@ -42,6 +42,8 @@ import {
   chargeOutUpdate,
   accessUpdate,
   areaForPath,
+  canSeePrices,
+  redactPrices,
   timesheetCreate,
   timesheetUpdate,
   jobLineCreate,
@@ -178,7 +180,7 @@ export function createApp(deps: AppDeps) {
     perForm: { max: 60, windowSeconds: 60 * 60 },
   };
   app.use(
-    '/api/public/*',
+    '/api/public/enquiries/*',
     cors({ origin: '*', allowMethods: ['POST'], allowHeaders: ['Content-Type'] }),
   );
   app.post('/api/public/enquiries/:formKey', async (c) => {
@@ -257,9 +259,25 @@ export function createApp(deps: AppDeps) {
     auth.access = await withTenant(sql, auth, (tx) => access.accessFor(tx, auth.userId, auth.role));
     const area = areaForPath(c.req.method, c.req.path);
     if (area) access.assertArea(auth, area);
+    // No prices for people without Quotes and pricing or Accounts access (field workers and
+    // subcontractors): they can't change priced lines, and every money field is taken out of
+    // what the API sends them, whatever the route.
+    const prices = canSeePrices(auth.access);
+    if (
+      !prices &&
+      c.req.method !== 'GET' &&
+      /^\/api\/(jobs\/[^/]+\/lines|job-lines\/)/.test(c.req.path)
+    )
+      throw new AppError(403, 'no_access', 'Prices are not available to you. Ask an admin.');
     c.set('auth', auth);
     c.set('tx', (fn) => withTenant(sql, auth, fn));
     await next();
+    if (!prices && c.res.headers.get('content-type')?.includes('application/json')) {
+      const body: unknown = await c.res.clone().json();
+      const headers = new Headers(c.res.headers);
+      headers.delete('content-length');
+      c.res = new Response(JSON.stringify(redactPrices(body)), { status: c.res.status, headers });
+    }
   });
 
   /* ----------------------------- settings ---------------------------- */
