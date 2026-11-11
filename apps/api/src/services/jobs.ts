@@ -9,7 +9,7 @@ import type {
 } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
-import { invalid, notFound } from '../lib/errors';
+import { assertVersion, invalid, notFound } from '../lib/errors';
 import { isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { assertSiteOfCustomer, toSite } from './customers';
@@ -28,6 +28,7 @@ interface JobRow {
   quotedTotalPence: number;
   createdAt: Date;
   updatedAt: Date;
+  version: number;
 }
 
 const SUMMARY_SELECT = `
@@ -35,7 +36,7 @@ const SUMMARY_SELECT = `
          j.title, j.source_quote_id, q.number AS source_quote_number,
          coalesce((SELECT sum(total_pence) FROM job_lines jl WHERE jl.job_id = j.id AND jl.source = 'quote'), 0)::bigint
            AS quoted_total_pence,
-         j.created_at, j.updated_at
+         j.created_at, j.updated_at, j.version
     FROM jobs j
     JOIN customers c ON c.id = j.customer_id
     LEFT JOIN sites s ON s.id = j.site_id
@@ -55,6 +56,7 @@ const toSummary = (r: JobRow): JobSummaryDto => ({
   quotedTotalPence: r.quotedTotalPence,
   createdAt: isoNN(r.createdAt),
   updatedAt: isoNN(r.updatedAt),
+  version: r.version,
 });
 
 export interface JobListQuery {
@@ -153,11 +155,13 @@ export async function updateJob(
   auth: Auth,
   id: string,
   input: z.output<typeof jobUpdate>,
+  expectedVersion?: number,
 ): Promise<JobDetailDto> {
   const [current] = await tx<
-    { customerId: string }[]
-  >`SELECT customer_id FROM jobs WHERE id = ${id} FOR UPDATE`;
+    { customerId: string; version: number }[]
+  >`SELECT customer_id, version FROM jobs WHERE id = ${id} FOR UPDATE`;
   if (!current) throw notFound('Job');
+  await assertVersion(expectedVersion, current.version, () => getJob(tx, id));
   const patch: Record<string, unknown> = {};
   if (input.title !== undefined) patch.title = input.title;
   if (input.description !== undefined) patch.description = input.description;

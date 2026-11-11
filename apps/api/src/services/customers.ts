@@ -24,6 +24,7 @@ interface CustomerRow {
   markupBp: number | null;
   createdAt: Date;
   updatedAt: Date;
+  version: number;
 }
 
 const toCustomer = (r: CustomerRow): CustomerDto => ({
@@ -36,6 +37,7 @@ const toCustomer = (r: CustomerRow): CustomerDto => ({
   markupBp: r.markupBp,
   createdAt: isoNN(r.createdAt),
   updatedAt: isoNN(r.updatedAt),
+  version: r.version,
 });
 
 export const toSite = (r: {
@@ -53,7 +55,7 @@ export const toSite = (r: {
 });
 
 const CONTACT_COLS = 'id, customer_id, site_id, name, role, email, phone, notes';
-const COLS = 'id, name, email, phone, billing_address, notes, markup_bp, created_at, updated_at';
+const COLS = 'id, name, email, phone, billing_address, notes, markup_bp, created_at, updated_at, version';
 
 export async function listCustomers(
   tx: Tx,

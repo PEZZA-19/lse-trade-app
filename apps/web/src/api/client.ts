@@ -31,6 +31,8 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export interface RequestOptions {
   idempotencyKey?: string;
+  /** Row version the edit was made from; the server refuses with 409 if it has moved on. */
+  ifMatch?: number;
   signal?: AbortSignal;
 }
 
@@ -48,11 +50,12 @@ export async function api<T>(
   if (import.meta.env.VITE_DEMO === '1') {
     // Static preview build: an in-browser stand-in for the API (see src/demo/mockApi.ts).
     const { handle } = await import('../demo/mockApi');
-    return (await handle(method, path, body)) as T;
+    return (await handle(method, path, body, opts.ifMatch ? { 'if-match': String(opts.ifMatch) } : {})) as T;
   }
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (opts.idempotencyKey) headers['idempotency-key'] = opts.idempotencyKey;
+  if (opts.ifMatch !== undefined) headers['if-match'] = `"${opts.ifMatch}"`;
   if (MUTATING.has(method) && csrfToken) headers['x-csrf-token'] = csrfToken;
   let res: Response;
   try {

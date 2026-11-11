@@ -28,3 +28,17 @@ export function fromZod(err: ZodError): AppError {
   const first = err.issues[0];
   return invalid(first ? first.message : 'Invalid input', { fields });
 }
+
+/**
+ * Optimistic concurrency: the client edited version `expected`; if the row has moved on, refuse and
+ * return the current record so the app can apply its conflict rules (see apps/web/src/offline).
+ */
+export function assertVersion(expected: number | undefined, actual: number, current: () => Promise<unknown>) {
+  if (expected === undefined || expected === actual) return Promise.resolve();
+  return current().then((record) => {
+    throw new AppError(409, 'version_conflict', 'This was changed on another device since you edited it.', {
+      currentVersion: actual,
+      current: record,
+    });
+  });
+}

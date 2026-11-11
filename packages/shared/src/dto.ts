@@ -31,6 +31,8 @@ export interface CustomerDto {
   markupBp: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Row version for conflict detection: send it back as If-Match when editing. */
+  version: number;
 }
 
 export interface CustomerDetailDto extends CustomerDto {
@@ -92,6 +94,8 @@ export interface QuoteSummaryDto {
   convertedJobNumber: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Row version for conflict detection: send it back as If-Match when editing. */
+  version: number;
 }
 
 export interface QuoteDetailDto extends QuoteSummaryDto {
@@ -117,6 +121,8 @@ export interface JobSummaryDto {
   quotedTotalPence: number;
   createdAt: string;
   updatedAt: string;
+  /** Row version for conflict detection: send it back as If-Match when editing. */
+  version: number;
 }
 
 export interface JobLineDto {

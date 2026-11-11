@@ -36,6 +36,15 @@ export interface AppDeps {
   corsOrigins?: string[];
 }
 
+/** `If-Match: 7` or `If-Match: "7"` -> 7. Absent means "don't check" (online edits from the latest copy). */
+const ifMatch = (c: Context): number | undefined => {
+  const h = c.req.header('if-match');
+  if (!h) return undefined;
+  const n = Number(h.replace(/^W\//, '').replace(/"/g, ''));
+  if (!Number.isSafeInteger(n) || n < 1) throw new AppError(400, 'bad_if_match', 'If-Match must be a version number');
+  return n;
+};
+
 const uuidParam = (c: Context, name = 'id'): string => {
   const v = c.req.param(name);
   if (!v || !isUuid(v)) throw notFound('Record');
@@ -70,7 +79,7 @@ export function createApp(deps: AppDeps) {
       '/api/*',
       cors({
         origin: deps.corsOrigins,
-        allowHeaders: ['Content-Type', 'Idempotency-Key', 'X-CSRF-Token'],
+        allowHeaders: ['Content-Type', 'Idempotency-Key', 'X-CSRF-Token', 'If-Match'],
         credentials: true,
       }),
     );
@@ -189,7 +198,8 @@ export function createApp(deps: AppDeps) {
   app.patch('/api/quotes/:id', async (c) => {
     const id = uuidParam(c);
     const input = parse(quoteRevisionUpdate, await jsonBody(c.req));
-    return c.json(await c.var.tx((tx) => quotes.updateQuote(tx, c.var.auth, id, input)));
+    const v = ifMatch(c);
+    return c.json(await c.var.tx((tx) => quotes.updateQuote(tx, c.var.auth, id, input, v)));
   });
   app.post('/api/quotes/:id/send', async (c) => {
     const id = uuidParam(c);
@@ -247,7 +257,8 @@ export function createApp(deps: AppDeps) {
   app.patch('/api/jobs/:id', async (c) => {
     const id = uuidParam(c);
     const input = parse(jobUpdate, await jsonBody(c.req));
-    return c.json(await c.var.tx((tx) => jobs.updateJob(tx, c.var.auth, id, input)));
+    const v = ifMatch(c);
+    return c.json(await c.var.tx((tx) => jobs.updateJob(tx, c.var.auth, id, input, v)));
   });
 
   return app;

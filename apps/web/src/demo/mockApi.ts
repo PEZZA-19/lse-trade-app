@@ -55,6 +55,7 @@ interface Rev {
   lines: (LineIn & { id: string })[];
 }
 interface Quote {
+  version?: number;
   id: string;
   number: string;
   status: QuoteStatus;
@@ -68,6 +69,7 @@ interface Quote {
   updatedAt: string;
 }
 interface Job {
+  version?: number;
   id: string;
   number: string;
   seq: number;
@@ -186,6 +188,7 @@ function quoteSummary(q: Quote): QuoteSummaryDto {
     convertedJobNumber: job?.number ?? null,
     createdAt: q.createdAt,
     updatedAt: q.updatedAt,
+    version: q.version ?? 1,
   };
 }
 function quoteDetail(q: Quote): QuoteDetailDto {
@@ -225,6 +228,7 @@ function jobSummary(j: Job): JobSummaryDto {
       .reduce((s, l) => s + l.totalPence, 0),
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
+    version: j.version ?? 1,
   };
 }
 const jobDetail = (j: Job): JobDetailDto => ({
@@ -274,7 +278,20 @@ const normalise = (lines: LineIn[]) =>
   }));
 const getQuote = (id: string) => db!.quotes.find((q) => q.id === id) ?? notFound('Quote');
 const getJob = (id: string) => db!.jobs.find((j) => j.id === id) ?? notFound('Job');
-const touch = (x: { updatedAt: string }) => (x.updatedAt = now());
+const touch = (x: { updatedAt: string; version?: number }) => {
+  x.updatedAt = now();
+  x.version = (x.version ?? 1) + 1;
+};
+/** Same rule as the API: an edit made from an older version is refused with the current record. */
+function checkVersion(x: { version?: number }, current: () => unknown) {
+  const expected = headers['if-match'];
+  if (expected && Number(expected.replace(/"/g, '')) !== (x.version ?? 1))
+    fail(409, 'version_conflict', 'This was changed on another device since you edited it.', {
+      currentVersion: x.version ?? 1,
+      current: current(),
+    });
+}
+let headers: Record<string, string> = {};
 
 function lastUsed(kind: SequenceDto['kind']): number | null {
   if (kind === 'quote') return db!.seq.quote > 1 ? db!.seq.quote - 1 : null;
@@ -378,6 +395,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
         markupBp: input.markupBp,
         createdAt: now(),
         updatedAt: now(),
+        version: 1,
       };
       db!.customers.push(c);
       const ids = input.sites.map((s) => {
@@ -489,6 +507,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     const r = cur(quote);
     if (method === 'GET' && !sub) return quoteDetail(quote);
     if (method === 'PATCH' && !sub) {
+      checkVersion(quote, () => quoteDetail(quote));
       if (quote.status !== 'draft')
         fail(
           409,
@@ -658,6 +677,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     const job = getJob(id!);
     if (method === 'GET') return jobDetail(job);
     if (method === 'PATCH') {
+      checkVersion(job, () => jobDetail(job));
       const p = parse(jobUpdate, body);
       if (p.siteId !== undefined) checkSite(p.siteId, job.customerId);
       Object.assign(job, Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)));
@@ -698,8 +718,14 @@ async function ready() {
 }
 
 /** Same contract as the real fetch: returns JSON-shaped data or throws ApiError. */
-export async function handle(method: string, fullPath: string, body: unknown): Promise<unknown> {
+export async function handle(
+  method: string,
+  fullPath: string,
+  body: unknown,
+  reqHeaders: Record<string, string> = {},
+): Promise<unknown> {
   await ready();
+  headers = reqHeaders;
   await new Promise((r) => setTimeout(r, 120)); // a touch of latency so loading states are honest
   const url = new URL(fullPath, 'http://demo');
   const result = route(method, url.pathname, url.searchParams, body);

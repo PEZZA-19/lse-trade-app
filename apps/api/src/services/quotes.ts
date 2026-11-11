@@ -17,7 +17,7 @@ import {
 } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
-import { conflict, invalid, notFound } from '../lib/errors';
+import { assertVersion, conflict, invalid, notFound } from '../lib/errors';
 import { iso, isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { assertReadyToSendQuote } from './settings';
@@ -40,6 +40,7 @@ interface QuoteRow {
   totalPence: number;
   createdAt: Date;
   updatedAt: Date;
+  version: number;
 }
 
 interface LineRow {
@@ -82,12 +83,13 @@ const toSummary = (r: QuoteRow): QuoteSummaryDto => ({
   convertedJobNumber: r.convertedJobNumber,
   createdAt: isoNN(r.createdAt),
   updatedAt: isoNN(r.updatedAt),
+  version: r.version,
 });
 
 const SUMMARY_SELECT = `
   SELECT q.id, q.number, q.status, q.customer_id, c.name AS customer_name, q.site_id, q.current_revision,
          q.accepted_revision, q.converted_job_id, j.number AS converted_job_number,
-         r.title, r.total_pence, q.created_at, q.updated_at
+         r.title, r.total_pence, q.created_at, q.updated_at, q.version
     FROM quotes q
     JOIN customers c ON c.id = q.customer_id
     JOIN quote_revisions r ON r.quote_id = q.id AND r.revision = q.current_revision
@@ -299,8 +301,10 @@ export async function updateQuote(
   auth: Auth,
   id: string,
   input: z.output<typeof quoteRevisionUpdate>,
+  expectedVersion?: number,
 ): Promise<QuoteDetailDto> {
   const q = await loadQuoteRow(tx, id, true);
+  await assertVersion(expectedVersion, q.version, () => getQuote(tx, id));
   if (q.status !== 'draft') {
     throw conflict(
       'quote_locked',
