@@ -6,6 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  * Locally uses the system Chrome; CI uses Playwright's Chromium.
  */
 const channel = process.env.CI ? undefined : 'chrome';
+export const AUTH_FILE = 'test-results/.auth/owner.json';
 export default defineConfig({
   testDir: 'e2e',
   testIgnore: /screenshots\.spec\.ts/,
@@ -18,15 +19,27 @@ export default defineConfig({
     ...(channel ? { channel } : {}),
   },
   projects: [
+    // Signs in once through the real magic-link flow and saves the session cookie.
+    { name: 'setup', testMatch: /auth\.setup\.ts/ },
     {
       name: 'mobile',
-      use: { ...devices['iPhone 14'], browserName: 'chromium', ...(channel ? { channel } : {}) },
+      dependencies: ['setup'],
+      use: {
+        ...devices['iPhone 14'],
+        browserName: 'chromium',
+        storageState: AUTH_FILE,
+        ...(channel ? { channel } : {}),
+      },
     },
-    { name: 'desktop', use: { viewport: { width: 1280, height: 800 } } },
+    {
+      name: 'desktop',
+      dependencies: ['setup'],
+      use: { viewport: { width: 1280, height: 800 }, storageState: AUTH_FILE },
+    },
   ],
   webServer: [
     {
-      command: 'pnpm --filter @lse/api dev',
+      command: 'DEV_RELAX_RATE_LIMITS=1 pnpm --filter @lse/api dev',
       url: 'http://127.0.0.1:8787/api/health',
       reuseExistingServer: true,
       cwd: '../..',

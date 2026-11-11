@@ -1,12 +1,13 @@
 import { NavLink, Outlet } from 'react-router';
 import { useMe } from '../api/hooks';
-import { IconCustomers, IconJobs, IconQuotes } from './icons';
+import { IconCustomers, IconJobs, IconQuotes, IconSettings } from './icons';
 import { OfflineBanner } from './OfflineBanner';
 
 const TABS = [
   { to: '/jobs', label: 'Jobs', Icon: IconJobs },
   { to: '/quotes', label: 'Quotes', Icon: IconQuotes },
   { to: '/customers', label: 'Customers', Icon: IconCustomers },
+  { to: '/settings', label: 'Settings', Icon: IconSettings },
 ];
 
 /** Sidebar on desktop and tablets in landscape; bottom tab bar on phones. */

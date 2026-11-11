@@ -19,7 +19,7 @@ export const DEV_LINK_FILE = '.dev-sign-in-link';
 
 const sql = createSql(APP_URL);
 const port = Number(process.env.PORT ?? 8787);
-const appOrigin = process.env.APP_ORIGIN ?? 'http://localhost:5173';
+const appOrigin = process.env.APP_ORIGIN ?? 'http://127.0.0.1:5173';
 // No email is ever sent in development: the link is printed and written to a local file.
 const mailer = new ConsoleMailer((line) => {
   console.log(line);
@@ -36,6 +36,10 @@ const app = createApp({
     mailer,
     appOrigin,
     extraOrigins: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://127.0.0.1:4173'],
+    // E2E runs sign in repeatedly; never set this outside local development.
+    ...(process.env.DEV_RELAX_RATE_LIMITS === '1'
+      ? { rateLimits: { linkPerEmail: { max: 1000, windowSeconds: 60 } } }
+      : {}),
   },
   corsOrigins: ['http://localhost:5173', 'http://127.0.0.1:5173'],
 });

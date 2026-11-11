@@ -1,11 +1,5 @@
-import type {
-  settingsUpdate} from '@lse/shared';
-import {
-  readiness,
-  type ReadinessDto,
-  type SequenceDto,
-  type SettingsDto,
-} from '@lse/shared';
+import type { settingsUpdate } from '@lse/shared';
+import { readiness, type ReadinessDto, type SequenceDto, type SettingsDto } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
 import { AppError, invalid } from '../lib/errors';

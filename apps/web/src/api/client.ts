@@ -16,6 +16,19 @@ export class ApiError extends Error {
   }
 }
 
+/* ------------------------------- session ------------------------------- */
+
+let csrfToken: string | null = null;
+/** Remembered from GET /auth/session or POST /auth/verify; sent on every change. */
+export const setCsrfToken = (t: string | null) => {
+  csrfToken = t;
+};
+
+/** Fired when the server says the session is gone, so the app can show the sign-in screen. */
+export const SIGNED_OUT_EVENT = 'lse:signed-out';
+
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 export interface RequestOptions {
   idempotencyKey?: string;
   signal?: AbortSignal;
@@ -30,6 +43,7 @@ export async function api<T>(
   path: string,
   body?: unknown,
   opts: RequestOptions = {},
+  retried = false,
 ): Promise<T> {
   if (import.meta.env.VITE_DEMO === '1') {
     // Static preview build: an in-browser stand-in for the API (see src/demo/mockApi.ts).
@@ -39,6 +53,7 @@ export async function api<T>(
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (opts.idempotencyKey) headers['idempotency-key'] = opts.idempotencyKey;
+  if (MUTATING.has(method) && csrfToken) headers['x-csrf-token'] = csrfToken;
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
@@ -46,6 +61,7 @@ export async function api<T>(
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: opts.signal ?? null,
+      credentials: 'same-origin',
     });
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
@@ -61,6 +77,16 @@ export async function api<T>(
   }
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+    }
+    // Stale CSRF token (e.g. signed in on another tab): refresh it once and retry.
+    // Safe to retry: the server rejected the request before doing anything.
+    if (res.status === 403 && err?.code === 'csrf' && !retried) {
+      const s = await api<{ csrfToken: string }>('GET', '/auth/session');
+      setCsrfToken(s.csrfToken);
+      return api<T>(method, path, body, opts, true);
+    }
     const fields = ((err?.details as { fields?: Record<string, string> } | undefined)?.fields ??
       {}) as Record<string, string>;
     throw new ApiError(

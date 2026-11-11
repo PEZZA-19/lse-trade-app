@@ -12,10 +12,13 @@ import type {
   QuoteLineInput,
   QuoteStatus,
   QuoteSummaryDto,
+  ReadinessDto,
+  SettingsDto,
+  SettingsUpdate,
 } from '@lse/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, newIdempotencyKey } from './client';
+import { api, ApiError, newIdempotencyKey, setCsrfToken } from './client';
 
 export interface Me {
   user: { id: string; name: string; email: string };
@@ -36,7 +39,18 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
   return str ? `?${str}` : '';
 };
 
+export interface SessionInfo {
+  user: { id: string; name: string; email: string };
+  memberships: { tenantId: string; tenantName: string; role: string }[];
+  tenantId: string | null;
+  role: string | null;
+  csrfToken: string;
+}
+
 export const keys = {
+  session: ['session'] as const,
+  settings: ['settings'] as const,
+  readiness: ['readiness'] as const,
   me: ['me'] as const,
   customers: (q?: string) => ['customers', q ?? ''] as const,
   customer: (id: string) => ['customer', id] as const,
@@ -44,6 +58,75 @@ export const keys = {
   quote: (id: string) => ['quote', id] as const,
   jobs: (filter: string, q?: string) => ['jobs', filter, q ?? ''] as const,
   job: (id: string) => ['job', id] as const,
+};
+
+/** null = signed out (401). Other errors (e.g. offline) are thrown so we don't sign people out by mistake. */
+export const useSession = () =>
+  useQuery({
+    queryKey: keys.session,
+    queryFn: async () => {
+      try {
+        const s = await api<SessionInfo>('GET', '/auth/session');
+        setCsrfToken(s.csrfToken);
+        return s;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) return null;
+        throw e;
+      }
+    },
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+
+export const useRequestLink = () =>
+  useMutation({
+    mutationFn: (email: string) =>
+      api<{ ok: true; message: string }>('POST', '/auth/request-link', { email }),
+  });
+
+export const useVerifyLink = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (token: string) => api<{ csrfToken: string }>('POST', '/auth/verify', { token }),
+    onSuccess: (r) => {
+      setCsrfToken(r.csrfToken);
+      qc.clear();
+    },
+  });
+};
+
+export const useSignOut = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>('POST', '/auth/logout'),
+    onSuccess: () => {
+      setCsrfToken(null);
+      // Drop every cached record so nothing from this business stays on screen.
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'session' });
+      qc.setQueryData(keys.session, null);
+    },
+  });
+};
+
+export const useSettings = () =>
+  useQuery({ queryKey: keys.settings, queryFn: () => api<SettingsDto>('GET', '/settings') });
+
+export const useReadiness = () =>
+  useQuery({
+    queryKey: keys.readiness,
+    queryFn: () => api<ReadinessDto>('GET', '/settings/readiness'),
+  });
+
+export const useUpdateSettings = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SettingsUpdate) => api<SettingsDto>('PATCH', '/settings', input),
+    onSuccess: (s) => {
+      qc.setQueryData(keys.settings, s);
+      void qc.invalidateQueries({ queryKey: keys.readiness });
+      void qc.invalidateQueries({ queryKey: keys.me });
+    },
+  });
 };
 
 export const useMe = () =>

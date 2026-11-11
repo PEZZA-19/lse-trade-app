@@ -21,7 +21,11 @@ import {
   siteInput,
   unitSell,
   formatDocNumber,
+  readiness,
+  settingsUpdate,
   type ContactDto,
+  type SequenceDto,
+  type SettingsDto,
   type CustomerDetailDto,
   type CustomerDto,
   type JobDetailDto,
@@ -87,16 +91,44 @@ interface Db {
   contacts: ContactDto[];
   quotes: Quote[];
   jobs: Job[];
+  /** Added after v1 shipped; filled in on load if missing. */
+  settings?: DemoSettings;
 }
+type DemoSettings = Omit<SettingsDto, 'sequences'> & {
+  numbering: Record<SequenceDto['kind'], { prefix: string; padding: number }>;
+  seqExtra: { invoice: number; credit_note: number };
+};
+const defaultSettings = (): DemoSettings => ({
+  name: 'Little Sark Electric',
+  legalName: null,
+  address: 'Demo Workshop, Little Sark (fictional)',
+  phone: '01481 000000',
+  email: 'owner@lse.example',
+  labourRatePence: 4500,
+  defaultMarkupBp: 13000,
+  quoteValidDays: 30,
+  paymentTermsDays: 14,
+  taxRateBp: 0,
+  quoteTerms: null,
+  invoiceTerms: null,
+  bankAccountName: null,
+  bankSortCode: null,
+  bankAccountNumber: null,
+  currency: 'GBP',
+  timezone: 'Europe/Guernsey',
+  numbering: {
+    quote: { prefix: 'Q-', padding: 4 },
+    job: { prefix: '', padding: 0 },
+    invoice: { prefix: '', padding: 0 },
+    credit_note: { prefix: 'CN-', padding: 4 },
+  },
+  seqExtra: { invoice: 1, credit_note: 1 },
+});
+const S = () => (db!.settings ??= defaultSettings());
+const fmt = (kind: SequenceDto['kind'], value: number) =>
+  formatDocNumber(S().numbering[kind].prefix, S().numbering[kind].padding, value);
 
 const KEY = 'lse-demo-db-v1';
-const TENANT = {
-  id: 'demo-tenant',
-  name: 'Little Sark Electric',
-  defaultMarkupBp: 13000,
-  labourRatePence: 4500,
-  quoteValidDays: 30,
-};
 let db: Db | null = null;
 let seeding: Promise<void> | null = null;
 
@@ -237,24 +269,95 @@ const normalise = (lines: LineIn[]) =>
     ...l,
     id: uid(),
     ...(l.kind === 'labour' && l.unitPricePence == null && l.unitCostPence == null
-      ? { unitPricePence: TENANT.labourRatePence }
+      ? { unitPricePence: S().labourRatePence }
       : {}),
   }));
 const getQuote = (id: string) => db!.quotes.find((q) => q.id === id) ?? notFound('Quote');
 const getJob = (id: string) => db!.jobs.find((j) => j.id === id) ?? notFound('Job');
 const touch = (x: { updatedAt: string }) => (x.updatedAt = now());
 
+function lastUsed(kind: SequenceDto['kind']): number | null {
+  if (kind === 'quote') return db!.seq.quote > 1 ? db!.seq.quote - 1 : null;
+  if (kind === 'job') return db!.jobs.length ? Math.max(...db!.jobs.map((j) => j.seq)) : null;
+  return null;
+}
+function settingsDto(): SettingsDto {
+  const { numbering, seqExtra, ...rest } = S();
+  const next = (k: SequenceDto['kind']) =>
+    k === 'quote' || k === 'job' ? db!.seq[k] : seqExtra[k];
+  return {
+    ...rest,
+    sequences: (['quote', 'job', 'invoice', 'credit_note'] as const).map((kind) => ({
+      kind,
+      ...numbering[kind],
+      nextValue: next(kind),
+      gapsAllowed: kind === 'quote' || kind === 'job',
+      lastUsed: lastUsed(kind),
+    })),
+  };
+}
+
 function route(method: string, path: string, query: URLSearchParams, body: unknown): unknown {
   const seg = path.split('/').filter(Boolean);
   const [a, id, sub] = seg;
   const q = query.get('q');
 
+  const user = { id: 'demo-user', name: 'Joe', email: 'owner@lse.example' };
   if (method === 'GET' && a === 'me')
     return {
-      user: { id: 'demo-user', name: 'Joe', email: 'owner@lse.example' },
-      tenant: TENANT,
+      user,
+      tenant: {
+        id: 'demo-tenant',
+        name: S().name,
+        defaultMarkupBp: S().defaultMarkupBp,
+        labourRatePence: S().labourRatePence,
+        quoteValidDays: S().quoteValidDays,
+      },
       role: 'owner',
     };
+
+  // The preview has no real sign-in: it is always "signed in" as the demo owner.
+  if (a === 'auth') {
+    if (id === 'session')
+      return {
+        user,
+        memberships: [{ tenantId: 'demo-tenant', tenantName: S().name, role: 'owner' }],
+        tenantId: 'demo-tenant',
+        role: 'owner',
+        csrfToken: 'demo',
+      };
+    if (id === 'logout') return undefined;
+    if (id === 'request-link' || id === 'verify')
+      fail(400, 'demo', 'Sign-in is switched off in the preview.');
+  }
+
+  if (a === 'settings') {
+    if (method === 'GET' && id === 'readiness') return readiness(settingsDto());
+    if (method === 'GET') return settingsDto();
+    if (method === 'PATCH') {
+      const input = parse(settingsUpdate, body);
+      const { sequences, ...rest } = input;
+      for (const seq of sequences ?? []) {
+        const last = lastUsed(seq.kind);
+        if (last !== null && seq.nextValue <= last)
+          fail(
+            422,
+            'validation_failed',
+            `The next ${seq.kind.replace('_', ' ')} number must be above ${last}, which is already used.`,
+          );
+      }
+      Object.assign(
+        S(),
+        Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)),
+      );
+      for (const seq of sequences ?? []) {
+        S().numbering[seq.kind] = { prefix: seq.prefix, padding: seq.padding };
+        if (seq.kind === 'quote' || seq.kind === 'job') db!.seq[seq.kind] = seq.nextValue;
+        else S().seqExtra[seq.kind] = seq.nextValue;
+      }
+      return settingsDto();
+    }
+  }
 
   if (a === 'customers') {
     if (method === 'GET' && !id) {
@@ -352,7 +455,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
           fields: { customerId: 'Customer not found' },
         });
       checkSite(input.siteId, input.customerId);
-      const number = formatDocNumber('Q-', 4, db!.seq.quote++);
+      const number = fmt('quote', db!.seq.quote++);
       const quote: Quote = {
         id: uid(),
         number,
@@ -371,7 +474,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
             title: input.title,
             notes: input.notes,
             validDays: input.validDays,
-            defaultMarkupBp: customer.markupBp ?? TENANT.defaultMarkupBp,
+            defaultMarkupBp: customer.markupBp ?? S().defaultMarkupBp,
             acceptedOptions: [],
             sentAt: null,
             supersededAt: null,
@@ -415,6 +518,13 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
         if (!r.lines.length) fail(422, 'validation_failed', 'Add at least one line before sending');
         if (revTotals({ ...r, acceptedOptions: [] }).corePence <= 0)
           fail(422, 'validation_failed', 'This quote totals £0. Add prices before sending.');
+        const ready = readiness(settingsDto()).quote;
+        if (!ready.ready)
+          fail(
+            422,
+            'business_details_missing',
+            `Add your ${ready.missing.map((m) => m.label.toLowerCase()).join(', ')} in Settings before sending.`,
+          );
         r.sentAt = now();
         quote.status = 'sent';
       } else if (sub === 'revise') {
@@ -467,7 +577,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
         const seq = db!.seq.job++;
         const job: Job = {
           id: uid(),
-          number: String(seq),
+          number: fmt('job', seq),
           seq,
           status: 'open',
           customerId: quote.customerId,
@@ -532,7 +642,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       const seq = db!.seq.job++;
       const job: Job = {
         id: uid(),
-        number: String(seq),
+        number: fmt('job', seq),
         seq,
         status: 'open',
         ...input,

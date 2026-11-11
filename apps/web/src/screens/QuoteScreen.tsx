@@ -8,7 +8,14 @@ import {
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ApiError } from '../api/client';
-import { useConvertQuote, useMe, useQuote, useQuoteAction, useUpdateQuote } from '../api/hooks';
+import {
+  useConvertQuote,
+  useMe,
+  useQuote,
+  useQuoteAction,
+  useReadiness,
+  useUpdateQuote,
+} from '../api/hooks';
 import { IconJobs, IconPlusCircle, IconQuotes } from '../components/icons';
 import { SaveStatus } from '../components/SaveStatus';
 import { Sheet } from '../components/Sheet';
@@ -77,6 +84,9 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   const update = useUpdateQuote(q.id);
   const action = useQuoteAction(q.id);
   const convert = useConvertQuote(q.id);
+  const readiness = useReadiness();
+  const readinessMissing = readiness.data?.quote.missing ?? [];
+  const notReady = readinessMissing.length > 0;
   const editable = q.status === 'draft';
   const labourRate = me.data?.tenant.labourRatePence ?? 4500;
 
@@ -149,15 +159,23 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
 
   const primary = {
     draft: (
-      <Button
-        large
-        block
-        onClick={() => run('send', 'Marked as sent')}
-        loading={action.isPending}
-        disabled={busy || lines.length === 0 || totals.corePence <= 0}
-      >
-        Mark as sent
-      </Button>
+      <>
+        <Button
+          large
+          block
+          onClick={() => run('send', 'Marked as sent')}
+          loading={action.isPending}
+          disabled={busy || lines.length === 0 || totals.corePence <= 0 || notReady}
+        >
+          Mark as sent
+        </Button>
+        {notReady && (
+          <p className="send-blocked" role="note">
+            Add your {readinessMissing.map((m) => m.label.toLowerCase()).join(', ')} in{' '}
+            <Link to="/settings">Settings</Link> first, so the customer knows who it’s from.
+          </p>
+        )}
+      </>
     ),
     sent: (
       <Button large block onClick={() => setAccepting(true)} disabled={busy}>
