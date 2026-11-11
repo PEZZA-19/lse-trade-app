@@ -32,6 +32,7 @@ export const app = createApp({
     rateLimits: { linkPerIp: generous, verifyPerIp: generous },
   },
   ai: new AiGateway(fakeAi),
+  calendarLimits: { perIp: generous, perFeed: generous },
 });
 
 export async function toResult(res: Response) {

@@ -68,6 +68,7 @@ import {
 import { StubTurnstile, type TurnstileVerifier } from './lib/turnstile';
 import { MemoryBlobs, type BlobStore } from './lib/blobs';
 import * as access from './services/access';
+import * as calendar from './services/calendar';
 import * as jobDetail from './services/jobDetail';
 import * as enquiries from './services/enquiries';
 import * as proposals from './services/proposals';
@@ -104,6 +105,8 @@ export interface AppDeps {
   /** Website enquiry form checks. Defaults to the stub (no Cloudflare account yet). */
   turnstile?: TurnstileVerifier;
   enquiryLimits?: { perIp: RateLimit; perForm: RateLimit };
+  /** Calendar feed fetches (calendars poll every few hours; this only stops hammering). */
+  calendarLimits?: { perIp: RateLimit; perFeed: RateLimit };
   /** Sends approved emails. None is connected: approved emails end "not sent". */
   sender?: MessageSender;
   /** Seconds an approved email waits (Stop button). Two minutes outside tests. */
@@ -202,6 +205,37 @@ export function createApp(deps: AppDeps) {
                                    ${input.address}, ${input.message}) AS ok`;
     if (!row?.ok) throw notFound('Form');
     return c.json(accepted, 202);
+  });
+
+  const calendarLimits = deps.calendarLimits ?? {
+    perIp: { max: 300, windowSeconds: 60 * 60 },
+    perFeed: { max: 60, windowSeconds: 60 * 60 },
+  };
+  // One-way calendar feed (iCal). Calendars fetch it with no session: the long random token in the
+  // link identifies the person; a regenerated or switched-off link answers 404 like any unknown one.
+  app.get('/api/public/calendar/:file', async (c) => {
+    const m = /^([A-Za-z0-9_-]{32,64})\.ics$/.exec(c.req.param('file'));
+    if (!m) throw notFound('Calendar');
+    const token = m[1]!;
+    const sql = deps.getSql(c);
+    await hit(sql, `calendar:ip:${clientIp(c)}`, calendarLimits.perIp);
+    await hit(sql, `calendar:feed:${token}`, calendarLimits.perFeed);
+    const [o] = await sql<
+      { tenantId: string; userId: string; scope: 'mine' | 'all'; role: Auth['role'] }[]
+    >`
+      SELECT * FROM calendar_feed_owner(${token})`;
+    if (!o) throw notFound('Calendar');
+    const auth: Auth = { userId: o.userId, tenantId: o.tenantId, role: o.role };
+    const ics = await withTenant(sql, auth, async (tx) => {
+      auth.access = await access.accessFor(tx, auth.userId, auth.role);
+      return calendar.feedIcs(tx, auth, o.scope, deps.auth.appOrigin);
+    });
+    return c.body(ics, 200, {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': 'inline; filename="jobs.ics"',
+      'Cache-Control': 'private, max-age=900',
+      'X-Robots-Tag': 'noindex',
+    });
   });
 
   /* ------------------------------ auth ------------------------------ */
@@ -897,6 +931,19 @@ export function createApp(deps: AppDeps) {
     const userId = parse(z.uuid(), c.req.param('userId'));
     const input = parse(memberCostUpdate, await jsonBody(c.req));
     return c.json(await c.var.tx((tx) => team.setMemberCost(tx, c.var.auth, userId, input)));
+  });
+  app.get('/api/calendar-feeds', async (c) =>
+    c.json(await c.var.tx((tx) => calendar.getFeeds(tx, c.var.auth))),
+  );
+  app.post('/api/calendar-feeds/:scope', async (c) => {
+    const scope = c.req.param('scope');
+    if (scope !== 'mine' && scope !== 'all') throw notFound('Calendar');
+    return c.json(await c.var.tx((tx) => calendar.regenerate(tx, c.var.auth, scope)));
+  });
+  app.delete('/api/calendar-feeds/:scope', async (c) => {
+    const scope = c.req.param('scope');
+    if (scope !== 'mine' && scope !== 'all') throw notFound('Calendar');
+    return c.json(await c.var.tx((tx) => calendar.revoke(tx, c.var.auth, scope)));
   });
   app.get('/api/team/access', async (c) =>
     c.json(await c.var.tx((tx) => access.listAccess(tx, c.var.auth))),
