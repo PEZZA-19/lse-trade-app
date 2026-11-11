@@ -1,4 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router';
+// Bundled (not /public) so it also shows in the single-file local demo.
+import appIcon from '../assets/app-icon.png';
 import { useMe } from '../api/hooks';
 import { useEnquiryCounts, useProposalCounts } from '../api/inbox';
 import {
@@ -79,7 +81,7 @@ export function AppShell() {
     <div className="shell">
       <nav className="sidebar" aria-label="Main">
         <div className="sidebar__brand">
-          <img src="/icon-192.png" alt="" />
+          <img src={appIcon} alt="" />
           <span>{me.data?.tenant.name ?? 'LSE Trade'}</span>
         </div>
         {SIDEBAR.map(({ to, label, Icon }) => (
@@ -132,7 +134,9 @@ export function AppShell() {
 function DemoBanner() {
   return (
     <div className="demo-banner" role="note">
-      Preview with made-up sample data. Changes stay on this device.{' '}
+      {import.meta.env.VITE_HASH_ROUTER === '1'
+        ? 'Demo on this computer: sample jobs and customers, plus your own supplier bills. Nothing is sent; changes stay in this browser.'
+        : 'Preview with made-up sample data. Changes stay on this device.'}{' '}
       <button
         type="button"
         onClick={async () => {

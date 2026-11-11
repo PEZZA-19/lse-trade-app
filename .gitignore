@@ -13,3 +13,4 @@ test-results
 .DS_Store
 dist-preview
 .dev-sign-in-link
+dist-local-demo

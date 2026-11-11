@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
+// Bundled (not /public) so it also shows in the single-file local demo.
+import appIcon from '../assets/app-icon.png';
 import { Navigate, useNavigate } from 'react-router';
 import { ApiError } from '../api/client';
 import { useRequestLink, useSession, useVerifyLink } from '../api/hooks';
@@ -21,7 +23,7 @@ export function SignInScreen() {
 
   return (
     <div className="auth">
-      <img src="/icon-192.png" alt="" className="auth__icon" />
+      <img src={appIcon} alt="" className="auth__icon" />
       <h1 className="auth__title">Sign in</h1>
       {request.isSuccess ? (
         <div role="status">
@@ -89,7 +91,7 @@ export function VerifyScreen() {
 
   return (
     <div className="auth">
-      <img src="/icon-192.png" alt="" className="auth__icon" />
+      <img src={appIcon} alt="" className="auth__icon" />
       <h1 className="auth__title">Sign in</h1>
       {!token ? (
         <p className="auth__lead">This link is incomplete. Please ask for a new one.</p>

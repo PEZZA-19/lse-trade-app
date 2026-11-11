@@ -82,6 +82,8 @@ import { freshTeam, teamRoute, type TeamDb } from './mockTeam';
 import { freshJobDetail, jobDetailRoute, type JobDetailDb } from './mockJobDetail';
 // Joe's own logo (his choice to show it in the preview); cleaned by tools/logo.py.
 import demoLogo from '../../../../assets/lse-logo.png?inline';
+// Empty except in a private local demo build (see vite.config.ts).
+import demoSeed from 'virtual:lse-demo-seed';
 
 type LineIn = z.output<typeof quoteCreate>['lines'][number];
 interface Rev {
@@ -1257,12 +1259,31 @@ async function ready() {
       return structuredClone(route(m, u.pathname, u.searchParams, b));
     };
     await runDemoScript(call('POST'), call('PATCH'), call('GET'));
+    // Private local demo only: real supplier bills, read from their PDFs at build time, as drafts.
+    for (const b of demoSeed.bills) {
+      try {
+        await call('POST')('/supplier-bills', b);
+      } catch (e) {
+        console.warn('Demo bill not added', b.reference, e);
+      }
+    }
     save();
   })();
   await seeding;
 }
 
 /** Same contract as the real fetch: returns JSON-shaped data or throws ApiError. */
+/** Private local demo: open the supplier statement that came with the bills, once per tab. */
+function preloadStatement() {
+  if (!demoSeed.statement) return;
+  try {
+    if (!sessionStorage.getItem('lse-statement'))
+      sessionStorage.setItem('lse-statement', JSON.stringify(demoSeed.statement));
+  } catch {
+    /* storage unavailable: the statement can still be opened from its PDF */
+  }
+}
+
 export async function handle(
   method: string,
   fullPath: string,
@@ -1270,6 +1291,7 @@ export async function handle(
   reqHeaders: Record<string, string> = {},
 ): Promise<unknown> {
   await ready();
+  preloadStatement();
   headers = reqHeaders;
   await new Promise((r) => setTimeout(r, 120)); // a touch of latency so loading states are honest
   const url = new URL(fullPath, 'http://demo');

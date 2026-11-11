@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router';
+import { BrowserRouter, HashRouter } from 'react-router';
 import { App } from './App';
 import { ToastProvider } from './components/Toast';
 import { ApiError } from './api/client';
@@ -29,6 +29,9 @@ const queryClient = new QueryClient({
 
 initOffline(queryClient);
 
+// The local demo opens from a folder (file://), where only #/hash routes work.
+const Router = import.meta.env.VITE_HASH_ROUTER === '1' ? HashRouter : BrowserRouter;
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
@@ -46,16 +49,16 @@ createRoot(document.getElementById('root')!).render(
         },
       }}
     >
-      <BrowserRouter>
+      <Router>
         <ToastProvider>
           <App />
         </ToastProvider>
-      </BrowserRouter>
+      </Router>
     </PersistQueryClientProvider>
   </StrictMode>,
 );
 
 // Service worker: caches the app shell so it opens with no signal.
-if (import.meta.env.PROD) {
+if (import.meta.env.PROD && import.meta.env.VITE_HASH_ROUTER !== '1') {
   void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true }));
 }
