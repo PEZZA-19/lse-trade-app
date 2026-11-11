@@ -1963,3 +1963,15 @@ select.field__input {
 .photo-preview--large img {
   max-height: 65vh;
 }
+
+/* A segmented control inside a form row (e.g. Team › Tax and on-costs as % / £). */
+.field__seg {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+.field__seg .segmented {
+  margin: 0;
+  width: 100%;
+  max-width: 240px;
+}

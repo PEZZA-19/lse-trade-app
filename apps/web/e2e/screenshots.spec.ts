@@ -278,6 +278,11 @@ for (const vp of VIEWPORTS) {
       await shot(page, '53-settings-team', vp.name, scheme);
       await team.getByRole('button', { name: /Joe/ }).click();
       await expect(page.getByText('Total cost per hour')).toBeVisible();
+      // Show tax and on-costs as a percentage (not saved): £20 + 22.5% = £24.50.
+      const costSheet = page.getByRole('dialog', { name: 'Joe' });
+      await costSheet.getByRole('button', { name: '% of base' }).click();
+      await costSheet.getByLabel('Tax and on-costs (%)').fill('22.5');
+      await expect(costSheet.getByText('£24.50/h')).toBeVisible();
       await shot(page, '54-team-cost-sheet', vp.name, scheme);
       await page.keyboard.press('Escape');
       await page.goto('/jobs');

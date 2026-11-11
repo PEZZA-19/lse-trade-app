@@ -1,9 +1,11 @@
 import {
   costRate,
   type JobCostingDto,
-  type MemberCostUpdate,
+  type memberCostUpdate,
+  resolveOnCost,
   type TeamMemberDto,
 } from '@lse/shared';
+import type { z } from 'zod';
 import type { Tx } from '../db/client';
 import { invalid, notFound } from '../lib/errors';
 import type { Auth } from '../lib/types';
@@ -30,10 +32,13 @@ export async function listTeam(tx: Tx, auth: Auth): Promise<TeamMemberDto[]> {
       role: string;
       baseCostPence: string | null;
       onCostPence: string | null;
+      onCostMode: 'fixed' | 'percent' | null;
+      onCostBp: number | null;
       isPlaceholder: boolean | null;
     }[]
   >`
-    SELECT m.user_id, u.name, m.role, mc.base_cost_pence, mc.on_cost_pence, mc.is_placeholder
+    SELECT m.user_id, u.name, m.role, mc.base_cost_pence, mc.on_cost_pence, mc.on_cost_mode,
+           mc.on_cost_bp, mc.is_placeholder
       FROM memberships m
       JOIN users u ON u.id = m.user_id
       LEFT JOIN member_costs mc ON mc.user_id = m.user_id AND mc.tenant_id = m.tenant_id
@@ -48,6 +53,8 @@ export async function listTeam(tx: Tx, auth: Auth): Promise<TeamMemberDto[]> {
       chargeOutPence: rate,
       baseCostPence: set ? n(r.baseCostPence) : null,
       onCostPence: set ? n(r.onCostPence) : null,
+      onCostMode: set ? r.onCostMode : null,
+      onCostBp: set && r.onCostMode === 'percent' ? r.onCostBp : null,
       costRatePence: set ? costRate(n(r.baseCostPence), n(r.onCostPence)) : null,
       isPlaceholder: !!r.isPlaceholder,
     };
@@ -59,7 +66,7 @@ export async function setMemberCost(
   tx: Tx,
   auth: Auth,
   userId: string,
-  input: MemberCostUpdate,
+  input: z.output<typeof memberCostUpdate>,
   opts: { placeholder?: boolean } = {},
 ): Promise<TeamMemberDto> {
   assertOwnerDecision(auth, 'set what people cost');
@@ -69,12 +76,17 @@ export async function setMemberCost(
   if (input === null) {
     await tx`DELETE FROM member_costs WHERE user_id = ${userId}`;
   } else {
+    const on = resolveOnCost(input);
+    if (input.baseCostPence + on.pence > 200_000 || on.pence > 100_000)
+      throw invalid('That cost per hour is too high', { fields: { onCostBp: 'Too high' } });
     await tx`
-      INSERT INTO member_costs (tenant_id, user_id, base_cost_pence, on_cost_pence, is_placeholder, updated_by)
-      VALUES (${auth.tenantId}, ${userId}, ${input.baseCostPence}, ${input.onCostPence},
+      INSERT INTO member_costs (tenant_id, user_id, base_cost_pence, on_cost_pence, on_cost_mode,
+                                on_cost_bp, is_placeholder, updated_by)
+      VALUES (${auth.tenantId}, ${userId}, ${input.baseCostPence}, ${on.pence}, ${on.mode}, ${on.bp},
               ${opts.placeholder ?? false}, ${auth.userId})
       ON CONFLICT (tenant_id, user_id) DO UPDATE
         SET base_cost_pence = EXCLUDED.base_cost_pence, on_cost_pence = EXCLUDED.on_cost_pence,
+            on_cost_mode = EXCLUDED.on_cost_mode, on_cost_bp = EXCLUDED.on_cost_bp,
             is_placeholder = EXCLUDED.is_placeholder, updated_by = EXCLUDED.updated_by, updated_at = now()`;
   }
   await audit(tx, auth, 'member_cost_set', 'user', userId, { cost: input });

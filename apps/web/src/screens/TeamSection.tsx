@@ -1,10 +1,28 @@
-import { costRate, formatPence, parsePounds, type TeamMemberDto } from '@lse/shared';
+import {
+  costRate,
+  formatPence,
+  formatPercentBp,
+  onCostFromPercent,
+  parsePercentBp,
+  parsePounds,
+  type OnCostMode,
+  type TeamMemberDto,
+} from '@lse/shared';
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import { useSetMemberCost, useTeam } from '../api/team';
 import { Sheet } from '../components/Sheet';
 import { useToast } from '../components/Toast';
-import { Button, ButtonRow, KeyValueRow, List, Pill, Section, TextField } from '../components/ui';
+import {
+  Button,
+  ButtonRow,
+  KeyValueRow,
+  List,
+  Pill,
+  Section,
+  Segmented,
+  TextField,
+} from '../components/ui';
 
 const ROLE: Record<string, string> = {
   owner: 'Owner',
@@ -61,12 +79,19 @@ export function TeamSection() {
 
 function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
   const [base, setBase] = useState(pounds(m.baseCostPence));
-  const [on, setOn] = useState(pounds(m.onCostPence));
+  const [mode, setMode] = useState<OnCostMode>(m.onCostMode ?? 'fixed');
+  // Each mode keeps its own text, so switching back and forth never loses what was typed.
+  const [onFixed, setOnFixed] = useState(pounds(m.onCostPence));
+  const [onPct, setOnPct] = useState(m.onCostBp === null ? '' : formatPercentBp(m.onCostBp));
   const save = useSetMemberCost(m.userId);
   const toast = useToast();
   const b = parsePounds(base);
-  const o = on.trim() === '' ? 0 : parsePounds(on);
-  const ok = b !== null && b >= 0 && o !== null && o >= 0;
+  const pct = onPct.trim() === '' ? 0 : parsePercentBp(onPct);
+  const fixed = onFixed.trim() === '' ? 0 : parsePounds(onFixed);
+  // The £/h the on-costs come to, rounded to the penny exactly as the server stores it.
+  const o =
+    mode === 'percent' ? (b !== null && pct !== null ? onCostFromPercent(b, pct) : null) : fixed;
+  const ok = b !== null && b >= 0 && o !== null && o >= 0 && (mode === 'fixed' || pct !== null);
   const total = ok ? costRate(b, o) : null;
   const margin = total !== null ? m.chargeOutPence - total : null;
   const fields = save.error instanceof ApiError ? save.error.fields : {};
@@ -83,7 +108,9 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
           style={{ fontWeight: 600 }}
           onClick={() =>
             save.mutate(
-              { baseCostPence: b!, onCostPence: o! },
+              mode === 'percent'
+                ? { baseCostPence: b!, onCostMode: 'percent', onCostBp: pct! }
+                : { baseCostPence: b!, onCostMode: 'fixed', onCostPence: o! },
               {
                 onSuccess: () => {
                   toast.show('Cost rate saved');
@@ -115,13 +142,48 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
             error={b === null && base.trim() ? 'Enter an amount, e.g. 18.50' : fields.baseCostPence}
             data-autofocus
           />
-          <TextField
-            label="Tax and on-costs"
-            inputMode="decimal"
-            value={on}
-            onChange={(e) => setOn(e.target.value)}
-            error={o === null ? 'Enter an amount, e.g. 3.20' : fields.onCostPence}
-          />
+          <li>
+            <div className="row">
+              <span className="field">
+                <span className="field__label">Tax and on-costs as</span>
+                <span className="field__seg">
+                  <Segmented
+                    label="Tax and on-costs as"
+                    value={mode}
+                    onChange={setMode}
+                    options={[
+                      { value: 'percent', label: '% of base' },
+                      { value: 'fixed', label: '£ per hour' },
+                    ]}
+                  />
+                </span>
+              </span>
+            </div>
+          </li>
+          {mode === 'percent' ? (
+            <TextField
+              label="Tax and on-costs (%)"
+              inputMode="decimal"
+              value={onPct}
+              onChange={(e) => setOnPct(e.target.value)}
+              placeholder="e.g. 22.5"
+              error={
+                pct === null ? 'A percentage up to 200, e.g. 22.5' : (fields.onCostBp ?? undefined)
+              }
+            />
+          ) : (
+            <TextField
+              label="Tax and on-costs (£/h)"
+              inputMode="decimal"
+              value={onFixed}
+              onChange={(e) => setOnFixed(e.target.value)}
+              placeholder="e.g. 3.20"
+              error={fixed === null ? 'Enter an amount, e.g. 3.20' : fields.onCostPence}
+            />
+          )}
+          {mode === 'percent' && o !== null && b !== null && (
+            <KeyValueRow label="On-costs per hour" value={`${formatPence(o)}/h`} />
+          )}
           <KeyValueRow
             label="Total cost per hour"
             value={total === null ? '—' : `${formatPence(total)}/h`}

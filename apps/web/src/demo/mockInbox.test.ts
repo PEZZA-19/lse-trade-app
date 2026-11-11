@@ -123,6 +123,28 @@ describe('demo team cost rates', () => {
     resetDemo();
   });
 
+  it('tax and on-costs as a percentage: £20 + 22.5% = £24.50, and back to a fixed £', async () => {
+    const joe = (await get<TeamMemberDto[]>('/team'))[0]!;
+    expect(joe.onCostMode).toBe('fixed');
+    const pct = await handle('PUT', `/team/${joe.userId}/cost`, {
+      baseCostPence: 2000,
+      onCostMode: 'percent',
+      onCostBp: 2250,
+    });
+    expect(pct).toMatchObject({
+      onCostMode: 'percent',
+      onCostBp: 2250,
+      onCostPence: 450,
+      costRatePence: 2450,
+    });
+    const fixed = await handle('PUT', `/team/${joe.userId}/cost`, {
+      baseCostPence: 2000,
+      onCostMode: 'fixed',
+      onCostPence: 300,
+    });
+    expect(fixed).toMatchObject({ onCostMode: 'fixed', onCostBp: null, costRatePence: 2300 });
+  });
+
   it('seeds placeholder cost rates, saves real ones, and profit uses them', async () => {
     const team = await get<TeamMemberDto[]>('/team');
     expect(team.map((t) => [t.name, t.costRatePence, t.isPlaceholder])).toEqual([

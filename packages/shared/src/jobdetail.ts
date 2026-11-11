@@ -81,14 +81,50 @@ export const photoUpload = z.object({
 });
 export type PhotoUpload = z.input<typeof photoUpload>;
 
+/**
+ * Tax and on-costs on top of the base cost: a fixed £ per hour, or a percentage of the base.
+ * A percentage is turned into pence when it's saved (rounded half up to the penny), so every report
+ * adds the same amount the owner saw on screen.
+ */
+export type OnCostMode = 'fixed' | 'percent';
+
+/** base × bp / 10000, rounded half up to the penny (e.g. £20.00 + 22.5% → £4.50). */
+export const onCostFromPercent = (baseCostPence: number, onCostBp: number) =>
+  Math.floor((baseCostPence * onCostBp + 5000) / 10000);
+
 /** Owner sets what a person costs per hour: base cost plus tax/on-costs. null clears it. */
 export const memberCostUpdate = z
   .object({
     baseCostPence: z.number().int().min(0).max(100_000),
-    onCostPence: z.number().int().min(0).max(100_000),
+    onCostMode: z.enum(['fixed', 'percent']).default('fixed'),
+    /** Fixed mode: £ per hour, in pence. */
+    onCostPence: z.number().int().min(0).max(100_000).optional(),
+    /** Percent mode: basis points of the base (2250 = 22.5%), up to 200%. */
+    onCostBp: z.number().int().min(0).max(20_000).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.onCostMode === 'fixed' && v.onCostPence === undefined)
+      ctx.addIssue({ code: 'custom', path: ['onCostPence'], message: 'Enter the £ per hour' });
+    if (v.onCostMode === 'percent' && v.onCostBp === undefined)
+      ctx.addIssue({ code: 'custom', path: ['onCostBp'], message: 'Enter the percentage' });
   })
   .nullable();
 export type MemberCostUpdate = z.input<typeof memberCostUpdate>;
+
+/** What is stored: the mode, the percentage (percent mode only) and the £/h it comes to. */
+export function resolveOnCost(input: NonNullable<z.output<typeof memberCostUpdate>>): {
+  mode: OnCostMode;
+  bp: number | null;
+  pence: number;
+} {
+  return input.onCostMode === 'percent'
+    ? {
+        mode: 'percent',
+        bp: input.onCostBp!,
+        pence: onCostFromPercent(input.baseCostPence, input.onCostBp!),
+      }
+    : { mode: 'fixed', bp: null, pence: input.onCostPence! };
+}
 
 /** One person in Settings › Team, as the owner sees it. */
 export interface TeamMemberDto {
@@ -98,7 +134,11 @@ export interface TeamMemberDto {
   /** What the customer is charged per hour (the business labour rate). */
   chargeOutPence: number;
   baseCostPence: number | null;
+  /** Always the £/h amount (in percent mode, what the percentage comes to). */
   onCostPence: number | null;
+  onCostMode: OnCostMode | null;
+  /** Percent mode only: 2250 = 22.5%. */
+  onCostBp: number | null;
   /** base + on-cost; null when not set (the labour rate is used for profit). */
   costRatePence: number | null;
   isPlaceholder: boolean;
@@ -160,3 +200,20 @@ export function dataUrlBytes(dataUrl: string): { type: string; bytes: Uint8Array
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return { type: m[1]!, bytes: out };
 }
+
+/** "22.5", "22.5 %" → 2250 basis points (exact, at most 2 decimals, up to 200%); otherwise null. */
+export function parsePercentBp(input: string): number | null {
+  const m = /^\s*(\d{1,3})(?:\.(\d{1,2}))?\s*%?\s*$/.exec(input);
+  if (!m) return null;
+  const bp = Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
+  return bp <= 20_000 ? bp : null;
+}
+/** 2250 → "22.5", 2000 → "20". */
+export const formatPercentBp = (bp: number) =>
+  `${Math.floor(bp / 100)}${
+    bp % 100
+      ? `.${String(bp % 100)
+          .padStart(2, '0')
+          .replace(/0$/, '')}`
+      : ''
+  }`;

@@ -1,7 +1,11 @@
-import { costRate, memberCostUpdate, type TeamMemberDto } from '@lse/shared';
+import { costRate, memberCostUpdate, resolveOnCost, type TeamMemberDto } from '@lse/shared';
 import type { z } from 'zod';
 
-export type TeamDb = Record<string, { base: number; on: number; placeholder: boolean }>;
+/** `on` is always the £/h amount; `bp` is set in percent mode (older saved demos have neither: fixed). */
+export type TeamDb = Record<
+  string,
+  { base: number; on: number; placeholder: boolean; mode?: 'fixed' | 'percent'; bp?: number | null }
+>;
 
 /** Demo cost rates: obvious placeholders until the owner types real ones. */
 export const freshTeam = (ids: string[]): TeamDb =>
@@ -25,6 +29,8 @@ export function teamList(c: TeamCtx): TeamMemberDto[] {
       chargeOutPence: c.labourRatePence,
       baseCostPence: t ? t.base : null,
       onCostPence: t ? t.on : null,
+      onCostMode: t ? (t.mode ?? 'fixed') : null,
+      onCostBp: t?.mode === 'percent' ? (t.bp ?? null) : null,
       costRatePence: t ? costRate(t.base, t.on) : null,
       isPlaceholder: !!t?.placeholder,
     };
@@ -41,7 +47,17 @@ export function teamRoute(c: TeamCtx, method: string, seg: string[], body: unkno
       c.fail(422, 'validation', 'That person is not part of this business');
     const input = c.parse(memberCostUpdate, body ?? null);
     if (input === null) delete c.team[id];
-    else c.team[id] = { base: input.baseCostPence, on: input.onCostPence, placeholder: false };
+    else {
+      const on = resolveOnCost(input);
+      if (on.pence > 100_000) c.fail(422, 'validation_failed', 'That cost per hour is too high');
+      c.team[id] = {
+        base: input.baseCostPence,
+        on: on.pence,
+        mode: on.mode,
+        bp: on.bp,
+        placeholder: false,
+      };
+    }
     return teamList(c).find((t) => t.userId === id);
   }
   return undefined;
