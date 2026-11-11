@@ -53,6 +53,8 @@ interface Sheet {
 export interface JobDetailCtx {
   db: JobDetailDb;
   timesheets: Sheet[];
+  /** The demo user's own timers (the demo has one person timing). */
+  timers?: { jobId: string; startedAt: string; stoppedAt: string | null }[];
   jobs: { id: string; number: string; lines: JobLineDto[] }[];
   members: { userId: string; name: string }[];
   userId: string;
@@ -99,6 +101,17 @@ function noOverlap(c: JobDetailCtx, userId: string, s: string, e: string, except
     c.fail(422, 'validation_failed', `That overlaps time already logged on job ${n}.`, {
       fields: { startedAt: 'Overlaps other time' },
     });
+  }
+  const running =
+    userId === c.userId ? c.timers?.find((t) => !t.stoppedAt && t.startedAt < e) : undefined;
+  if (running) {
+    const n = c.jobs.find((j) => j.id === running.jobId)?.number ?? '?';
+    c.fail(
+      422,
+      'validation_failed',
+      `That overlaps a timer still running on job ${n}. Stop it first, or log time before it started.`,
+      { fields: { endedAt: 'Overlaps a running timer' } },
+    );
   }
 }
 const notFuture = (c: JobDetailCtx, e: string) => {

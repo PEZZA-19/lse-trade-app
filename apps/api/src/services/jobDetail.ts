@@ -69,6 +69,16 @@ async function assertNoOverlap(
     throw invalid(`That overlaps time already logged on job ${clash.number}.`, {
       fields: { startedAt: 'Overlaps other time' },
     });
+  // A running timer becomes a timesheet when it stops, so it counts from its start onwards.
+  const [timer] = await tx<{ number: string }[]>`
+    SELECT j.number FROM job_timers t JOIN jobs j ON j.id = t.job_id
+     WHERE t.user_id = ${userId} AND t.stopped_at IS NULL AND t.started_at < ${end}
+     LIMIT 1`;
+  if (timer)
+    throw invalid(
+      `That overlaps a timer still running on job ${timer.number}. Stop it first, or log time before it started.`,
+      { fields: { endedAt: 'Overlaps a running timer' } },
+    );
 }
 
 function assertNotFuture(end: string) {
@@ -246,7 +256,14 @@ export async function deleteJobLine(tx: Tx, auth: Auth, id: string) {
 
 /* --------------------------------- notes -------------------------------- */
 
+/** Lists answer 404 for a job this business cannot see, like every other job route. */
+async function assertJobVisible(tx: Tx, jobId: string) {
+  const [j] = await tx`SELECT 1 FROM jobs WHERE id = ${jobId}`;
+  if (!j) throw notFound('Job');
+}
+
 export async function listNotes(tx: Tx, jobId: string): Promise<JobNoteDto[]> {
+  await assertJobVisible(tx, jobId);
   const rows = await tx<
     { id: string; userId: string; userName: string; body: string; createdAt: Date }[]
   >`
@@ -285,6 +302,7 @@ export async function deleteNote(tx: Tx, auth: Auth, id: string) {
 /* -------------------------------- photos -------------------------------- */
 
 export async function listPhotos(tx: Tx, jobId: string): Promise<JobPhotoDto[]> {
+  await assertJobVisible(tx, jobId);
   const rows = await tx<
     {
       id: string;

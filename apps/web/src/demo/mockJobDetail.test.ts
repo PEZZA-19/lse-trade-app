@@ -42,6 +42,23 @@ describe('demo job detail (mirrors the server rules)', () => {
     expect(gone.totalMinutes).toBe(before.totalMinutes);
   });
 
+  it('time over a running timer is refused; before it started is fine', async () => {
+    const j = await barn();
+    await handle('POST', `/jobs/${j.id}/timer/start`, { switch: true });
+    await expect(
+      handle('POST', `/jobs/${j.id}/timesheets`, {
+        startedAt: ago(3),
+        endedAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    ).rejects.toThrow(/timer still running on job 122/);
+    const before = (await handle('POST', `/jobs/${j.id}/timesheets`, {
+      startedAt: ago(10 * 24 * 60),
+      endedAt: ago(10 * 24 * 60 - 30),
+    })) as JobDetailDto;
+    expect(before.timesheets.some((t) => t.source === 'manual')).toBe(true);
+    await handle('POST', `/jobs/${j.id}/timer/stop`, {});
+  });
+
   it('materials, notes and photos', async () => {
     const j = await barn();
     const d = (await handle('POST', `/jobs/${j.id}/lines`, {

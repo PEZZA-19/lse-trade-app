@@ -677,6 +677,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     {
       db: (db!.jobDetail ??= freshJobDetail()),
       timesheets: db!.timesheets,
+      timers: db!.timers,
       jobs: db!.jobs,
       members: MEMBERS,
       userId: DEMO_USER.id,
