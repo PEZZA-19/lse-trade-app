@@ -6,6 +6,7 @@
 import {
   billApply,
   billCreate,
+  billLineTotal,
   billTotal,
   billUpdate,
   itemSell,
@@ -42,6 +43,8 @@ interface DemoBillLine {
   description: string;
   qtyMilli: number;
   unitCostPence: number;
+  /** Merchant's printed total, when it differs from qty × unit cost by rounding. */
+  totalPence?: number;
   itemId: string | null;
   updatePrice: boolean;
   allocation: Allocation;
@@ -53,6 +56,7 @@ export interface DemoBill {
   kind: BillKind;
   reference: string;
   billDate: string;
+  dueDate?: string | null;
   jobId: string | null;
   status: 'draft' | 'applied';
   source: BillSource;
@@ -113,6 +117,7 @@ function summary(c: BillingCtx, b: DemoBill): BillSummaryDto {
     kind: b.kind,
     reference: b.reference,
     billDate: b.billDate,
+    dueDate: b.dueDate ?? null,
     jobId: b.jobId,
     jobNumber: job?.number ?? null,
     jobTitle: job?.title ?? null,
@@ -141,7 +146,7 @@ function detail(c: BillingCtx, b: DemoBill): BillDetailDto {
         description: l.description,
         qtyMilli: l.qtyMilli,
         unitCostPence: l.unitCostPence,
-        totalPence: lineTotal(l.qtyMilli, l.unitCostPence),
+        totalPence: billLineTotal(l),
         updatePrice: l.updatePrice,
         allocation: l.allocation,
         jobLineId: l.jobLineId,
@@ -183,6 +188,7 @@ function toLines(
       description: l.description,
       qtyMilli: l.qtyMilli,
       unitCostPence: l.unitCostPence,
+      ...(l.totalPence !== undefined ? { totalPence: l.totalPence } : {}),
       itemId,
       updatePrice: l.updatePrice,
       allocation: l.allocation ?? (hasJob ? 'job' : 'stock'),
@@ -380,6 +386,7 @@ export function billsRoute(
       kind: input.kind,
       reference: input.reference,
       billDate: input.billDate,
+      dueDate: input.dueDate,
       jobId: input.jobId,
       status: 'draft',
       source: input.source,
@@ -400,6 +407,7 @@ export function billsRoute(
     if (input.jobId) c.job(input.jobId);
     if (input.reference !== undefined) b.reference = input.reference;
     if (input.billDate !== undefined) b.billDate = input.billDate;
+    if (input.dueDate !== undefined) b.dueDate = input.dueDate;
     if (input.notes !== undefined) b.notes = input.notes;
     if (input.jobId !== undefined) b.jobId = input.jobId;
     if (input.lines)

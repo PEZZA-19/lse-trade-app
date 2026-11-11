@@ -1,4 +1,5 @@
 import {
+  billLineTotal,
   billTotal,
   itemSell,
   lineTotal,
@@ -155,6 +156,7 @@ interface BillRow {
   kind: BillSummaryDto['kind'];
   reference: string;
   billDate: string;
+  dueDate: string | null;
   jobId: string | null;
   jobNumber: string | null;
   jobTitle: string | null;
@@ -172,7 +174,7 @@ interface BillRow {
 }
 
 const BILL_SELECT = (tx: Tx) => tx`
-  SELECT b.id, b.supplier_id, s.name AS supplier_name, b.kind, b.reference, b.bill_date::text AS bill_date,
+  SELECT b.id, b.supplier_id, s.name AS supplier_name, b.kind, b.reference, b.bill_date::text AS bill_date, b.due_date::text AS due_date,
          b.job_id, j.number AS job_number, j.title AS job_title, b.status, b.source, b.total_pence,
          b.created_at, b.version, b.file_name, b.notes, u.name AS applied_by_name, b.applied_at,
          (SELECT count(*) FROM supplier_bill_lines l WHERE l.bill_id = b.id) AS line_count,
@@ -189,6 +191,7 @@ const toSummary = (r: BillRow): BillSummaryDto => ({
   kind: r.kind,
   reference: r.reference,
   billDate: r.billDate,
+  dueDate: r.dueDate,
   jobId: r.jobId,
   jobNumber: r.jobNumber,
   jobTitle: r.jobTitle,
@@ -318,7 +321,7 @@ async function writeLines(
       description: l.description,
       qty_milli: l.qtyMilli,
       unit_cost_pence: l.unitCostPence,
-      total_pence: lineTotal(l.qtyMilli, l.unitCostPence),
+      total_pence: billLineTotal(l),
       price_item_id: itemId,
       update_price: l.updatePrice,
       allocation: l.allocation ?? (hasJob ? 'job' : 'stock'),
@@ -344,8 +347,8 @@ export async function createBill(
   await checkJob(tx, input.jobId);
   const supplier = await supplierIdFor(tx, auth, input.supplier);
   const [b] = await tx<{ id: string }[]>`
-    INSERT INTO supplier_bills (tenant_id, supplier_id, kind, reference, bill_date, job_id, source, file_name, notes, created_by, total_pence)
-    VALUES (${auth.tenantId}, ${supplier.id}, ${input.kind}, ${input.reference}, ${input.billDate}, ${input.jobId},
+    INSERT INTO supplier_bills (tenant_id, supplier_id, kind, reference, bill_date, due_date, job_id, source, file_name, notes, created_by, total_pence)
+    VALUES (${auth.tenantId}, ${supplier.id}, ${input.kind}, ${input.reference}, ${input.billDate}, ${input.dueDate}, ${input.jobId},
             ${input.source}, ${input.fileName}, ${input.notes}, ${auth.userId}, ${billTotal(input.lines)})
     RETURNING id`.catch(duplicateRef);
   await writeLines(tx, auth, b!.id, supplier.name, !!input.jobId, input.lines);
@@ -386,6 +389,7 @@ export async function updateBill(
     UPDATE supplier_bills SET
       reference = coalesce(${input.reference ?? null}, reference),
       bill_date = coalesce(${input.billDate ?? null}::date, bill_date),
+      due_date = ${input.dueDate === undefined ? tx`due_date` : input.dueDate},
       job_id = ${jobId},
       notes = ${input.notes === undefined ? tx`notes` : input.notes}
      WHERE id = ${id}`.catch(duplicateRef);

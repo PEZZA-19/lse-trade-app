@@ -1,7 +1,8 @@
 /**
  * Suppliers, supplier bills and supplier credit notes.
- * A bill is read by a person for now (typed in, a CSV, or typed from a PDF; AI bill reading is
- * Phase 2 and will only ever fill in a draft for Joe to check). Applying a bill is an owner tap
+ * A bill is typed in, imported from a CSV, or read from a merchant PDF (deterministic readers
+ * for CEF and DOCI in ./billread, the AI helper only for other layouts); every route only ever
+ * fills in a draft for Joe to check. Applying a bill is an owner tap
  * after a preview: new costs update the price list (with history and kit recalculation) and lines
  * allocated to a job become that job's materials. Credit notes reduce the job they belong to and
  * never change list prices.
@@ -65,21 +66,38 @@ export const supplierUpdate = z.object({
 });
 export type SupplierUpdate = z.input<typeof supplierUpdate>;
 
-export const billLineInput = z.object({
-  code: optional(60),
-  description: text(300).min(1, 'Description is required'),
-  qtyMilli: z.number().int().min(1, 'Quantity must be more than 0').max(1_000_000_000),
-  unitCostPence: money,
-  /**
-   * Price-list item this line is. Not sent: matched automatically (code, then supplier and
-   * description). null: deliberately not on the price list.
-   */
-  itemId: z.uuid().nullable().optional(),
-  /** Update the item's cost from this line when the bill is applied. */
-  updatePrice: z.boolean().default(true),
-  /** Not sent: "job" when the bill is for a job, else "stock". */
-  allocation: z.enum(ALLOCATIONS).optional(),
-});
+export const billLineInput = z
+  .object({
+    code: optional(60),
+    description: text(300).min(1, 'Description is required'),
+    qtyMilli: z.number().int().min(1, 'Quantity must be more than 0').max(1_000_000_000),
+    unitCostPence: money,
+    /**
+     * The merchant's printed line total, when it is not qty × unit cost rounded up (a 35%
+     * discount on 10 × 70p prints £4.55, while a whole-pence unit cost gives £4.60). Must be
+     * within half a penny per unit of qty × unit cost.
+     */
+    totalPence: money.optional(),
+    /**
+     * Price-list item this line is. Not sent: matched automatically (code, then supplier and
+     * description). null: deliberately not on the price list.
+     */
+    itemId: z.uuid().nullable().optional(),
+    /** Update the item's cost from this line when the bill is applied. */
+    updatePrice: z.boolean().default(true),
+    /** Not sent: "job" when the bill is for a job, else "stock". */
+    allocation: z.enum(ALLOCATIONS).optional(),
+  })
+  .refine(
+    (l) =>
+      l.totalPence === undefined ||
+      Math.abs(l.totalPence - lineTotal(l.qtyMilli, l.unitCostPence)) <=
+        Math.ceil(l.qtyMilli / 2000),
+    {
+      message: 'The line total does not match qty × unit cost',
+      path: ['totalPence'],
+    },
+  );
 export type BillLineInput = z.input<typeof billLineInput>;
 
 export const billCreate = z.object({
@@ -87,6 +105,10 @@ export const billCreate = z.object({
   kind: z.enum(BILL_KINDS).default('bill'),
   reference: text(100).min(1, 'Bill reference is required'),
   billDate: z.iso.date('Enter the bill date'),
+  dueDate: z.iso
+    .date()
+    .nullish()
+    .transform((v) => v ?? null),
   jobId: z
     .uuid()
     .nullish()
@@ -102,6 +124,7 @@ export type BillCreate = z.input<typeof billCreate>;
 export const billUpdate = z.object({
   reference: text(100).min(1, 'Bill reference is required').optional(),
   billDate: z.iso.date().optional(),
+  dueDate: z.iso.date().nullable().optional(),
   jobId: z.uuid().nullable().optional(),
   notes: optional(2000).optional(),
   lines: z.array(billLineInput).max(500).optional(),
@@ -115,8 +138,18 @@ export const billApply = z.object({
 
 /* --------------------------------- maths -------------------------------- */
 
-export function billTotal(lines: { qtyMilli: number; unitCostPence: Pence }[]): Pence {
-  return lines.reduce((t, l) => t + lineTotal(l.qtyMilli, l.unitCostPence), 0);
+export function billLineTotal(l: {
+  qtyMilli: number;
+  unitCostPence: Pence;
+  totalPence?: Pence;
+}): Pence {
+  return l.totalPence ?? lineTotal(l.qtyMilli, l.unitCostPence);
+}
+
+export function billTotal(
+  lines: { qtyMilli: number; unitCostPence: Pence; totalPence?: Pence }[],
+): Pence {
+  return lines.reduce((t, l) => t + billLineTotal(l), 0);
 }
 
 /* ---------------------------------- CSV --------------------------------- */
@@ -213,6 +246,7 @@ export interface BillSummaryDto {
   kind: BillKind;
   reference: string;
   billDate: string;
+  dueDate: string | null;
   jobId: string | null;
   jobNumber: string | null;
   jobTitle: string | null;

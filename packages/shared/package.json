@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./pdf": "./src/pdf.ts"
+    "./pdf": "./src/pdf.ts",
+    "./pdftext": "./src/pdftext.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -14,6 +15,7 @@
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",
+    "unpdf": "^2.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
