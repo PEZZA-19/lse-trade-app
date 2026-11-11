@@ -113,3 +113,37 @@ test('supplier bill from CSV: matches the price list, previews cost changes, own
   await page.getByRole('link', { name: new RegExp(supplier) }).click();
   await expect(page.getByRole('link', { name: new RegExp(`INV-${stamp}`) })).toBeVisible();
 });
+
+test('credit note on a sent invoice: drafted, owner approves, balance drops, nothing sent', async ({
+  page,
+}) => {
+  const { api, job } = await quotedJob(page, `Credit test ${Date.now()}`);
+  const inv = await api.post(`/jobs/${job.id}/invoices`, { source: 'quote', mode: 'whole' });
+  await api.post(`/invoices/${inv.id}/approve`);
+  await api.post(`/invoices/${inv.id}/mark-sent`);
+
+  await page.goto(`/invoices/${inv.id}`);
+  await page.getByRole('button', { name: 'New credit note…' }).click();
+  const sheet = page.getByRole('dialog', { name: 'New Credit Note' });
+  await sheet.getByLabel('Amount (£)').fill('10');
+  await sheet.getByLabel('Reason').fill('Spur moved, not replaced');
+  await expect(sheet.getByText('would then be owed £92.50')).toBeVisible();
+  await sheet.getByRole('button', { name: 'Save' }).click();
+
+  const cn = page.getByRole('dialog', { name: 'Draft Credit Note' });
+  await expect(cn.getByText('Owed once approved')).toBeVisible();
+  expect((await api.get(`/invoices/${inv.id}`)).balancePence).toBe(10250);
+  await cn.getByRole('button', { name: 'Approve Credit Note…' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Approve Credit Note' });
+  await expect(
+    confirm.getByText('Nothing is sent to the customer.', { exact: false }),
+  ).toBeVisible();
+  await confirm.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(page.getByText(/Credit note CN-\d+ approved · £10.00 off invoice/)).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await expect(page.getByLabel('Total £102.50')).toHaveText('£92.50');
+  const list = page.getByRole('list', { name: 'Credit notes' });
+  await expect(list.getByText('Approved')).toBeVisible();
+  expect((await api.get(`/invoices/${inv.id}`)).creditedPence).toBe(1000);
+});

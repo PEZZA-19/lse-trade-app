@@ -17,7 +17,7 @@ async function shot(page: Page, name: string, vp: string, scheme: string) {
 for (const vp of VIEWPORTS) {
   for (const scheme of SCHEMES) {
     test(`${vp.name} ${scheme}`, async ({ browser }) => {
-      test.setTimeout(360_000); // 42 screens per pass
+      test.setTimeout(360_000); // 44 screens per pass
       const ctx = await browser.newContext({
         viewport: { width: vp.width, height: vp.height },
         deviceScaleFactor: vp.scale,
@@ -179,6 +179,16 @@ for (const vp of VIEWPORTS) {
       await page.getByRole('button', { name: /Preview PDF/ }).click();
       await expect(page.getByRole('article', { name: /preview/ })).toBeVisible();
       await shot(page, '35-invoice-pdf', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: /Credit note CN-0001/ }).click();
+      await expect(page.getByRole('dialog', { name: 'Credit Note CN-0001' })).toBeVisible();
+      await shot(page, '43-credit-note', vp.name, scheme);
+      await page
+        .getByRole('button', { name: /Preview PDF/ })
+        .last()
+        .click();
+      await expect(page.getByRole('article', { name: /preview/ })).toBeVisible();
+      await shot(page, '44-credit-note-pdf', vp.name, scheme);
       await page.keyboard.press('Escape');
       await page.goto('/bills');
       await expect(page.getByRole('heading', { name: 'Supplier Bills', level: 1 })).toBeVisible();
