@@ -113,3 +113,36 @@ export const IconMore = (p: SVGProps<SVGSVGElement>) => (
     <path d="M6 12h.01M12 12h.01M18 12h.01" />
   </svg>
 );
+export const IconHome = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3.5 10.5 12 3.5l8.5 7" />
+    <path d="M5.5 9v10.5a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1V9" />
+  </svg>
+);
+export const IconCalendar = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+    <path d="M3.5 10h17M8 3v4M16 3v4" />
+  </svg>
+);
+export const IconMoreCircle = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 12h.01M12 12h.01M16 12h.01" strokeWidth={2.6} />
+  </svg>
+);
+export const IconPlay = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ fill: 'currentColor', stroke: 'none', ...p })}>
+    <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" />
+  </svg>
+);
+export const IconStop = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ fill: 'currentColor', stroke: 'none', ...p })}>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </svg>
+);
+export const IconChevronDown = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);

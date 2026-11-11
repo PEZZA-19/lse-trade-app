@@ -27,6 +27,6 @@ export async function signInThroughUi(page: Page, email = 'owner@lse.example') {
   const target = `${url.pathname}${url.hash}`;
   await page.goto(target);
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('heading', { name: 'Jobs', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
   return target;
 }

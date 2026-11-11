@@ -1,12 +1,29 @@
-import { NavLink, Outlet } from 'react-router';
+import { NavLink, Outlet, useLocation } from 'react-router';
 import { useMe } from '../api/hooks';
-import { IconCustomers, IconJobs, IconQuotes, IconSettings } from './icons';
+import {
+  IconCalendar,
+  IconCustomers,
+  IconHome,
+  IconJobs,
+  IconMoreCircle,
+  IconQuotes,
+  IconSettings,
+} from './icons';
 import { OfflineBanner } from './OfflineBanner';
 import { SyncBadge } from './SyncBadge';
 
+/** Phones: five tabs at most (Apple HIG); Customers and Settings live under More. */
 const TABS = [
+  { to: '/home', label: 'Home', Icon: IconHome },
   { to: '/jobs', label: 'Jobs', Icon: IconJobs },
+  { to: '/schedule', label: 'Schedule', Icon: IconCalendar },
   { to: '/quotes', label: 'Quotes', Icon: IconQuotes },
+  { to: '/more', label: 'More', Icon: IconMoreCircle },
+];
+const UNDER_MORE = ['/more', '/customers', '/settings', '/sync'];
+/** Desktop sidebar has room for everything. */
+const SIDEBAR = [
+  ...TABS.slice(0, 4),
   { to: '/customers', label: 'Customers', Icon: IconCustomers },
   { to: '/settings', label: 'Settings', Icon: IconSettings },
 ];
@@ -14,6 +31,8 @@ const TABS = [
 /** Sidebar on desktop and tablets in landscape; bottom tab bar on phones. */
 export function AppShell() {
   const me = useMe();
+  const { pathname } = useLocation();
+  const inMore = UNDER_MORE.some((p) => pathname.startsWith(p));
   return (
     <div className="shell">
       <nav className="sidebar" aria-label="Main">
@@ -21,7 +40,7 @@ export function AppShell() {
           <img src="/icon.svg" alt="" />
           <span>{me.data?.tenant.name ?? 'LSE Trade'}</span>
         </div>
-        {TABS.map(({ to, label, Icon }) => (
+        {SIDEBAR.map(({ to, label, Icon }) => (
           <NavLink key={to} to={to} className="sidebar__item">
             <Icon />
             {label}
@@ -36,7 +55,11 @@ export function AppShell() {
       </main>
       <nav className="tabbar" aria-label="Main">
         {TABS.map(({ to, label, Icon }) => (
-          <NavLink key={to} to={to} className="tabbar__item">
+          <NavLink
+            key={to}
+            to={to}
+            className={`tabbar__item${to === '/more' && inMore ? ' is-current' : ''}`}
+          >
             <Icon />
             {label}
           </NavLink>
@@ -54,7 +77,7 @@ function DemoBanner() {
         type="button"
         onClick={async () => {
           (await import('../demo/mockApi')).resetDemo();
-          window.location.assign('/jobs');
+          window.location.assign('/home');
         }}
       >
         Reset

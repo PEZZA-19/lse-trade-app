@@ -1,4 +1,9 @@
 import type {
+  AppointmentCreate,
+  AppointmentListItemDto,
+  AppointmentUpdate,
+  MemberDto,
+  RunningTimerDto,
   CustomerCreate,
   CustomerDetailDto,
   CustomerDto,
@@ -21,7 +26,7 @@ import type {
 } from '@lse/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { getOutbox, NeedsAttentionError, saveJob, saveQuote } from '../offline';
+import { getOutbox, NeedsAttentionError, saveJob, saveQuote, timerAction } from '../offline';
 import { persister } from '../offline/persist';
 import { api, ApiError, newIdempotencyKey, setCsrfToken } from './client';
 
@@ -362,6 +367,164 @@ export function useSetJobStage() {
         void qc.invalidateQueries({ queryKey: ['jobs'] });
         void qc.invalidateQueries({ queryKey: keys.job(v.id) }); // fresh history
         void qc.invalidateQueries({ queryKey: keys.stages }); // job counts
+      }
+    },
+  });
+}
+
+/* ------------------------- people, schedule, timer ------------------------- */
+
+export const useMembers = () =>
+  useQuery({
+    queryKey: ['members'],
+    queryFn: () => api<MemberDto[]>('GET', '/members'),
+    staleTime: 10 * 60_000,
+  });
+
+/** After anything that changes a job's appointments, assignees or timer. */
+function refreshJob(qc: ReturnType<typeof useQueryClient>, j: JobDetailDto) {
+  qc.setQueryData(keys.job(j.id), j);
+  void qc.invalidateQueries({ queryKey: ['jobs'] });
+  void qc.invalidateQueries({ queryKey: ['appointments'] });
+  void qc.invalidateQueries({ queryKey: keys.stages });
+}
+
+export function useAssign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ jobId, userId, remove }: { jobId: string; userId: string; remove?: boolean }) =>
+      remove
+        ? api<JobDetailDto>('DELETE', `/jobs/${jobId}/assignees/${userId}`)
+        : api<JobDetailDto>('POST', `/jobs/${jobId}/assignees`, { userId }),
+    onSuccess: (j) => refreshJob(qc, j),
+  });
+}
+
+export const appointmentKey = (from: string, to: string) => ['appointments', from, to] as const;
+
+export const useAppointments = (from: Date, to: Date) =>
+  useQuery({
+    queryKey: appointmentKey(from.toISOString(), to.toISOString()),
+    queryFn: ({ signal }) =>
+      api<AppointmentListItemDto[]>(
+        'GET',
+        `/appointments${qs({ from: from.toISOString(), to: to.toISOString() })}`,
+        undefined,
+        { signal },
+      ),
+    placeholderData: keepPreviousData,
+  });
+
+export function useCreateAppointment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ jobId, ...input }: AppointmentCreate & { jobId: string }) =>
+      api<JobDetailDto>('POST', `/jobs/${jobId}/appointments`, input),
+    onSuccess: (j) => refreshJob(qc, j),
+  });
+}
+
+/** Move/resize: the calendar updates at once and rolls back if the server refuses. */
+export function useMoveAppointment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: AppointmentUpdate & { id: string }) =>
+      api<AppointmentListItemDto>('PATCH', `/appointments/${id}`, input),
+    onMutate: async ({ id, startsAt, endsAt, userId }) => {
+      await qc.cancelQueries({ queryKey: ['appointments'] });
+      const snapshots = qc.getQueriesData<AppointmentListItemDto[]>({ queryKey: ['appointments'] });
+      for (const [key, list] of snapshots)
+        if (list)
+          qc.setQueryData(
+            key,
+            list.map((a) =>
+              a.id === id
+                ? {
+                    ...a,
+                    startsAt: new Date(startsAt).toISOString(),
+                    endsAt: new Date(endsAt).toISOString(),
+                    ...(userId !== undefined ? { userId } : {}),
+                  }
+                : a,
+            ),
+          );
+      return { snapshots };
+    },
+    onError: (_e, _v, ctx) => {
+      for (const [key, list] of ctx?.snapshots ?? []) qc.setQueryData(key, list);
+    },
+    onSettled: (a) => {
+      void qc.invalidateQueries({ queryKey: ['appointments'] });
+      if (a) void qc.invalidateQueries({ queryKey: keys.job(a.jobId) });
+    },
+  });
+}
+
+export function useDeleteAppointment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<JobDetailDto>('DELETE', `/appointments/${id}`),
+    onSuccess: (j) => refreshJob(qc, j),
+  });
+}
+
+export const useRunningTimer = () =>
+  useQuery({
+    queryKey: ['timer'],
+    queryFn: () => api<RunningTimerDto | null>('GET', '/timer'),
+  });
+
+/**
+ * Timer start/stop. Works offline: recorded on the device with the real time, shown at once, sent
+ * when there's signal. `switch` stops a timer running on another job first.
+ */
+export function useTimer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: {
+      job: { id: string; number: string; title: string };
+      action: 'start' | 'stop';
+      switch?: boolean;
+    }) => {
+      const at = new Date();
+      const previous = qc.getQueryData<RunningTimerDto | null>(['timer']);
+      const detail = qc.getQueryData<JobDetailDto>(keys.job(v.job.id));
+      const startedAt = at.toISOString();
+      const next: RunningTimerDto | null =
+        v.action === 'start'
+          ? { jobId: v.job.id, jobNumber: v.job.number, jobTitle: v.job.title, startedAt }
+          : null;
+      qc.setQueryData(['timer'], () => next);
+      if (detail)
+        qc.setQueryData<JobDetailDto>(keys.job(v.job.id), {
+          ...detail,
+          timerRunning: v.action === 'start',
+          timerStartedAt: v.action === 'start' ? startedAt : null,
+        });
+      if (previous && previous.jobId !== v.job.id) {
+        const other = qc.getQueryData<JobDetailDto>(keys.job(previous.jobId));
+        if (other)
+          qc.setQueryData<JobDetailDto>(keys.job(previous.jobId), {
+            ...other,
+            timerRunning: false,
+            timerStartedAt: null,
+          });
+      }
+      try {
+        return await timerAction(v.job, v.action, { switch: v.switch, at });
+      } catch (e) {
+        if (!(e instanceof NeedsAttentionError)) {
+          qc.setQueryData(['timer'], () => previous ?? null);
+          if (detail) qc.setQueryData(keys.job(v.job.id), detail);
+        }
+        throw e;
+      }
+    },
+    onSettled: (result, _e, v) => {
+      if (result === 'synced') {
+        void qc.invalidateQueries({ queryKey: ['timer'] });
+        void qc.invalidateQueries({ queryKey: keys.job(v.job.id) });
+        void qc.invalidateQueries({ queryKey: ['jobs'] });
       }
     },
   });

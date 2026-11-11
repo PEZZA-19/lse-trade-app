@@ -7,7 +7,7 @@ import { App } from './App';
 import { ToastProvider } from './components/Toast';
 import { ApiError } from './api/client';
 import { CACHE_MAX_AGE, persister } from './offline/persist';
-import { initOffline } from './offline';
+import { afterRestore, initOffline } from './offline';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/components.css';
@@ -33,11 +33,12 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={queryClient}
+      onSuccess={() => void afterRestore(queryClient)}
       persistOptions={{
         persister,
         maxAge: CACHE_MAX_AGE,
         // Bump when cached data shapes change, so an old cache is dropped rather than misread.
-        buster: 'v3', // v3: jobs carry `stage` instead of `status`
+        buster: 'v4', // v4: job timer, timesheets, assignees
         dehydrateOptions: {
           // Never persist "signed out", or the next launch would skip checking the session.
           shouldDehydrateQuery: (q) =>

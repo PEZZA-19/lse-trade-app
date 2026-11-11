@@ -1,11 +1,17 @@
-import { formatPence, formatQty, STAGE_CAUSE_LABEL } from '@lse/shared';
+import { formatMinutes, formatPence, formatQty, STAGE_CAUSE_LABEL } from '@lse/shared';
+import { useState } from 'react';
+import { Elapsed, TimerButton } from '../components/Timer';
+import { formatDayShort, formatRange, formatTime } from '../lib/dates';
+import { AppointmentSheet, type AppointmentSheetState } from './sheets/AppointmentSheet';
+import { AssignSheet } from './sheets/AssignSheet';
 import { useParams } from 'react-router';
-import { useJob, useJobStages } from '../api/hooks';
+import { useJob, useJobStages, useMembers } from '../api/hooks';
 import { StageDot, StagePill, useChangeStage } from '../components/Stage';
 import { formatDateTime } from './syncFormat';
-import { IconJobs, IconQuotes } from '../components/icons';
+import { IconCalendar, IconJobs, IconQuotes } from '../components/icons';
 import {
   Button,
+  ButtonRow,
   EmptyState,
   KeyValueRow,
   LinkRow,
@@ -16,7 +22,7 @@ import {
   SelectField,
   StaticRow,
 } from '../components/ui';
-import { LINE_KIND_LABEL } from '../lib/status';
+import { initials, LINE_KIND_LABEL } from '../lib/status';
 
 const PLACE = { sark: 'Sark', guernsey: 'Guernsey', other: 'Elsewhere' } as const;
 
@@ -24,6 +30,10 @@ export function JobScreen() {
   const { id = '' } = useParams();
   const job = useJob(id);
   const stages = useJobStages();
+  const members = useMembers();
+  const memberName = (id: string) => members.data?.find((m) => m.userId === id)?.name ?? 'Someone';
+  const [assigning, setAssigning] = useState(false);
+  const [booking, setBooking] = useState<AppointmentSheetState | null>(null);
   const { change, pendingId, set } = useChangeStage();
 
   if (job.isPending)
@@ -83,6 +93,111 @@ export function JobScreen() {
           </SelectField>
         </List>
       </Section>
+
+      <Section
+        header="Timer"
+        footer={
+          j.totalMinutes
+            ? `Total time on this job: ${formatMinutes(j.totalMinutes)}`
+            : 'Starting the timer moves the job to In Progress. Works with no signal.'
+        }
+      >
+        <List>
+          <li>
+            <div className="row">
+              <span className="row__main">
+                {j.timerRunning && j.timerStartedAt ? (
+                  <>
+                    <Elapsed startedAt={j.timerStartedAt} />
+                    <span className="row__sub">Started {formatTime(j.timerStartedAt)}</span>
+                  </>
+                ) : (
+                  <span className="row__title">Not running</span>
+                )}
+              </span>
+              <TimerButton compact job={j} />
+            </div>
+          </li>
+        </List>
+      </Section>
+
+      <Section header="Assigned to">
+        <List label="Assigned to">
+          {j.assignees.map((a) => (
+            <li key={a.userId}>
+              <StaticRow>
+                <span className="row__lead" aria-hidden>
+                  {initials(a.name)}
+                </span>
+                <span className="row__main">
+                  <span className="row__title">{a.name}</span>
+                </span>
+              </StaticRow>
+            </li>
+          ))}
+          <li>
+            <ButtonRow
+              onClick={() => setAssigning(true)}
+              title={
+                <span style={{ color: 'var(--accent)' }}>
+                  {j.assignees.length ? 'Change…' : 'Assign someone…'}
+                </span>
+              }
+            />
+          </li>
+        </List>
+      </Section>
+
+      <Section header="Appointments">
+        <List label="Appointments">
+          {j.appointments.map((a) => (
+            <li key={a.id}>
+              <ButtonRow
+                onClick={() =>
+                  setBooking({
+                    mode: 'edit',
+                    appointment: { ...a, jobNumber: j.number, jobTitle: j.title },
+                  })
+                }
+                lead={
+                  <IconCalendar
+                    width={22}
+                    height={22}
+                    color="var(--accent)"
+                    style={{ marginRight: 12 }}
+                  />
+                }
+                title={formatDayShort(new Date(a.startsAt))}
+                sub={`${formatRange(a.startsAt, a.endsAt)}${a.userId ? ` · ${memberName(a.userId)}` : ''}`}
+                chevron
+              />
+            </li>
+          ))}
+          <li>
+            <ButtonRow
+              onClick={() =>
+                setBooking({ mode: 'create', jobId: j.id, jobLabel: `job ${j.number}` })
+              }
+              title={<span style={{ color: 'var(--accent)' }}>Book appointment…</span>}
+            />
+          </li>
+        </List>
+      </Section>
+
+      {j.timesheets.length > 0 && (
+        <Section header="Time" footer={`${formatMinutes(j.totalMinutes)} in total`}>
+          <List label="Timesheet entries">
+            {j.timesheets.map((t) => (
+              <li key={t.id}>
+                <KeyValueRow
+                  label={`${formatDayShort(new Date(t.startedAt))} · ${formatRange(t.startedAt, t.endedAt)} · ${t.userName}`}
+                  value={formatMinutes(t.minutes)}
+                />
+              </li>
+            ))}
+          </List>
+        </Section>
+      )}
 
       <Section header="Customer">
         <List>
@@ -176,6 +291,8 @@ export function JobScreen() {
           </List>
         </Section>
       )}
+      <AssignSheet open={assigning} job={j} onClose={() => setAssigning(false)} />
+      <AppointmentSheet state={booking} onClose={() => setBooking(null)} />
     </Page>
   );
 }

@@ -18,11 +18,13 @@ export function Page(props: {
   subtitle?: ReactNode;
   back?: { label: string; to?: string };
   actions?: ReactNode;
+  /** Wider content on desktop (calendar). */
+  wide?: boolean;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
   return (
-    <div className="page">
+    <div className={props.wide ? 'page page--wide' : 'page'}>
       <div className="page__bar">
         {props.back && (
           <button

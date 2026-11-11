@@ -49,6 +49,17 @@ export function initOffline(qc: QueryClient) {
   return outbox;
 }
 
+/**
+ * After the cached data is restored from the device, refresh what's on screen, unless edits are
+ * still waiting to sync (then the outbox refreshes each record as it's delivered, and a refetch
+ * now would briefly show the server's older values over the person's own changes).
+ */
+export async function afterRestore(qc: QueryClient) {
+  if (!outbox) return;
+  await outbox.load();
+  if (outbox.getSnapshot().ops.length === 0) await qc.invalidateQueries();
+}
+
 export const getOutbox = () => {
   if (!outbox) throw new Error('initOffline() was not called');
   return outbox;

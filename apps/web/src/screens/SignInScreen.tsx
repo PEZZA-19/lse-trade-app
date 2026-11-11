@@ -11,7 +11,7 @@ export function SignInScreen() {
   const request = useRequestLink();
   const fieldError = request.error instanceof ApiError ? request.error.fields.email : undefined;
 
-  if (session.data) return <Navigate to="/jobs" replace />;
+  if (session.data) return <Navigate to="/home" replace />;
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -105,7 +105,7 @@ export function VerifyScreen() {
             large
             loading={verify.isPending || verify.isSuccess}
             onClick={() =>
-              verify.mutate(token, { onSuccess: () => navigate('/jobs', { replace: true }) })
+              verify.mutate(token, { onSuccess: () => navigate('/home', { replace: true }) })
             }
           >
             Continue

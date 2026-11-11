@@ -7,7 +7,10 @@ import { AppShell } from './components/AppShell';
 import { ListSkeleton } from './components/ui';
 import { CustomerScreen } from './screens/CustomerScreen';
 import { CustomersScreen } from './screens/CustomersScreen';
+import { HomeScreen } from './screens/HomeScreen';
 import { JobScreen } from './screens/JobScreen';
+import { MoreScreen } from './screens/MoreScreen';
+import { ScheduleScreen } from './screens/schedule/ScheduleScreen';
 import { JobsScreen } from './screens/JobsScreen';
 import { QuoteScreen } from './screens/QuoteScreen';
 import { QuotesScreen } from './screens/QuotesScreen';
@@ -39,7 +42,10 @@ export function App() {
       <Route path="sign-in/verify" element={<VerifyScreen />} />
       <Route element={<RequireSession />}>
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/jobs" replace />} />
+          <Route index element={<Navigate to="/home" replace />} />
+          <Route path="home" element={<HomeScreen />} />
+          <Route path="schedule" element={<ScheduleScreen />} />
+          <Route path="more" element={<MoreScreen />} />
           <Route path="jobs" element={<JobsScreen />} />
           <Route path="jobs/:id" element={<JobScreen />} />
           <Route path="quotes" element={<QuotesScreen />} />
@@ -48,7 +54,7 @@ export function App() {
           <Route path="customers/:id" element={<CustomerScreen />} />
           <Route path="settings" element={<SettingsScreen />} />
           <Route path="sync" element={<SyncScreen />} />
-          <Route path="*" element={<Navigate to="/jobs" replace />} />
+          <Route path="*" element={<Navigate to="/home" replace />} />
         </Route>
       </Route>
     </Routes>
