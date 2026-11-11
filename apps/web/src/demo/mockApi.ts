@@ -67,6 +67,7 @@ import {
 import type { z } from 'zod';
 import { ApiError } from '../api/client';
 import { billsRoute } from './mockBills';
+import { freshInbox, inboxRoute, type InboxDb } from './mockInbox';
 import { billingRoute, freshBilling, type BillingCtx, type BillingDb } from './mockBilling';
 // Joe's own logo (his choice to show it in the preview); cleaned by tools/logo.py.
 import demoLogo from '../../../../assets/lse-logo.png?inline';
@@ -146,6 +147,7 @@ interface Db {
   /** Added after v1 shipped; filled in on load if missing. */
   settings?: DemoSettings;
   billing?: BillingDb;
+  inbox?: InboxDb;
 }
 type DemoSettings = Omit<SettingsDto, 'sequences'> & {
   numbering: Record<SequenceDto['kind'], { prefix: string; padding: number }>;
@@ -606,6 +608,29 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     (a === 'quotes' || a === 'invoices' || a === 'credit-notes')
   )
     return documentFor(a, id!);
+  const inbox = inboxRoute(
+    {
+      db: (db!.inbox ??= freshInbox()),
+      call: (m, p, b) => {
+        const u = new URL(p, 'http://demo');
+        return route(m, u.pathname, u.searchParams, b);
+      },
+      fail,
+      parse,
+      uid,
+      now,
+      userName: DEMO_USER.name,
+      ifMatch: () => {
+        const v = headers['if-match'];
+        return v ? Number(v.replace(/"/g, '')) : undefined;
+      },
+    },
+    method,
+    seg,
+    query,
+    body,
+  );
+  if (inbox !== undefined) return inbox;
   const bills = billsRoute(billingCtx(), method, seg, query, body);
   if (bills !== undefined) return bills;
   const billed = billingRoute(billingCtx(), method, seg, query, body);
@@ -1107,7 +1132,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       return null;
     }
   }
-  return fail(404, 'not_found', 'No such endpoint');
+  return fail(404, 'not_found', 'No such endpoint', { method, path });
 }
 
 function fresh(): Db {
@@ -1137,8 +1162,10 @@ async function ready() {
   }
   seeding ??= (async () => {
     db = fresh();
-    const call = (m: string) => async (p: string, b?: unknown) =>
-      structuredClone(route(m, p, new URLSearchParams(), b));
+    const call = (m: string) => async (p: string, b?: unknown) => {
+      const u = new URL(p, 'http://demo');
+      return structuredClone(route(m, u.pathname, u.searchParams, b));
+    };
     await runDemoScript(call('POST'), call('PATCH'), call('GET'));
     save();
   })();

@@ -460,6 +460,27 @@ export async function runDemoScript(post: Post, patch: Patch, get?: Get): Promis
       notes: 'Trade counter opens 7:30. Boat order by Tuesday noon for Thursday.',
     });
 
+  // Enquiries (fictional): two to do, and the AI helper's drafts waiting in Approvals.
+  const gate = await post('/enquiries', {
+    source: 'email',
+    name: 'Robin Demo',
+    email: 'robin@example.test',
+    phone: '07700 900333',
+    address: 'La Ville Roussel, Sark (fictional)',
+    message: 'The outside light by the gate has stopped working. Could you have a look this week?',
+  });
+  await post('/enquiries', {
+    source: 'phone',
+    name: 'Harbour Café (demo)',
+    phone: '01481 000 222',
+    message: 'Two extra double sockets behind the counter, please. Quote first.',
+  });
+  await post(`/enquiries/${gate.id}/draft-reply`);
+  // The draft bill's new costs, suggested as a price update for the owner to approve.
+  const drafts: { id: string }[] = get ? await get('/supplier-bills?status=draft') : [];
+  if (drafts[0])
+    await post(`/supplier-bills/${drafts[0].id}/suggest-prices`).catch(() => undefined);
+
   // On site at the barn now: starting the timer moves job 122 to In Progress (automatic).
   await post(`/jobs/${job122.id}/timer/start`, { at: ago(95) });
 }

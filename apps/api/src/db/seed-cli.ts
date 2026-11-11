@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runDemoScript } from '@lse/shared';
 import { createApp } from '../app';
+import { AiGateway } from '../ai/gateway';
+import { FakeProvider } from '../ai/fake';
 import { DEFAULT_ORIGIN, signIn } from '../dev/session-client';
 import { ConsoleMailer } from '../lib/mailer';
 import { createSql } from './client';
@@ -46,7 +48,12 @@ try {
       },
     });
     const mailer = new ConsoleMailer(() => {});
-    const app = createApp({ getSql: () => appSql, auth: { mailer, appOrigin: DEFAULT_ORIGIN } });
+    // Drafts in the demo come from the deterministic fake model: no real AI call.
+    const app = createApp({
+      getSql: () => appSql,
+      auth: { mailer, appOrigin: DEFAULT_ORIGIN },
+      ai: new AiGateway(new FakeProvider()),
+    });
     const client = await signIn(app, mailer, 'owner@lse.example');
     const call = async (method: string, p: string, body?: unknown) => {
       const res = await client.request(method, `/api${p}`, body);
