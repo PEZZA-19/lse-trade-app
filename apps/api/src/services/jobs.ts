@@ -250,7 +250,7 @@ export async function updateJob(
 
 /* ----------- assignment, appointments, timer: minimal, but they drive the stages ----------- */
 
-const lockJob = async (tx: Tx, id: string) => {
+export const lockJob = async (tx: Tx, id: string) => {
   const [j] = await tx`SELECT 1 FROM jobs WHERE id = ${id} FOR UPDATE`;
   if (!j) throw notFound('Job');
 };

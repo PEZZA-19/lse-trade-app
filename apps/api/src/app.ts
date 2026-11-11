@@ -39,6 +39,12 @@ import {
   proposalEdit,
   reportQuery,
   memberCostUpdate,
+  timesheetCreate,
+  timesheetUpdate,
+  jobLineCreate,
+  jobLineUpdate,
+  jobNoteCreate,
+  photoUpload,
   supplierInput,
   supplierUpdate,
   type ApiErrorBody,
@@ -57,6 +63,8 @@ import {
   type RateLimit,
 } from './auth';
 import { StubTurnstile, type TurnstileVerifier } from './lib/turnstile';
+import { MemoryBlobs, type BlobStore } from './lib/blobs';
+import * as jobDetail from './services/jobDetail';
 import * as enquiries from './services/enquiries';
 import * as proposals from './services/proposals';
 import type { MessageSender } from './lib/messages';
@@ -96,6 +104,8 @@ export interface AppDeps {
   sender?: MessageSender;
   /** Seconds an approved email waits (Stop button). Two minutes outside tests. */
   holdSeconds?: number;
+  /** Job photo files (R2 in production once a bucket exists). Defaults to in-memory for dev and tests. */
+  blobs?: BlobStore;
 }
 
 /** `If-Match: 7` or `If-Match: "7"` -> 7. Absent means "don't check" (online edits from the latest copy). */
@@ -117,6 +127,7 @@ const uuidParam = (c: Context, name = 'id'): string => {
 export function createApp(deps: AppDeps) {
   const app = new Hono<AppEnv>();
   const ai = deps.ai ?? new AiGateway(null);
+  const blobs = deps.blobs ?? new MemoryBlobs();
 
   app.onError((err, c) => {
     if (err instanceof AppError) {
@@ -770,6 +781,75 @@ export function createApp(deps: AppDeps) {
     ownerOnly(c, 'see the reports');
     const q = parse(reportQuery, { from: c.req.query('from'), to: c.req.query('to') });
     return c.json(await c.var.tx((tx) => reports.getReports(tx, q)));
+  });
+
+  /* ------------- job detail: time and materials by hand, notes, photos ------------- */
+  app.post('/api/jobs/:id/timesheets', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(timesheetCreate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => jobDetail.addTimesheet(tx, c.var.auth, id, input)), 201);
+  });
+  app.patch('/api/timesheets/:id', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(timesheetUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => jobDetail.updateTimesheet(tx, c.var.auth, id, input)));
+  });
+  app.delete('/api/timesheets/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobDetail.deleteTimesheet(tx, c.var.auth, id)));
+  });
+  app.post('/api/jobs/:id/lines', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(jobLineCreate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => jobDetail.addJobLine(tx, c.var.auth, id, input)), 201);
+  });
+  app.patch('/api/job-lines/:id', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(jobLineUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => jobDetail.updateJobLine(tx, c.var.auth, id, input)));
+  });
+  app.delete('/api/job-lines/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobDetail.deleteJobLine(tx, c.var.auth, id)));
+  });
+  app.get('/api/jobs/:id/notes', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobDetail.listNotes(tx, id)));
+  });
+  app.post('/api/jobs/:id/notes', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(jobNoteCreate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => jobDetail.addNote(tx, c.var.auth, id, input)), 201);
+  });
+  app.delete('/api/notes/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobDetail.deleteNote(tx, c.var.auth, id)));
+  });
+  app.get('/api/jobs/:id/photos', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobDetail.listPhotos(tx, id)));
+  });
+  app.post('/api/jobs/:id/photos', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(photoUpload, await jsonBody(c.req));
+    return c.json(
+      await c.var.tx((tx) => jobDetail.addPhoto(tx, c.var.auth, blobs, id, input)),
+      201,
+    );
+  });
+  app.get('/api/photos/:id', async (c) => {
+    const id = uuidParam(c);
+    const f = await c.var.tx((tx) => jobDetail.photoFile(tx, blobs, id));
+    return c.body(new Uint8Array(f.bytes), 200, {
+      'Content-Type': f.contentType,
+      'Cache-Control': 'private, max-age=86400, immutable',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'",
+    });
+  });
+  app.delete('/api/photos/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobDetail.deletePhoto(tx, c.var.auth, blobs, id)));
   });
 
   /* --------------------------- team and costs -------------------------- */

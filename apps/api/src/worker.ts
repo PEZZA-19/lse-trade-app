@@ -2,6 +2,7 @@
 import { createApp } from './app';
 import { createSql, type Sql } from './db/client';
 import { UnconfiguredMailer } from './lib/mailer';
+import { UnconfiguredBlobs } from './lib/blobs';
 import { AiGateway } from './ai/gateway';
 import { FakeProvider } from './ai/fake';
 
@@ -21,6 +22,8 @@ export default {
       getSql: () => (sql ??= createSql(env.HYPERDRIVE.connectionString, { max: 5 })),
       // No email provider is wired up yet: sign-in requests fail loudly rather than pretend.
       auth: { mailer: new UnconfiguredMailer(), appOrigin: env.APP_ORIGIN },
+      // No R2 bucket yet: photo uploads answer "storage not set up" instead of losing files.
+      blobs: new UnconfiguredBlobs(),
       ai: new AiGateway(env.AI_PROVIDER === 'fake' ? new FakeProvider() : null),
     });
     try {
