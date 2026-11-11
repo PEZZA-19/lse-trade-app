@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "build:preview": "tsc -p tsconfig.json && vite build --mode demo --outDir dist-preview",
     "preview:static": "vite preview --outDir dist-preview --port 4174 --host 127.0.0.1",
-    "screenshots": "pnpm build:preview && playwright test -c playwright.screens.config.ts"
+    "screenshots": "pnpm build:preview && playwright test -c playwright.screens.config.ts",
+    "test:e2e:pwa": "vite build && playwright test -c playwright.pwa.config.ts"
   },
   "dependencies": {
     "@lse/shared": "workspace:*",

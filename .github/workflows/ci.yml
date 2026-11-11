@@ -20,3 +20,4 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
       - run: pnpm test:e2e
+      - run: pnpm --filter @lse/web test:e2e:pwa
