@@ -133,6 +133,18 @@ export const useReadiness = () =>
     queryFn: () => api<ReadinessDto>('GET', '/settings/readiness'),
   });
 
+/** Owner sets (data URL) or removes (null) the business logo. */
+export function useSetLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dataUrl: string | null) =>
+      dataUrl
+        ? api<SettingsDto>('PUT', '/settings/logo', { dataUrl })
+        : api<SettingsDto>('DELETE', '/settings/logo'),
+    onSuccess: (s) => qc.setQueryData(keys.settings, s),
+  });
+}
+
 export const useUpdateSettings = () => {
   const qc = useQueryClient();
   return useMutation({

@@ -87,7 +87,39 @@ export interface SettingsDto {
   bankAccountNumber: string | null;
   currency: string;
   timezone: string;
+  /** PNG or JPEG data URL; null shows the business initials instead. */
+  logoDataUrl: string | null;
   sequences: SequenceDto[];
+}
+
+/** Largest logo upload (the app resizes to 600 px first, so real logos are far smaller). */
+export const LOGO_MAX_BYTES = 280_000;
+export const logoUpload = z.object({
+  dataUrl: z
+    .string()
+    .max(400_000, 'That image is too large. Use one under 280 KB.')
+    .regex(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG or JPEG image'),
+});
+
+/** Checks the bytes really are a PNG or JPEG (not just the label). Works in Workers and browsers. */
+export function logoBytes(
+  dataUrl: string,
+): { mime: 'image/png' | 'image/jpeg'; bytes: Uint8Array } | null {
+  const m = /^data:(image\/(?:png|jpeg));base64,(.+)$/.exec(dataUrl);
+  if (!m) return null;
+  let bin: string;
+  try {
+    bin = atob(m[2]!);
+  } catch {
+    return null;
+  }
+  const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+  const jpg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (m[1] === 'image/png' && !png) return null;
+  if (m[1] === 'image/jpeg' && !jpg) return null;
+  if (bytes.length > LOGO_MAX_BYTES) return null;
+  return { mime: m[1] as 'image/png' | 'image/jpeg', bytes };
 }
 
 export interface MissingItem {

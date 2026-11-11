@@ -1,6 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
-import { client, seedCustomer, type Client } from './api-helpers';
+import { client, clientFor, seedCustomer, type Client } from './api-helpers';
+import { addMember } from './helpers';
 
 async function quoteAndJob(c: Client) {
   await c.req('PATCH', '/api/settings', {
@@ -126,5 +127,32 @@ describe('documents', () => {
     const { q } = await quoteAndJob(a);
     expect((await b.req('GET', `/api/quotes/${q.id}/document`)).status).toBe(404);
     expect((await pdf(b, `/api/quotes/${q.id}/pdf`)).res.status).toBe(404);
+  });
+});
+
+describe('business logo', () => {
+  // 1x1 transparent PNG.
+  const PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+  it('the owner sets a logo; it goes on documents; fakes and staff are refused', async () => {
+    const c = await client();
+    const fake = await c.req('PUT', '/api/settings/logo', {
+      dataUrl: `data:image/png;base64,${btoa('<svg onload=alert(1)>')}`,
+    });
+    expect(fake.status).toBe(422);
+    const ok = await c.req('PUT', '/api/settings/logo', { dataUrl: PNG });
+    expect(ok.status).toBe(200);
+    expect(ok.body.logoDataUrl).toBe(PNG);
+    const { q } = await quoteAndJob(c);
+    const d = (await c.req('GET', `/api/quotes/${q.id}/document`)).body;
+    expect(d.business.logoDataUrl).toBe(PNG);
+    const { res, bytes } = await pdf(c, `/api/quotes/${q.id}/pdf`);
+    expect(res.status).toBe(200);
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+    const staff = await clientFor(await addMember(c.tenantId, 'staff'), c);
+    expect((await staff.req('DELETE', '/api/settings/logo')).status).toBe(403);
+    const gone = await c.req('DELETE', '/api/settings/logo');
+    expect(gone.body.logoDataUrl).toBeNull();
   });
 });

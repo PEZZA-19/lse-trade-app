@@ -3,7 +3,16 @@
  * Cloudflare Worker (server-side PDFs) and in the browser (the offline/demo preview). A4, built-in
  * Helvetica, no vendor footer. Long documents flow onto more pages with the table heading repeated.
  */
-import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import {
+  PDFDocument,
+  StandardFonts,
+  degrees,
+  rgb,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+} from 'pdf-lib';
+import { logoBytes } from './settings';
 import type { BusinessDocument, DocSection } from './documents';
 
 const A4: [number, number] = [595.28, 841.89];
@@ -71,6 +80,7 @@ interface Ctx {
   regular: PDFFont;
   bold: PDFFont;
   doc: BusinessDocument;
+  logo: PDFImage | null;
 }
 
 function text(
@@ -176,27 +186,36 @@ function drawSection(c: Ctx, s: DocSection) {
 function drawHeader(c: Ctx) {
   const d = c.doc;
   const top = A4[1] - M;
-  // Logo: the business's initials in a brand square (an uploaded logo replaces this later).
-  c.page.drawRectangle({ x: M, y: top - 40, width: 44, height: 44, color: BRAND });
-  const ini = pdfSafe(d.business.initials);
-  const iniSize = ini.length > 2 ? 15 : 18;
-  text(c, ini, M + 22 - c.bold.widthOfTextAtSize(ini, iniSize) / 2, top - 24, {
-    size: iniSize,
-    bold: true,
-    color: rgb(1, 1, 1),
-  });
+  // Logo: the uploaded logo (fitted in a 76 x 48 box), else the initials in a brand square.
+  let textX = M + 56;
+  if (c.logo) {
+    const k = Math.min(76 / c.logo.width, 48 / c.logo.height);
+    const w = c.logo.width * k;
+    const h = c.logo.height * k;
+    c.page.drawImage(c.logo, { x: M, y: top - h + 4, width: w, height: h });
+    textX = M + w + 12;
+  } else {
+    c.page.drawRectangle({ x: M, y: top - 40, width: 44, height: 44, color: BRAND });
+    const ini = pdfSafe(d.business.initials);
+    const iniSize = ini.length > 2 ? 15 : 18;
+    text(c, ini, M + 22 - c.bold.widthOfTextAtSize(ini, iniSize) / 2, top - 24, {
+      size: iniSize,
+      bold: true,
+      color: rgb(1, 1, 1),
+    });
+  }
   let y = top - 4;
-  text(c, d.business.name, M + 56, y, { size: 14, bold: true });
+  text(c, d.business.name, textX, y, { size: 14, bold: true });
   y -= 14;
   const contact = [...d.business.addressLines];
   if (d.business.email) contact.push(d.business.email);
   if (d.business.phone) contact.push(d.business.phone);
   for (const line of contact) {
-    text(c, line, M + 56, y, { size: 9, color: MUTED });
+    text(c, line, textX, y, { size: 9, color: MUTED });
     y -= 11.5;
   }
   if (d.business.legalName) {
-    text(c, d.business.legalName, M + 56, y, { size: 8, color: MUTED });
+    text(c, d.business.legalName, textX, y, { size: 8, color: MUTED });
     y -= 11;
   }
   // Right: title, number, dates.
@@ -316,6 +335,17 @@ function drawFooterBlocks(c: Ctx) {
   }
 }
 
+/** A bad or unreadable logo never stops a document: it falls back to the initials. */
+async function embedLogo(pdf: PDFDocument, dataUrl: string | null | undefined) {
+  const img = dataUrl ? logoBytes(dataUrl) : null;
+  if (!img) return null;
+  try {
+    return img.mime === 'image/png' ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
+  } catch {
+    return null;
+  }
+}
+
 export async function renderPdf(doc: BusinessDocument): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(pdfSafe(`${doc.title} ${doc.number}`));
@@ -329,6 +359,7 @@ export async function renderPdf(doc: BusinessDocument): Promise<Uint8Array> {
     regular: await pdf.embedFont(StandardFonts.Helvetica),
     bold: await pdf.embedFont(StandardFonts.HelveticaBold),
     doc,
+    logo: await embedLogo(pdf, doc.business.logoDataUrl),
   };
   watermark(c);
   drawHeader(c);

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 // Seeds the LOCAL dev database with the LSE business and clearly fictional demo data.
 // Never point this at production: it refuses unless the database is on localhost.
 // `pnpm db:seed -- --reset` rebuilds the local database and seeds it again.
@@ -52,6 +53,11 @@ try {
       if (!res.ok) throw new Error(`${method} ${p}: ${res.status} ${await res.text()}`);
       return res.json();
     };
+    // Joe's own logo (cleaned copy of assets-in/lse-logo.jpg, see tools/logo.py).
+    const logo = await readFile(path.resolve(here, '../../../../assets/lse-logo.png'));
+    await call('PUT', '/settings/logo', {
+      dataUrl: `data:image/png;base64,${logo.toString('base64')}`,
+    });
     await runDemoScript(
       (p, b) => call('POST', p, b),
       (p, b) => call('PATCH', p, b),

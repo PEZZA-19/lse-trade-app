@@ -68,6 +68,8 @@ import type { z } from 'zod';
 import { ApiError } from '../api/client';
 import { billsRoute } from './mockBills';
 import { billingRoute, freshBilling, type BillingCtx, type BillingDb } from './mockBilling';
+// Joe's own logo (his choice to show it in the preview); cleaned by tools/logo.py.
+import demoLogo from '../../../../assets/lse-logo.png?inline';
 
 type LineIn = z.output<typeof quoteCreate>['lines'][number];
 interface Rev {
@@ -150,6 +152,7 @@ type DemoSettings = Omit<SettingsDto, 'sequences'> & {
   seqExtra: { invoice: number; credit_note: number };
 };
 const defaultSettings = (): DemoSettings => ({
+  logoDataUrl: demoLogo,
   name: 'Little Sark Electric',
   legalName: null,
   address: 'Demo Workshop, Little Sark (fictional)',
@@ -179,7 +182,7 @@ const S = () => (db!.settings ??= defaultSettings());
 const fmt = (kind: SequenceDto['kind'], value: number) =>
   formatDocNumber(S().numbering[kind].prefix, S().numbering[kind].padding, value);
 
-const KEY = 'lse-demo-db-v5'; // v5: suppliers and supplier bills
+const KEY = 'lse-demo-db-v6'; // v6: logo, credit notes
 let db: Db | null = null;
 let seeding: Promise<void> | null = null;
 

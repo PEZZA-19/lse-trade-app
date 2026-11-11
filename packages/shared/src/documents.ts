@@ -56,6 +56,8 @@ export interface BusinessDocument {
     name: string;
     legalName: string | null;
     initials: string;
+    /** PNG/JPEG data URL shown instead of the initials square. */
+    logoDataUrl: string | null;
     addressLines: string[];
     email: string | null;
     phone: string | null;
@@ -91,7 +93,7 @@ type Business = Pick<
   | 'bankAccountNumber'
   | 'quoteTerms'
   | 'invoiceTerms'
->;
+> & { logoDataUrl?: string | null };
 
 export function splitLines(text: string | null | undefined): string[] {
   if (!text) return [];
@@ -127,6 +129,7 @@ function businessBlock(s: Business): BusinessDocument['business'] {
     name: s.name,
     legalName: s.legalName && s.legalName !== s.name ? s.legalName : null,
     initials: initialsOf(s.name),
+    logoDataUrl: s.logoDataUrl ?? null,
     addressLines: splitLines(s.address),
     email: s.email,
     phone: s.phone,

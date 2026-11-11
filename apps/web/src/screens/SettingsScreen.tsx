@@ -10,7 +10,16 @@ import {
 } from '@lse/shared';
 import { useMemo, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
-import { useReadiness, useSession, useSettings, useSignOut, useUpdateSettings } from '../api/hooks';
+import {
+  useReadiness,
+  useSession,
+  useSetLogo,
+  useSettings,
+  useSignOut,
+  useUpdateSettings,
+} from '../api/hooks';
+import { resizeLogo } from '../lib/image';
+import { useToast } from '../components/Toast';
 import { SaveStatus } from '../components/SaveStatus';
 import { JobStagesSection } from './JobStagesSection';
 import { useSync } from '../offline';
@@ -203,6 +212,7 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
           {missing.map((m) => m.label.toLowerCase()).join(', ')}.
         </p>
       )}
+      <LogoSection logo={initial.logoDataUrl} name={initial.name} isOwner={isOwner} />
       <fieldset disabled={!isOwner} style={{ border: 0, padding: 0, margin: 0 }}>
         <Section header="Business" footer="Shown on quotes and invoices.">
           <List className="form-list">
@@ -425,6 +435,87 @@ function AccountSection() {
       <Button variant="destructive" block loading={signOut.isPending} onClick={onSignOut}>
         {confirming && unsynced ? 'Sign out and discard' : 'Sign out'}
       </Button>
+    </Section>
+  );
+}
+
+/** Logo on quotes, invoices and credit notes. Resized on the device; saved straight away. */
+function LogoSection(props: { logo: string | null; name: string; isOwner: boolean }) {
+  const setLogo = useSetLogo();
+  const toast = useToast();
+  const [error, setError] = useState<string | null>(null);
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      const dataUrl = await resizeLogo(file);
+      setLogo.mutate(dataUrl, {
+        onSuccess: () => toast.show('Logo saved · shown on new PDFs'),
+        onError: (e) => setError(e.message),
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <Section
+      header="Logo"
+      footer={
+        props.logo
+          ? 'Shown at the top of quotes, invoices and credit notes.'
+          : 'Without a logo, documents show your initials in a blue square.'
+      }
+    >
+      <List>
+        <li>
+          <div className="row logo-row">
+            {props.logo ? (
+              <img className="logo-row__img" src={props.logo} alt={`${props.name} logo`} />
+            ) : (
+              <span className="row__title" style={{ color: 'var(--label-2)' }}>
+                No logo yet
+              </span>
+            )}
+          </div>
+        </li>
+        {props.isOwner && (
+          <li>
+            <label className="row row--button" style={{ cursor: 'pointer' }}>
+              <span className="row__title" style={{ color: 'var(--accent)' }}>
+                {setLogo.isPending ? 'Saving…' : props.logo ? 'Change Logo…' : 'Choose Logo…'}
+              </span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                hidden
+                aria-label="Logo image"
+                onChange={(e) => {
+                  void pick(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </li>
+        )}
+        {props.isOwner && props.logo && (
+          <li>
+            <button
+              type="button"
+              className="row"
+              onClick={() => setLogo.mutate(null, { onSuccess: () => toast.show('Logo removed') })}
+            >
+              <span className="row__title" style={{ color: 'var(--red)' }}>
+                Remove Logo
+              </span>
+            </button>
+          </li>
+        )}
+      </List>
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
     </Section>
   );
 }

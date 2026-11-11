@@ -16,9 +16,13 @@ export function DocumentView({ doc }: { doc: BusinessDocument }) {
       )}
       <header className="paper__head">
         <div className="paper__from">
-          <div className="paper__logo" aria-hidden>
-            {b.initials}
-          </div>
+          {b.logoDataUrl ? (
+            <img className="paper__logo-img" src={b.logoDataUrl} alt={`${b.name} logo`} />
+          ) : (
+            <div className="paper__logo" aria-hidden>
+              {b.initials}
+            </div>
+          )}
           <div>
             <div className="paper__biz">{b.name}</div>
             {[...b.addressLines, b.email, b.phone].filter(Boolean).map((l) => (

@@ -1,5 +1,6 @@
 import {
   creditNoteCreate,
+  logoUpload,
   contactInput,
   customerCreate,
   customerUpdate,
@@ -139,6 +140,17 @@ export function createApp(deps: AppDeps) {
   app.get('/api/settings/readiness', async (c) =>
     c.json(await c.var.tx((tx) => settings.getReadiness(tx))),
   );
+  app.put('/api/settings/logo', async (c) => {
+    if (c.var.auth.role !== 'owner')
+      throw new AppError(403, 'forbidden', 'Only the business owner can change the logo');
+    const { dataUrl } = parse(logoUpload, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => settings.setLogo(tx, c.var.auth, dataUrl)));
+  });
+  app.delete('/api/settings/logo', async (c) => {
+    if (c.var.auth.role !== 'owner')
+      throw new AppError(403, 'forbidden', 'Only the business owner can change the logo');
+    return c.json(await c.var.tx((tx) => settings.setLogo(tx, c.var.auth, null)));
+  });
   app.patch('/api/settings', async (c) => {
     if (c.var.auth.role !== 'owner') {
       throw new AppError(403, 'forbidden', 'Only the business owner can change settings');

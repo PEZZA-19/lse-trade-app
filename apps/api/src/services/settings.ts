@@ -1,5 +1,11 @@
 import type { settingsUpdate } from '@lse/shared';
-import { readiness, type ReadinessDto, type SequenceDto, type SettingsDto } from '@lse/shared';
+import {
+  logoBytes,
+  readiness,
+  type ReadinessDto,
+  type SequenceDto,
+  type SettingsDto,
+} from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
 import { AppError, invalid } from '../lib/errors';
@@ -23,7 +29,7 @@ export async function getSettings(tx: Tx): Promise<SettingsDto> {
   const [t] = await tx<Omit<SettingsDto, 'sequences'>[]>`
     SELECT name, legal_name, address, phone, email, labour_rate_pence, default_markup_bp, quote_valid_days,
            payment_terms_days, tax_rate_bp, quote_terms, invoice_terms, bank_account_name, bank_sort_code,
-           bank_account_number, currency, timezone
+           bank_account_number, currency, timezone, logo_data_url
       FROM tenants WHERE id = app_current_tenant()`;
   if (!t) throw new AppError(403, 'forbidden', 'No business selected');
   const seqs = await tx<Omit<SequenceDto, 'lastUsed'>[]>`
@@ -118,4 +124,24 @@ export async function updateSettings(
   }
   await audit(tx, auth, 'settings.update', 'tenant', auth.tenantId, { changed });
   return after;
+}
+
+/** Owner uploads the business logo (already resized on the device). Bytes are checked, not just the label. */
+export async function setLogo(tx: Tx, auth: Auth, dataUrl: string | null): Promise<SettingsDto> {
+  if (dataUrl !== null && !logoBytes(dataUrl))
+    throw invalid('That file isn’t a PNG or JPEG image under 280 KB.', {
+      fields: { dataUrl: 'Use a PNG or JPEG under 280 KB' },
+    });
+  await tx`UPDATE tenants SET logo_data_url = ${dataUrl}, updated_at = now() WHERE id = app_current_tenant()`;
+  await audit(
+    tx,
+    auth,
+    dataUrl ? 'settings.logo_set' : 'settings.logo_removed',
+    'tenant',
+    auth.tenantId,
+    {
+      bytes: dataUrl ? logoBytes(dataUrl)!.bytes.length : 0,
+    },
+  );
+  return getSettings(tx);
 }

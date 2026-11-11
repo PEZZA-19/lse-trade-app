@@ -1492,6 +1492,13 @@ select.field__input {
   display: flex;
   gap: calc(var(--pt) * 12);
 }
+.paper__logo-img {
+  flex: none;
+  max-width: calc(var(--pt) * 76);
+  max-height: calc(var(--pt) * 48);
+  object-fit: contain;
+  object-position: left top;
+}
 .paper__logo {
   display: grid;
   flex: none;
@@ -1705,4 +1712,18 @@ select.field__input {
 }
 .switch:focus-visible {
   box-shadow: var(--focus-ring);
+}
+
+/* Settings: logo preview on a white tile so it looks as it will on paper, in dark mode too. */
+.logo-row {
+  justify-content: center;
+  padding-block: var(--space-3);
+}
+.logo-row__img {
+  max-width: 180px;
+  max-height: 96px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm, 8px);
+  background: #fff;
+  object-fit: contain;
 }

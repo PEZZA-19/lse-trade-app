@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import type { QuoteDetailDto } from '../src/dto';
@@ -378,5 +378,24 @@ describe('renderPdf', () => {
     const bytes = await renderPdf(quoteDocument(quote(), business, to, '2026-11-11'));
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
     if (process.env.PDF_OUT) writeFileSync(`${process.env.PDF_OUT}/quote.pdf`, bytes);
+  });
+});
+
+describe('logo on documents', () => {
+  const logo = `data:image/png;base64,${readFileSync(new URL('../../../assets/lse-logo.png', import.meta.url)).toString('base64')}`;
+
+  it('uses the uploaded logo instead of the initials, and survives a broken one', async () => {
+    const doc = invoiceDocument(invoice(), { ...business, logoDataUrl: logo });
+    expect(doc.business.logoDataUrl).toBe(logo);
+    const bytes = await renderPdf(doc);
+    if (process.env.PDF_OUT) writeFileSync(`${process.env.PDF_OUT}/logo.pdf`, bytes);
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPageCount()).toBe(1);
+    // An image XObject is embedded.
+    expect(new TextDecoder('latin1').decode(bytes)).toContain('/Subtype /Image');
+    const broken = await renderPdf(
+      invoiceDocument(invoice(), { ...business, logoDataUrl: 'data:image/png;base64,AAAA' }),
+    );
+    expect((await PDFDocument.load(broken)).getPageCount()).toBe(1);
   });
 });
