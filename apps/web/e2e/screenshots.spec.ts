@@ -65,6 +65,10 @@ for (const vp of VIEWPORTS) {
       await page.getByRole('button', { name: 'New quote' }).click();
       await expect(page.getByRole('dialog', { name: 'New Quote' })).toBeVisible();
       await shot(page, '09-new-quote-sheet', vp.name, scheme);
+
+      await page.goto('/settings');
+      await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');
+      await shot(page, '10-settings', vp.name, scheme);
       await ctx.close();
     });
   }
