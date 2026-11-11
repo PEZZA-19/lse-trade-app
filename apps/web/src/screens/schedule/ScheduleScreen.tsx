@@ -167,9 +167,15 @@ export function ScheduleScreen() {
         />
       )}
       <p className="section__footer cal-hint">
-        Tap an empty time to book. Tap an appointment to change or delete it
-        <span className="touch-only">; press and hold, then drag, to move it</span>
-        <span className="pointer-only">, or drag it to move</span>.
+        {view === 'month' ? (
+          'Tap a day to open it.'
+        ) : (
+          <>
+            Tap an empty time to book. Tap an appointment to change or delete it
+            <span className="touch-only">; press and hold, then drag, to move it</span>
+            <span className="pointer-only">, or drag it to move</span>.
+          </>
+        )}
       </p>
       <AppointmentSheet state={sheet} onClose={() => setSheet(null)} />
     </Page>

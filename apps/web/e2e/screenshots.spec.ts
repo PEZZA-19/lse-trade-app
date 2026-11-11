@@ -74,6 +74,28 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByRole('dialog', { name: 'New Quote' })).toBeVisible();
       await shot(page, '09-new-quote-sheet', vp.name, scheme);
 
+      await page.goto('/home');
+      await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Running timer' })).toBeVisible();
+      await shot(page, '14-home', vp.name, scheme);
+
+      await page.goto('/schedule?view=day');
+      await expect(page.getByRole('button', { name: /Barn rewire/ })).toBeVisible();
+      await shot(page, '15-schedule-day', vp.name, scheme);
+      await page.getByRole('button', { name: 'Week', exact: true }).click();
+      await shot(page, '16-schedule-week', vp.name, scheme);
+      await page.getByRole('button', { name: 'Month', exact: true }).click();
+      await shot(page, '17-schedule-month', vp.name, scheme);
+      await page.getByRole('button', { name: 'Day', exact: true }).click();
+      await page.getByRole('button', { name: /Barn rewire/ }).click();
+      await expect(page.getByRole('dialog', { name: 'Job 122' })).toBeVisible();
+      await shot(page, '18-appointment-sheet', vp.name, scheme);
+      await page.keyboard.press('Escape');
+
+      await page.goto('/more');
+      await expect(page.getByRole('heading', { name: 'More', level: 1 })).toBeVisible();
+      await shot(page, '19-more', vp.name, scheme);
+
       await page.goto('/settings');
       await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');
       await shot(page, '10-settings', vp.name, scheme);
