@@ -38,6 +38,9 @@ import { useSerialSave } from '../lib/useSerialSave';
 import { useSync } from '../offline';
 import { quoteLinesToInput } from '../offline/fields';
 import { LineSheet } from './sheets/LineSheet';
+import { KitLineSheet, KitPickerSheet, componentsSummary } from './sheets/KitSheets';
+import { useKits } from '../api/billing';
+import { kitPriceChanged, type QuoteKitSnapshot } from '@lse/shared';
 
 const toInput = quoteLinesToInput;
 
@@ -90,7 +93,12 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   const [title, setTitle] = useState(q.title);
   const [notes, setNotes] = useState(q.current.notes ?? '');
   const [editing, setEditing] = useState<number | 'new' | null>(null);
+  const [kitEditing, setKitEditing] = useState<number | null>(null);
+  const [addingKit, setAddingKit] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  // Only drafts can take a new kit price, so only drafts need the current kit costs.
+  const kits = useKits();
+  const currentKit = (id: string) => (editable ? kits.data?.find((k) => k.id === id) : undefined);
 
   const sendPatch = useCallback(
     (patch: Parameters<typeof update.mutateAsync>[0]) => update.mutateAsync(patch),
@@ -227,6 +235,7 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   }[q.status];
 
   const renderLine = (l: QuoteLineInput, i: number) => {
+    if (l.kit) return renderKit(l as QuoteLineInput & { kit: QuoteKitSnapshot }, i);
     const server = serverLines[i];
     const sell = server && server.description === l.description ? server.unitSellPence : undefined;
     const unit = l.kind === 'labour' ? 'h' : '';
@@ -252,6 +261,44 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
       <li key={i}>
         {editable ? (
           <button type="button" className="row" onClick={() => setEditing(i)}>
+            {row}
+          </button>
+        ) : (
+          <div className="row">{row}</div>
+        )}
+      </li>
+    );
+  };
+
+  const renderKit = (l: QuoteLineInput & { kit: QuoteKitSnapshot }, i: number) => {
+    const now = currentKit(l.kit.kitId);
+    const changed = kitPriceChanged(l.kit, now);
+    const row = (
+      <>
+        <span className="row__main">
+          <span className="row__title">
+            {l.description} <Pill tone="teal">Kit</Pill>
+          </span>
+          <span className="row__sub">
+            {formatQty(l.qtyMilli ?? 1000)} × {formatPence(l.kit.sellPence)}
+          </span>
+          <span className="kit-components">{componentsSummary(l.kit)}</span>
+          {changed && now && (
+            <span className="kit-components" style={{ color: 'var(--orange)' }}>
+              Kit price now {formatPence(now.sellPence)} (was {formatPence(l.kit.sellPence)}). Tap
+              to update.
+            </span>
+          )}
+        </span>
+        <span className="row__meta num" style={{ color: 'var(--label)' }}>
+          {formatPence(lineTotalOf(l, q.current.defaultMarkupBp))}
+        </span>
+      </>
+    );
+    return (
+      <li key={i}>
+        {editable ? (
+          <button type="button" className="row" onClick={() => setKitEditing(i)}>
             {row}
           </button>
         ) : (
@@ -386,6 +433,15 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
               />
             </li>
           )}
+          {editable && (
+            <li>
+              <ButtonRow
+                onClick={() => setAddingKit(true)}
+                lead={<IconPlusCircle width={22} height={22} color="var(--accent)" />}
+                title={<span style={{ color: 'var(--accent)' }}>Add kit</span>}
+              />
+            </li>
+          )}
         </List>
       </Section>
 
@@ -471,6 +527,37 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
             : undefined
         }
       />
+      {addingKit && (
+        <KitPickerSheet
+          onClose={() => setAddingKit(false)}
+          onAdd={(line) => {
+            commitLines([...lines, line]);
+            toast.show(`${line.description} added`);
+          }}
+        />
+      )}
+      {kitEditing !== null && lines[kitEditing]?.kit && (
+        <KitLineSheet
+          line={lines[kitEditing] as QuoteLineInput & { kit: QuoteKitSnapshot }}
+          onClose={() => setKitEditing(null)}
+          onReplace={(repl) => {
+            const at = kitEditing;
+            commitLines([...lines.slice(0, at), ...repl, ...lines.slice(at + 1)]);
+          }}
+          onRemove={() => {
+            const at = kitEditing;
+            const removed = lines[at]!;
+            const next = lines.filter((_, i) => i !== at);
+            commitLines(next);
+            toast.show('Kit removed', {
+              action: {
+                label: 'Undo',
+                onAction: () => commitLines([...next.slice(0, at), removed, ...next.slice(at)]),
+              },
+            });
+          }}
+        />
+      )}
       <AcceptSheet
         open={accepting}
         onClose={() => setAccepting(false)}

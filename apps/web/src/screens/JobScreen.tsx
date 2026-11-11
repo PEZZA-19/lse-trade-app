@@ -4,6 +4,7 @@ import { Elapsed, TimerButton } from '../components/Timer';
 import { formatDayShort, formatRange, formatTime } from '../lib/dates';
 import { AppointmentSheet, type AppointmentSheetState } from './sheets/AppointmentSheet';
 import { AssignSheet } from './sheets/AssignSheet';
+import { JobInvoicesSection } from './invoices/JobInvoicesSection';
 import { useParams } from 'react-router';
 import { useJob, useJobStages, useMembers } from '../api/hooks';
 import { StageDot, StagePill, useChangeStage } from '../components/Stage';
@@ -199,6 +200,8 @@ export function JobScreen() {
         </Section>
       )}
 
+      <JobInvoicesSection jobId={j.id} />
+
       <Section header="Customer">
         <List>
           <li>
@@ -242,7 +245,7 @@ export function JobScreen() {
       {j.lines.length > 0 && (
         <Section
           header="Quoted work"
-          footer="Time and materials logged against the job come in a later update."
+          footer="Invoice it from Invoices above: whole, a deposit, a percentage or the rest."
         >
           <List>
             {j.lines.map((l) => (

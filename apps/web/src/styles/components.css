@@ -1362,3 +1362,56 @@ select.field__input {
 .row .btn {
   flex: none;
 }
+
+/* ------------------------------- billing -------------------------------- */
+.confirm {
+  padding: 4px 4px 12px;
+  color: var(--label);
+  line-height: 1.45;
+}
+.confirm p {
+  margin: 0 0 8px;
+}
+.confirm ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--label-2);
+}
+.confirm li + li {
+  margin-top: 4px;
+}
+.kit-components {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--label-2);
+  line-height: 1.4;
+}
+.kit-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 16px 12px;
+}
+.change {
+  font-variant-numeric: tabular-nums;
+}
+.change__old {
+  color: var(--label-2);
+  text-decoration: line-through;
+}
+.change__up {
+  color: var(--red);
+}
+.change__down {
+  color: var(--green);
+}
+.import-box {
+  width: 100%;
+  min-height: 140px;
+  font:
+    13px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}

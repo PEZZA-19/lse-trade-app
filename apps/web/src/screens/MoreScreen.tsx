@@ -1,25 +1,65 @@
-import { IconCustomers, IconSettings } from '../components/icons';
+import { formatPence } from '@lse/shared';
+import { useInvoices } from '../api/billing';
+import { IconBox, IconCustomers, IconInvoice, IconSettings, IconTag } from '../components/icons';
 import { useSync } from '../offline';
 import { LinkRow, List, Page, Section } from '../components/ui';
+
+const icon = (I: typeof IconInvoice) => <I width={24} height={24} color="var(--accent)" />;
 
 /** The fifth tab: everything that doesn't need its own tab (Apple: at most five tabs). */
 export function MoreScreen() {
   const sync = useSync();
+  const unpaid = useInvoices('outstanding');
+  const items = unpaid.data ?? [];
+  const overdue = items.filter((i) => i.displayStatus === 'overdue').length;
+  const owed = items.reduce((a, i) => a + i.balancePence, 0);
   return (
     <Page title="More">
-      <Section>
-        <List label="More">
+      <Section header="Money">
+        <List label="Money">
           <li>
             <LinkRow
-              to="/customers"
-              lead={<IconCustomers width={24} height={24} color="var(--accent)" />}
-              title="Customers"
+              to="/invoices"
+              lead={icon(IconInvoice)}
+              title="Invoices"
+              sub={
+                items.length
+                  ? `${items.length} unpaid · ${formatPence(owed)}${overdue ? ` · ${overdue} overdue` : ''}`
+                  : 'Nothing waiting to be paid'
+              }
+            />
+          </li>
+        </List>
+      </Section>
+      <Section header="Pricing">
+        <List label="Pricing">
+          <li>
+            <LinkRow
+              to="/price-list"
+              lead={icon(IconTag)}
+              title="Price List"
+              sub="Materials, suppliers, cost and markup"
             />
           </li>
           <li>
             <LinkRow
+              to="/kits"
+              lead={icon(IconBox)}
+              title="Kits"
+              sub="Sets of items to add to a quote in one go"
+            />
+          </li>
+        </List>
+      </Section>
+      <Section>
+        <List label="More">
+          <li>
+            <LinkRow to="/customers" lead={icon(IconCustomers)} title="Customers" />
+          </li>
+          <li>
+            <LinkRow
               to="/settings"
-              lead={<IconSettings width={24} height={24} color="var(--accent)" />}
+              lead={icon(IconSettings)}
               title="Settings"
               sub="Business details, numbering, job stages, account"
             />

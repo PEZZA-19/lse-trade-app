@@ -146,3 +146,21 @@ export const IconChevronDown = (p: SVGProps<SVGSVGElement>) => (
     <path d="m6 9 6 6 6-6" />
   </svg>
 );
+export const IconInvoice = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M6 3.5h9l3.5 3.5v13.5H6z" />
+    <path d="M14.5 3.5V7.5h4M9 11.5h6.5M9 15h6.5M9 18.5h3.5" />
+  </svg>
+);
+export const IconTag = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1.5 1.5 0 0 1 0 2.1l-6.2 6.2a1.5 1.5 0 0 1-2.1 0z" />
+    <circle cx="8" cy="8" r="1.4" />
+  </svg>
+);
+export const IconBox = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3 20 7.2v9.6L12 21l-8-4.2V7.2z" />
+    <path d="M4 7.2 12 11.5l8-4.3M12 11.5V21" />
+  </svg>
+);

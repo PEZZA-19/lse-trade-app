@@ -186,6 +186,9 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
     : [];
   const settings = await getSettings(tx);
   const to = await billTo(tx, r.jobId);
+  const [jc] = await tx<
+    { invoiceCount: number }[]
+  >`SELECT invoice_count FROM jobs WHERE id = ${r.jobId}`;
   const blockers: string[] = [];
   if (r.status === 'draft') {
     for (const m of readiness(settings).invoice.missing) blockers.push(m.label);
@@ -216,6 +219,8 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
       amountPence: Number(p.amountPence),
       createdAt: isoNN(p.createdAt),
     })),
+    nextNumber:
+      r.status === 'draft' ? invoiceNumber(r.jobNumber, (jc?.invoiceCount ?? 0) + 1) : null,
     approvalBlockers: blockers,
   };
 }

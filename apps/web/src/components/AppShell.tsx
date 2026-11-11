@@ -8,11 +8,14 @@ import {
   IconMoreCircle,
   IconQuotes,
   IconSettings,
+  IconInvoice,
+  IconTag,
+  IconBox,
 } from './icons';
 import { OfflineBanner } from './OfflineBanner';
 import { SyncBadge } from './SyncBadge';
 
-/** Phones: five tabs at most (Apple HIG); Customers and Settings live under More. */
+/** Phones: five tabs at most (Apple HIG); Invoices, Customers, Price List, Kits and Settings live under More. */
 const TABS = [
   { to: '/home', label: 'Home', Icon: IconHome },
   { to: '/jobs', label: 'Jobs', Icon: IconJobs },
@@ -20,11 +23,22 @@ const TABS = [
   { to: '/quotes', label: 'Quotes', Icon: IconQuotes },
   { to: '/more', label: 'More', Icon: IconMoreCircle },
 ];
-const UNDER_MORE = ['/more', '/customers', '/settings', '/sync'];
+const UNDER_MORE = [
+  '/more',
+  '/customers',
+  '/settings',
+  '/sync',
+  '/invoices',
+  '/price-list',
+  '/kits',
+];
 /** Desktop sidebar has room for everything. */
 const SIDEBAR = [
   ...TABS.slice(0, 4),
+  { to: '/invoices', label: 'Invoices', Icon: IconInvoice },
   { to: '/customers', label: 'Customers', Icon: IconCustomers },
+  { to: '/price-list', label: 'Price List', Icon: IconTag },
+  { to: '/kits', label: 'Kits', Icon: IconBox },
   { to: '/settings', label: 'Settings', Icon: IconSettings },
 ];
 

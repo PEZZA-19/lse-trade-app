@@ -17,6 +17,12 @@ import { QuotesScreen } from './screens/QuotesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SignInScreen, VerifyScreen } from './screens/SignInScreen';
 import { SyncScreen } from './screens/SyncScreen';
+import { InvoiceScreen } from './screens/invoices/InvoiceScreen';
+import { InvoicesScreen } from './screens/invoices/InvoicesScreen';
+import { KitScreen } from './screens/pricing/KitScreen';
+import { KitsScreen } from './screens/pricing/KitsScreen';
+import { PriceItemScreen } from './screens/pricing/PriceItemScreen';
+import { PriceListScreen } from './screens/pricing/PriceListScreen';
 
 /** Shows the app only with a live session; otherwise the sign-in screen. */
 function RequireSession() {
@@ -54,6 +60,12 @@ export function App() {
           <Route path="customers/:id" element={<CustomerScreen />} />
           <Route path="settings" element={<SettingsScreen />} />
           <Route path="sync" element={<SyncScreen />} />
+          <Route path="invoices" element={<InvoicesScreen />} />
+          <Route path="invoices/:id" element={<InvoiceScreen />} />
+          <Route path="price-list" element={<PriceListScreen />} />
+          <Route path="price-list/:id" element={<PriceItemScreen />} />
+          <Route path="kits" element={<KitsScreen />} />
+          <Route path="kits/:id" element={<KitScreen />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Route>
       </Route>
