@@ -1,4 +1,5 @@
 import {
+  creditNoteCreate,
   contactInput,
   customerCreate,
   customerUpdate,
@@ -52,6 +53,7 @@ import * as pricelist from './services/pricelist';
 import * as invoices from './services/invoices';
 import * as documents from './services/documents';
 import * as bills from './services/bills';
+import * as creditNotes from './services/creditNotes';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
@@ -505,6 +507,36 @@ export function createApp(deps: AppDeps) {
     return c.json(result.body, result.status as 201);
   });
 
+  // Customer credit notes: drafted by anyone, approved (numbered, applied) by the owner.
+  app.post('/api/invoices/:id/credit-notes', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(creditNoteCreate, await jsonBody(c.req));
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, `credit:${id}:${JSON.stringify(input)}`, async () => ({
+        status: 201,
+        body: await creditNotes.createCreditNote(tx, c.var.auth, id, input),
+      })),
+    );
+    if (result.replayed) c.header('Idempotent-Replayed', 'true');
+    return c.json(result.body, result.status as 201);
+  });
+  app.get('/api/credit-notes/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => creditNotes.getCreditNote(tx, id)));
+  });
+  app.delete('/api/credit-notes/:id', async (c) => {
+    const id = uuidParam(c);
+    await c.var.tx((tx) => creditNotes.deleteCreditNote(tx, c.var.auth, id));
+    return c.body(null, 204);
+  });
+  app.post('/api/credit-notes/:id/approve', async (c) => {
+    const id = uuidParam(c);
+    return c.json(
+      await c.var.tx((tx) => creditNotes.approveCreditNote(tx, c.var.auth, id, ifMatch(c))),
+    );
+  });
+
   // Documents: the layout model (for the in-app preview) and the PDF (for the share sheet).
   // Reading or downloading a document never sends anything and never changes its status.
   const pdfResponse = async (c: Context<AppEnv>, doc: BusinessDocument) => {
@@ -522,6 +554,14 @@ export function createApp(deps: AppDeps) {
   app.get('/api/invoices/:id/pdf', async (c) => {
     const id = uuidParam(c);
     return pdfResponse(c, await c.var.tx((tx) => documents.invoiceDoc(tx, id)));
+  });
+  app.get('/api/credit-notes/:id/document', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => documents.creditNoteDoc(tx, id)));
+  });
+  app.get('/api/credit-notes/:id/pdf', async (c) => {
+    const id = uuidParam(c);
+    return pdfResponse(c, await c.var.tx((tx) => documents.creditNoteDoc(tx, id)));
   });
   app.get('/api/quotes/:id/document', async (c) => {
     const id = uuidParam(c);

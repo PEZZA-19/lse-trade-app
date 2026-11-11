@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { lineTotal, type Pence } from './money';
+import type { CreditNoteSummaryDto } from './creditNotes';
 
 export const INVOICE_STATUSES = ['draft', 'approved', 'sent', 'part_paid', 'paid'] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
@@ -158,9 +159,14 @@ export function displayStatus(
   return inv.status;
 }
 
-/** Status after a payment is recorded. */
-export function statusAfterPayment(totalPence: Pence, paidPence: Pence): InvoiceStatus {
-  return paidPence >= totalPence ? 'paid' : 'part_paid';
+/** Status after a payment or credit: settled = paid plus credited covers the total. */
+export function statusAfterPayment(
+  totalPence: Pence,
+  paidPence: Pence,
+  creditedPence: Pence = 0,
+): InvoiceStatus {
+  if (paidPence + creditedPence >= totalPence) return 'paid';
+  return paidPence > 0 ? 'part_paid' : 'sent';
 }
 
 export const DEFAULT_INVOICE_TERMS = (days: number) =>
@@ -204,6 +210,9 @@ export interface InvoiceSummaryDto {
   dueDate: string | null;
   totalPence: Pence;
   paidPence: Pence;
+  /** Taken off by approved credit notes. */
+  creditedPence: Pence;
+  /** total − paid − credited. */
   balancePence: Pence;
   createdAt: string;
   version: number;
@@ -223,6 +232,7 @@ export interface InvoiceDetailDto extends InvoiceSummaryDto {
   sentAt: string | null;
   lines: InvoiceLineDto[];
   payments: PaymentDto[];
+  creditNotes: CreditNoteSummaryDto[];
   /** Drafts: the number approving it now would give (another approval first would take it). */
   nextNumber: string | null;
   /** Why it can't be approved yet (settings or bill-to details missing). */

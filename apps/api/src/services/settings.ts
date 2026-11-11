@@ -6,14 +6,15 @@ import { AppError, invalid } from '../lib/errors';
 import type { Auth } from '../lib/types';
 import { audit } from './audit';
 
-const SEQ_TABLE: Partial<Record<SequenceDto['kind'], 'quotes' | 'jobs'>> = {
+const SEQ_TABLE: Partial<Record<SequenceDto['kind'], 'quotes' | 'jobs' | 'credit_notes'>> = {
   quote: 'quotes',
   job: 'jobs',
+  credit_note: 'credit_notes',
 };
 
 async function lastUsed(tx: Tx, kind: SequenceDto['kind']): Promise<number | null> {
   const table = SEQ_TABLE[kind];
-  if (!table) return null; // invoices / credit notes don't exist yet
+  if (!table) return null; // invoice numbers follow the job number, not a sequence
   const [row] = await tx<{ max: number | null }[]>`SELECT max(seq_value) AS max FROM ${tx(table)}`;
   return row?.max ?? null;
 }

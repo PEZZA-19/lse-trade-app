@@ -1,6 +1,12 @@
-import { invoiceDocument, quoteDocument, type BusinessDocument } from '@lse/shared';
+import {
+  creditNoteDocument,
+  invoiceDocument,
+  quoteDocument,
+  type BusinessDocument,
+} from '@lse/shared';
 import { renderPdf } from '@lse/shared/pdf';
 import type { Tx } from '../db/client';
+import { getCreditNote } from './creditNotes';
 import { getInvoice, today } from './invoices';
 import { getQuote } from './quotes';
 import { getSettings } from './settings';
@@ -36,6 +42,14 @@ export async function quoteDoc(tx: Tx, id: string): Promise<BusinessDocument> {
     ? { name: `${c!.contactName} (${c!.name})`, email: c!.contactEmail, address: c!.address }
     : { name: c!.name, email: c!.email, address: c!.address };
   return quoteDocument(q, await getSettings(tx), to, await today(tx));
+}
+
+/** A customer credit note, laid out like the invoice it reduces. */
+export async function creditNoteDoc(tx: Tx, id: string): Promise<BusinessDocument> {
+  const cn = await getCreditNote(tx, id);
+  const [job] = await tx<{ siteAddress: string | null }[]>`
+    SELECT s.address AS site_address FROM jobs j LEFT JOIN sites s ON s.id = j.site_id WHERE j.id = ${cn.jobId}`;
+  return creditNoteDocument(cn, await getSettings(tx), { siteAddress: job?.siteAddress ?? null });
 }
 
 export const pdfOf = renderPdf;

@@ -8,12 +8,13 @@
  * Nothing LSE-specific lives here: every name, address and bank detail comes from tenant settings.
  */
 import type { QuoteDetailDto } from './dto';
+import type { CreditNoteDto } from './creditNotes';
 import type { InvoiceDetailDto, InvoiceLineKind } from './invoices';
 import { DEFAULT_INVOICE_TERMS, addDaysIso } from './invoices';
 import { formatPence, formatQty, type Pence } from './money';
 import type { SettingsDto } from './settings';
 
-export type DocKind = 'invoice' | 'quote';
+export type DocKind = 'invoice' | 'quote' | 'credit_note';
 
 export interface DocRow {
   description: string;
@@ -208,8 +209,16 @@ export function invoiceDocument(
     pence: inv.totalPence,
     strong: true,
   });
-  if (inv.paidPence > 0) {
+  if (inv.paidPence > 0)
     totals.push({ label: 'Paid', value: formatPence(-inv.paidPence), pence: -inv.paidPence });
+  for (const cn of inv.creditNotes ?? [])
+    if (cn.status === 'approved')
+      totals.push({
+        label: `Credit note ${cn.number}`,
+        value: formatPence(-cn.amountPence),
+        pence: -cn.amountPence,
+      });
+  if (inv.paidPence > 0 || (inv.creditedPence ?? 0) > 0) {
     totals.push({
       label: 'Balance due',
       value: formatPence(inv.balancePence),
@@ -330,5 +339,71 @@ export function quoteDocument(
     notes: rev.notes,
     terms: s.quoteTerms ? `${defaultTerms}\n${s.quoteTerms}` : defaultTerms,
     fileName: `Quote ${number}.pdf`,
+  };
+}
+
+/**
+ * Credit note layout: the same header, who it's for and the job, one line saying what is credited
+ * and why, then the effect on the invoice. No bank details: the customer has nothing to pay.
+ */
+export function creditNoteDocument(
+  cn: CreditNoteDto,
+  s: Business,
+  extra: { siteAddress?: string | null } = {},
+): BusinessDocument {
+  const draft = cn.status === 'draft';
+  const number = cn.number ?? 'Draft';
+  const amount = formatPence(cn.amountPence);
+  const rows: DocRow[] = [
+    {
+      description: cn.reason,
+      detail: `Against invoice ${cn.invoiceNumber}`,
+      qty: '1',
+      rate: amount,
+      amount,
+      amountPence: cn.amountPence,
+    },
+  ];
+  const balanceAfter = draft ? cn.invoiceBalancePence - cn.amountPence : cn.invoiceBalancePence;
+  const meta: BusinessDocument['meta'] = [];
+  if (cn.issueDate) meta.push({ label: 'Date', value: formatDocDate(cn.issueDate) });
+  meta.push({ label: 'Invoice', value: cn.invoiceNumber });
+  meta.push({ label: 'Job', value: cn.jobNumber });
+  const billLines = [...splitLines(cn.billTo.address)];
+  if (cn.billTo.email) billLines.push(cn.billTo.email);
+  return {
+    kind: 'credit_note',
+    title: 'Credit Note',
+    number,
+    draftLabel: draft ? 'Draft: not approved' : null,
+    business: businessBlock(s),
+    billTo: { name: cn.billTo.name, lines: billLines },
+    meta,
+    jobTitle: cn.jobTitle,
+    siteLines: splitLines(extra.siteAddress),
+    sections: [section('Credit', rows)],
+    totals: [
+      { label: 'Total credit', value: amount, pence: cn.amountPence, strong: true },
+      {
+        label: `Invoice ${cn.invoiceNumber} total`,
+        value: formatPence(cn.invoiceTotalPence),
+        pence: cn.invoiceTotalPence,
+      },
+      {
+        label: 'Balance now due',
+        value: formatPence(Math.max(0, balanceAfter)),
+        pence: Math.max(0, balanceAfter),
+        strong: true,
+      },
+    ],
+    payment: null,
+    notes:
+      balanceAfter <= 0
+        ? `This credit settles invoice ${cn.invoiceNumber}. There is nothing more to pay.`
+        : `This credit has been taken off invoice ${cn.invoiceNumber}.`,
+    terms: null,
+    fileName: draft
+      ? `Credit note draft (invoice ${cn.invoiceNumber}).pdf`
+      : `Credit note ${number}.pdf`,
   };
 }

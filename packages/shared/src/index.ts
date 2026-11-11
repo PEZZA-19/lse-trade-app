@@ -11,3 +11,4 @@ export * from './pricelist';
 export * from './invoices';
 export * from './documents';
 export * from './bills';
+export * from './creditNotes';

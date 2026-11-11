@@ -8,6 +8,7 @@ import {
   percentOf,
   readiness,
   statusAfterPayment,
+  type CreditNoteSummaryDto,
   type InvoiceDetailDto,
   type InvoiceLineDto,
   type InvoiceLineKind,
@@ -60,6 +61,7 @@ interface InvoiceRow {
   taxPence: string;
   totalPence: string;
   paidPence: string;
+  creditedPence: string;
   approvedByName: string | null;
   approvedAt: Date | null;
   sentByName: string | null;
@@ -72,7 +74,7 @@ const SELECT_INVOICE = `
   SELECT v.id, v.number, v.job_id, j.number AS job_number, j.title AS job_title, c.name AS customer_name,
          v.status, v.source, v.quote_mode, v.quote_id, v.quote_amount_pence, v.issue_date::text AS issue_date,
          v.due_date::text AS due_date, v.terms_days, v.notes, v.subtotal_pence, v.tax_pence, v.total_pence,
-         v.paid_pence, ua.name AS approved_by_name, v.approved_at, us.name AS sent_by_name, v.sent_at,
+         v.paid_pence, v.credited_pence, ua.name AS approved_by_name, v.approved_at, us.name AS sent_by_name, v.sent_at,
          v.created_at, v.version
     FROM invoices v
     JOIN jobs j ON j.id = v.job_id
@@ -83,6 +85,7 @@ const SELECT_INVOICE = `
 function toSummary(r: InvoiceRow, todayIso: string): InvoiceSummaryDto {
   const total = Number(r.totalPence);
   const paid = Number(r.paidPence);
+  const credited = Number(r.creditedPence);
   return {
     id: r.id,
     number: r.number,
@@ -98,7 +101,8 @@ function toSummary(r: InvoiceRow, todayIso: string): InvoiceSummaryDto {
     dueDate: r.dueDate,
     totalPence: total,
     paidPence: paid,
-    balancePence: total - paid,
+    creditedPence: credited,
+    balancePence: total - paid - credited,
     createdAt: isoNN(r.createdAt),
     version: r.version,
   };
@@ -133,7 +137,7 @@ async function loadRow(tx: Tx, id: string): Promise<InvoiceRow> {
   return r;
 }
 
-async function lockInvoice(tx: Tx, id: string) {
+export async function lockInvoice(tx: Tx, id: string) {
   const [r] = await tx<{ status: InvoiceStatus; version: number; jobId: string }[]>`
     SELECT status, version, job_id FROM invoices WHERE id = ${id} FOR UPDATE`;
   if (!r) throw notFound('Invoice');
@@ -141,7 +145,7 @@ async function lockInvoice(tx: Tx, id: string) {
 }
 
 /** Invoices go to the bill payer: the first bill-payer contact with an email, else the customer. */
-async function billTo(tx: Tx, jobId: string) {
+export async function billTo(tx: Tx, jobId: string) {
   const [r] = await tx<
     {
       name: string;
@@ -181,6 +185,11 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
     SELECT p.id, p.amount_pence, p.paid_on::text AS paid_on, p.method, p.reference, u.name AS recorded_by_name, p.created_at
       FROM payments p JOIN users u ON u.id = p.recorded_by
      WHERE p.invoice_id = ${id} ORDER BY p.paid_on, p.created_at`;
+  const creditNotes = await tx<
+    (Omit<CreditNoteSummaryDto, 'amountPence'> & { amountPence: string })[]
+  >`
+    SELECT id, number, status, issue_date::text AS issue_date, reason, amount_pence
+      FROM credit_notes WHERE invoice_id = ${id} ORDER BY created_at`;
   const [quote] = r.quoteId
     ? await tx<{ number: string }[]>`SELECT number FROM quotes WHERE id = ${r.quoteId}`
     : [];
@@ -219,6 +228,7 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
       amountPence: Number(p.amountPence),
       createdAt: isoNN(p.createdAt),
     })),
+    creditNotes: creditNotes.map((c) => ({ ...c, amountPence: Number(c.amountPence) })),
     nextNumber:
       r.status === 'draft' ? invoiceNumber(r.jobNumber, (jc?.invoiceCount ?? 0) + 1) : null,
     approvalBlockers: blockers,
@@ -593,9 +603,9 @@ export async function recordPayment(
         : 'Mark the invoice as sent before recording a payment.',
     );
   await lockJob(tx, cur.jobId);
-  const [inv] = await tx<{ totalPence: string; paidPence: string }[]>`
-    SELECT total_pence, paid_pence FROM invoices WHERE id = ${id}`;
-  const balance = Number(inv!.totalPence) - Number(inv!.paidPence);
+  const [inv] = await tx<{ totalPence: string; paidPence: string; creditedPence: string }[]>`
+    SELECT total_pence, paid_pence, credited_pence FROM invoices WHERE id = ${id}`;
+  const balance = Number(inv!.totalPence) - Number(inv!.paidPence) - Number(inv!.creditedPence);
   if (input.amountPence > balance)
     throw invalid(`That is more than the ${formatPence(balance)} still owed.`, {
       fields: { amountPence: `At most ${formatPence(balance)}` },
@@ -608,7 +618,7 @@ export async function recordPayment(
   await tx`INSERT INTO payments (tenant_id, invoice_id, amount_pence, paid_on, method, reference, recorded_by)
            VALUES (${auth.tenantId}, ${id}, ${input.amountPence}, ${input.paidOn}::date, ${input.method}, ${input.reference}, ${auth.userId})`;
   const paid = Number(inv!.paidPence) + input.amountPence;
-  const status = statusAfterPayment(Number(inv!.totalPence), paid);
+  const status = statusAfterPayment(Number(inv!.totalPence), paid, Number(inv!.creditedPence));
   await tx`UPDATE invoices SET paid_pence = ${paid}, status = ${status} WHERE id = ${id}`;
   await audit(tx, auth, 'record_payment', 'invoice', id, {
     amountPence: input.amountPence,
@@ -634,7 +644,7 @@ export async function isSettled(tx: Tx, jobId: string): Promise<boolean> {
   return !u.timesheets.length && !u.lines.length;
 }
 
-async function completeJobIfSettled(tx: Tx, auth: Auth, jobId: string): Promise<boolean> {
+export async function completeJobIfSettled(tx: Tx, auth: Auth, jobId: string): Promise<boolean> {
   if (!(await isSettled(tx, jobId))) return false;
   await markFullyInvoicedAndPaid(tx, auth, jobId);
   return true;
