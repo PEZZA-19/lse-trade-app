@@ -236,6 +236,47 @@ fast pages). Apply them to whatever milestone you are on. Do not widen scope bey
   Wholesale credit note; today's draft bill for job 122 with a cable price rise (£1.12 → £1.24) and an
   unmatched line; credit note CN-0001 on the PAT invoice.
 
+### Done (session 2, chunk 6: logo, PDF bill reading, statements, enquiries, AI approvals, reports)
+
+- **Logo**: Settings › Logo upload (PNG/JPEG, resized on the device, stored in the database), shown on
+  quote, invoice and credit-note PDFs; LSE's logo seeded for the demo and used for the app icons.
+- **Supplier PDFs read on the device** (pdf.js via `unpdf`, in its own `@lse/shared/pdftext` entry so the
+  API bundle never loads it): CEF (several invoices per PDF, wrapped descriptions, "less 35%"
+  discounts, due date from "Settlement thirty days"), DOCI (RRP, Date Payable, order and your-reference)
+  and CI Lighting statements (rotated page, INV/CRN/CAS/DIS rows, running balance checked). Every
+  bill is checked (lines × qty, sum = goods, goods + VAT = total) and shows "Adds up" or the problems;
+  a job is suggested from the order reference; Save Drafts goes through the usual review-then-apply.
+  Unknown layouts get an "Ask the AI helper" button (fake model only, logged, monthly cap).
+- **Statement check** (Supplier Bills › Check a Statement…): matches each statement line to the bills
+  here (matched / amount differs / not in the app / payments), lists bills not on the statement, and
+  confirms the balance due.
+- **Privacy**: Joe's real PDFs stay in `/workspace/bill-samples` (outside the repo). A local-only test
+  reads them and skips anywhere they are missing; the repo has synthetic look-alike PDFs (fictional
+  names, addresses and accounts) in `packages/shared/test/fixtures` and `apps/web/public/samples`.
+- **Enquiries** (Home › Enquiries, also More › Inbox and the sidebar): To Do and Done lists, a manual
+  New Enquiry sheet, and a public form endpoint `POST /api/public/enquiries/:formKey` (per-IP and
+  per-form rate limits, honeypot/link/keyword spam rules that silently accept, Turnstile stubbed; the
+  form key is set in Settings › Enquiry Form). Actions: turn into a Quote, a Job, or a Job with an
+  Appointment (finds the customer by email or phone, or adds them), Mark Actioned, Reject (private
+  reason).
+- **Approvals inbox** (Home › Approvals, Home tab badge): AI helpers only make drafts: reply emails to
+  enquiries, overdue reminders, quote drafts from enquiries, and price-update suggestions from a bill.
+  Each card says "Will do: …", shows a preview, and waits for the owner: Approve, Edit or Discard.
+  Approved emails wait 2 minutes with a Stop button and a countdown; with no email sender connected
+  they end as "Not sent" (nothing can leave the app). Quote drafts become a draft quote; price updates
+  apply the bill. Every model call (`ai_calls`), draft and decision (`proposal_events` + audit) is
+  logged and shown in the card's Log.
+- **AI Gateway**: one interface, pluggable providers; a deterministic fake provider for tests, the
+  local stack and the preview; a Cloudflare Workers AI provider written but not configured. Outputs are
+  validated with zod; a monthly spend cap (default £5) stops calls.
+- **Reports** (More › Reports, owner only, sidebar on desktop): This Month / Last Month / This Year.
+  Money in (payments), invoiced less credit notes, supplier bills applied, owed now and overdue;
+  profit per job (accepted quote ex VAT, or the job lines when not quoted, minus time at the labour
+  rate and materials at cost, with margin %); time by person and by job.
+- **Navigation (still 5 tabs)**: Approvals and Enquiries hang off Home (inbox cards and a badge on the
+  Home tab: "Home, N to check" for VoiceOver); Reports sits under More › Money; the statement check
+  under Supplier Bills.
+
 ### Review lessons applied
 
 From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
@@ -291,14 +332,14 @@ accounts sync (M8/A8, with Xero), creating records offline (M1, next).
 
 ### Tests (all passing)
 
-| Suite                                        | Count            | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| -------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/shared` (Vitest)                   | 90               | **documents (LSE layout: sections, carriage/tax hidden at zero, draft numbering, quote extras and validity, wrapping, multi-page PDFs), supplier bills (CSV parsing, totals), credit notes (validation, who can be credited, settling, layout, PDF)**, price list, kits, invoice maths, scheduling, stages, numbering, pricing, settings readiness                                                                                                                                             |
-| `apps/api` (Vitest + real Postgres)          | 137              | **documents and PDFs (address from settings, draft → numbered, no status change, tenant isolation), suppliers and bills (matching, preview changes nothing, owner-only apply, prices + kits + job materials, credit notes, duplicates, job required), customer credit notes (draft changes nothing, owner approves CN-0001, gap-free, never more than owed incl. other drafts, payments respect credits, settling completes the job, delete drafts only, isolation)**, plus all earlier suites |
-| `apps/web` (Vitest + jsdom + fake-indexeddb) | 37               | **demo mock: seeded bills/suppliers, preview-then-apply with prices, kits and job materials; seeded CN-0001 and a new credit note**, plus calendar maths, outbox, sync, settings                                                                                                                                                                                                                                                                                                               |
-| `apps/web` e2e (Playwright, real stack)      | 40 (incl. setup) | **new: invoice PDF (draft preview can’t be shared; approved invoice shares the LSE layout; `/pdf` is a real PDF, no-store); supplier bill from CSV → matched → review shows price and kit changes with nothing changed → owner applies → list cost updated, materials on the job, bill under the supplier; credit note drafted → owner approves → balance drops** · billing, flow, stages, schedule, offline, auth                                                                             |
-| PWA (Playwright, production build)           | 1                | app reopens offline from the service worker with cached jobs                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Screenshots (preview build)                  | 180 images       | 45 screens (new: `34-quote-pdf`, `35-invoice-pdf`, `36-bills`, `37-bill-detail`, `38-bill-review`, `39-bill-line-sheet`, `40-new-bill-sheet`, `41-suppliers`, `42-supplier-detail`, `43-credit-note`, `44-credit-note-pdf`) × mobile/desktop × light/dark in `screenshots/`                                                                                                                                                                                                                    |
+| Suite                                        | Count                   | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared` (Vitest)                   | 106 (+3 local)          | **new: PDF bill reading (CEF, DOCI, CI Lighting statement from synthetic PDFs), bill checks, statement reconciliation, logo on documents, enquiry spam rules; local-only real-sample test** · documents (LSE layout: sections, carriage/tax hidden at zero, draft numbering, quote extras and validity, wrapping, multi-page PDFs), supplier bills (CSV parsing, totals), credit notes (validation, who can be credited, settling, layout, PDF)**, price list, kits, invoice maths, scheduling, stages, numbering, pricing, settings readiness                                                                                                                                                                                                                                                                                           |
+| `apps/api` (Vitest + real Postgres)          | 157                     | **new: enquiries (public form, rate limits, Turnstile stub, spam, convert to quote/job/appointment, reject, isolation), approvals (drafts only, owner decides, 2-minute hold, Stop, send blocked with no sender, quote and price-update apply, logs), AI bill read (fake model, cap), reports (money, profit per job, time, owner only)** · documents and PDFs (address from settings, draft → numbered, no status change, tenant isolation), suppliers and bills (matching, preview changes nothing, owner-only apply, prices + kits + job materials, credit notes, duplicates, job required), customer credit notes (draft changes nothing, owner approves CN-0001, gap-free, never more than owed incl. other drafts, payments respect credits, settling completes the job, delete drafts only, isolation)**, plus all earlier suites |
+| `apps/web` (Vitest + jsdom + fake-indexeddb) | 42                      | **new: demo enquiries, approvals (hold, Stop, not sent), quote drafts, reports** · demo mock: seeded bills/suppliers, preview-then-apply with prices, kits and job materials; seeded CN-0001 and a new credit note**, plus calendar maths, outbox, sync, settings                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `apps/web` e2e (Playwright, real stack)      | 34 mobile (incl. setup) | **new: CEF PDF → 4 checked drafts; DOCI PDF with RRP; CI Lighting statement check; enquiry → AI reply draft → approve → 2-minute hold → Stop → discard, with the log; quote draft → approve → draft quote; convert to job; reject; owner reports** · invoice PDF (draft preview can’t be shared; approved invoice shares the LSE layout; `/pdf` is a real PDF, no-store); supplier bill from CSV → matched → review shows price and kit changes with nothing changed → owner applies → list cost updated, materials on the job, bill under the supplier; credit note drafted → owner approves → balance drops** · billing, flow, stages, schedule, offline, auth                                                                                                                                                                         |
+| PWA (Playwright, production build)           | 1                       | app reopens offline from the service worker with cached jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Screenshots (preview build)                  | 212 images              | 53 screens (new this chunk: `45-home-inbox`, `46-approvals`, `47-approval-detail`, `48-enquiries`, `49-enquiry-detail`, `50-reports`, `51-bill-pdf-import`, `52-statement-check`; PDFs 34/35/43/44 refreshed with the logo; earlier: `34-quote-pdf`, `35-invoice-pdf`, `36-bills`, `37-bill-detail`, `38-bill-review`, `39-bill-line-sheet`, `40-new-bill-sheet`, `41-suppliers`, `42-supplier-detail`, `43-credit-note`, `44-credit-note-pdf`) × mobile/desktop × light/dark in `screenshots/`                                                                                                                                                                                                                                                                                                                                          |
 
 ## How to run
 
@@ -322,6 +363,15 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 (`/* /index.html 200`, Cloudflare Pages / Netlify format). Nothing has been deployed.
 
 ## Decisions made (session 2)
+
+- **Chunk 6:** PDFs are read on the phone, not the server (nothing uploaded, works offline once
+  loaded); discounted lines keep the merchant's printed total; due dates come from the bill
+  ("Date Payable", or tax point + 30 days for "Settlement thirty days"). AI drafts never act on their
+  own: email drafts go to a 2-minute hold after approval, and with no sender configured they stop as
+  "Not sent". Quote drafts and price updates apply at the owner's tap (they change nothing outside
+  the app). Held emails are released when Approvals is read (a cron comes with deployment). Public
+  form spam is accepted silently (202) so bots learn nothing; a failed Turnstile check is a 400.
+  Reports are owner only, and a job's profit is the whole job, not the period.
 
 - **PDFs: pdf-lib, one layout model.** Pure JS (no headless browser), so the same code renders in the
   Worker (bundle 2.0 MB / 450 KB gzip, inside the Workers limit) and on the phone (lazy-loaded, for
@@ -383,6 +433,12 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 
 ## Next (in plan order)
 
+0. **From this chunk:** a Worker cron to release held emails (now released when Approvals is opened);
+   a real email sender and real Turnstile once accounts exist (both are interfaces with stubs); store
+   the bill and statement PDFs themselves (R2) next to the drafts; a hosted enquiry form page/snippet
+   for the website; more merchant layouts as samples arrive; staff cost rates so job profit can use
+   cost rather than the charge-out rate; CSV export of reports.
+
 1. **Schedule/timer follow-ups:** edit/add/delete timesheet entries by hand; resize appointments by
    dragging the bottom edge; filter the Schedule by person; book appointments and assign offline; drag-to-reorder stages.
 2. **Offline, part 2:** create customers, quotes and jobs offline (client-generated UUIDs accepted by the
@@ -424,10 +480,16 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     remainder invoice list the original quote lines (now) or just "Balance for Q-xxxx"?
 12. Price list: which suppliers' CSV formats should import cleanly first (please send a sample export)?
 13. Kits on quotes: show customers the kit as one line (now) or always list its parts?
-14. PDFs: please send your logo (PNG/SVG) and confirm the layout in `screenshots/*-34-quote-pdf.png`
+14. PDFs: your logo is now on them. Please confirm the layout in `screenshots/*-34-quote-pdf.png`
     and `*-35-invoice-pdf.png` matches your current invoices (anything missing, e.g. a registration
     number or a signature line?).
 15. Supplier bills: which merchants' bills should import first (a sample CSV or PDF from each helps)?
     Should bill materials on a job be charged at the item's markup (now) or at cost?
 16. Credit notes: do you ever refund money already paid (needs a refund record), or only reduce what's
     owed (now)?
+17. Reports: profit currently values time at your charge-out rate (£45/h). Do you want a separate
+    cost rate per person (e.g. Sam's wages) so profit is real profit? And calendar year or tax year?
+18. Approvals: which helpers should be on from day one (enquiry replies, overdue reminders, quote
+    drafts, price updates)? Is 2 minutes the right hold before an approved email goes?
+19. Enquiry form: will it live on your website (we give you a snippet) or a page on the app's domain?
+20. PDF bills: CEF, DOCI and CI Lighting now read. Which other merchants send PDFs? A sample of each helps.

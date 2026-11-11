@@ -1747,7 +1747,7 @@ select.field__input {
   margin: 0 16px;
   padding: 12px 14px;
   border-radius: 12px;
-  background: var(--bg-2, #fff);
+  background: var(--bg-elevated);
   white-space: pre-wrap;
   line-height: 1.45;
 }
@@ -1805,7 +1805,7 @@ select.field__input {
   gap: 2px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: var(--bg-2, #fff);
+  background: var(--bg-elevated);
   color: var(--label);
   text-decoration: none;
 }
@@ -1868,4 +1868,8 @@ select.field__input {
 .report-profit small {
   font-weight: 400;
   color: var(--label-2);
+}
+/* Profit and time rows carry several figures: let the detail line wrap rather than truncate. */
+.report-list .row__sub {
+  white-space: normal;
 }

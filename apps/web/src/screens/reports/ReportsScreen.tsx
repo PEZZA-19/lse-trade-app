@@ -142,7 +142,7 @@ export function ReportsScreen() {
             footer={`Price is the accepted quote (ex VAT), or the job’s lines when it wasn’t quoted. Time is valued at your ${rate}/h labour rate and materials at what you paid. Whole jobs, not just this period.`}
           >
             {d.jobs.length ? (
-              <List label="Profit per job">
+              <List className="report-list" label="Profit per job">
                 {d.jobs.map((j) => (
                   <li key={j.jobId}>
                     <LinkRow
@@ -176,7 +176,7 @@ export function ReportsScreen() {
 
           {d.time.byJob.length > 0 && (
             <Section header="Time by Job">
-              <List label="Time by job">
+              <List className="report-list" label="Time by job">
                 {d.time.byJob.map((j) => (
                   <li key={j.id}>
                     <LinkRow

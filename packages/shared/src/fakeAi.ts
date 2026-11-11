@@ -70,14 +70,14 @@ function readBill(input: { text: string; fileName?: string | null }) {
 }
 
 function reply(input: { customerName: string; message: string }) {
-  const about = input.message
+  const said = input.message
     .trim()
     .split(/[.!?\n]/)[0]!
-    .slice(0, 80)
-    .toLowerCase();
+    .trim()
+    .slice(0, 80);
   return {
     subject: 'Re: your enquiry',
-    body: `Hi ${first(input.customerName)},\n\nThanks for getting in touch about ${about || 'the work'}. I’d be glad to help. Could you send a couple of photos and let me know when someone will be in, so I can come and have a look and give you a proper price?`,
+    body: `Hi ${first(input.customerName)},\n\nThanks for getting in touch${said ? ` about “${said}”` : ''}. I’d be glad to help. Could you send a couple of photos and let me know when someone will be in, so I can come and have a look and give you a proper price?`,
   };
 }
 
