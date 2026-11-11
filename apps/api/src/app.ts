@@ -36,6 +36,7 @@ import {
   enquiryCreate,
   enquiryConvert,
   enquiryReject,
+  proposalEdit,
   supplierInput,
   supplierUpdate,
   type ApiErrorBody,
@@ -55,7 +56,9 @@ import {
 } from './auth';
 import { StubTurnstile, type TurnstileVerifier } from './lib/turnstile';
 import * as enquiries from './services/enquiries';
-import { withTenant, type Sql } from './db/client';
+import * as proposals from './services/proposals';
+import type { MessageSender } from './lib/messages';
+import { withTenant, type Sql, type Tx } from './db/client';
 import { AppError, notFound } from './lib/errors';
 import { idempotent } from './lib/idempotency';
 import type { AppEnv, Auth } from './lib/types';
@@ -85,6 +88,10 @@ export interface AppDeps {
   /** Website enquiry form checks. Defaults to the stub (no Cloudflare account yet). */
   turnstile?: TurnstileVerifier;
   enquiryLimits?: { perIp: RateLimit; perForm: RateLimit };
+  /** Sends approved emails. None is connected: approved emails end "not sent". */
+  sender?: MessageSender;
+  /** Seconds an approved email waits (Stop button). Two minutes outside tests. */
+  holdSeconds?: number;
 }
 
 /** `If-Match: 7` or `If-Match: "7"` -> 7. Absent means "don't check" (online edits from the latest copy). */
@@ -744,6 +751,63 @@ export function createApp(deps: AppDeps) {
       throw new AppError(403, 'forbidden', 'Only the business owner can change the website form');
     const { on } = parse(z.object({ on: z.boolean() }), await jsonBody(c.req));
     return c.json(await c.var.tx((tx) => enquiries.setForm(tx, c.var.auth, on)));
+  });
+
+  /* ----------------------------- approvals ----------------------------- */
+  const sender = deps.sender ?? null;
+  // Held emails are released whenever the inbox is looked at (and by the cron on Workers).
+  const withRelease = <T>(c: Context<AppEnv>, fn: (tx: Tx) => Promise<T>) =>
+    c.var.tx(async (tx) => {
+      await proposals.releaseDue(tx, sender);
+      return fn(tx);
+    });
+  app.get('/api/proposals', async (c) => {
+    const which = c.req.query('status') === 'done' ? 'done' : 'open';
+    return c.json(await withRelease(c, (tx) => proposals.listProposals(tx, which)));
+  });
+  app.get('/api/proposals/counts', async (c) =>
+    c.json(await withRelease(c, (tx) => proposals.counts(tx))),
+  );
+  app.get('/api/proposals/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await withRelease(c, (tx) => proposals.getProposal(tx, id)));
+  });
+  app.post('/api/proposals/:id/approve', async (c) => {
+    const id = uuidParam(c);
+    return c.json(
+      await withRelease(c, (tx) =>
+        proposals.approve(tx, c.var.auth, id, ifMatch(c), deps.holdSeconds),
+      ),
+    );
+  });
+  app.post('/api/proposals/:id/stop', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => proposals.stop(tx, c.var.auth, id)));
+  });
+  app.post('/api/proposals/:id/discard', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => proposals.discard(tx, c.var.auth, id, ifMatch(c))));
+  });
+  app.patch('/api/proposals/:id', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(proposalEdit, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => proposals.edit(tx, c.var.auth, id, input, ifMatch(c))));
+  });
+  // Helpers: each makes drafts only.
+  app.post('/api/enquiries/:id/draft-reply', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => proposals.draftReply(tx, c.var.auth, ai, id)), 201);
+  });
+  app.post('/api/enquiries/:id/draft-quote', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => proposals.draftQuote(tx, c.var.auth, ai, id)), 201);
+  });
+  app.post('/api/proposals/overdue-reminders', async (c) =>
+    c.json(await c.var.tx((tx) => proposals.draftOverdueReminders(tx, c.var.auth, ai))),
+  );
+  app.post('/api/supplier-bills/:id/suggest-prices', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => proposals.suggestPriceUpdates(tx, c.var.auth, id)), 201);
   });
 
   // AI fallback for PDFs the built-in readers don't know: returns a draft to review, saves nothing.

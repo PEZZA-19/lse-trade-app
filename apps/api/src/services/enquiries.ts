@@ -148,6 +148,8 @@ export async function convert(
   id: string,
   input: z.output<typeof enquiryConvert>,
   v?: number,
+  /** From an approved quote draft: its lines and notes. */
+  quoteExtras?: { lines: unknown[]; notes: string | null },
 ): Promise<EnquiryDto> {
   const e = await lockTodo(tx, id, v);
   const customerId = await customerFor(tx, auth, e);
@@ -160,9 +162,9 @@ export async function convert(
       customerId,
       siteId: null,
       title,
-      notes: null,
+      notes: quoteExtras?.notes ?? null,
       validDays: 30,
-      lines: [],
+      lines: quoteExtras?.lines ?? [],
     } as never);
     quoteId = q.id;
   } else {
