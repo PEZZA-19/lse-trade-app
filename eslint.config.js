@@ -5,14 +5,25 @@ import globals from 'globals';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/coverage/**', '**/.wrangler/**', '**/.devdb/**', '**/playwright-report/**', '**/test-results/**', '**/dev-dist/**'],
+    ignores: [
+      '**/dist/**',
+      '**/coverage/**',
+      '**/.wrangler/**',
+      '**/.devdb/**',
+      '**/playwright-report/**',
+      '**/test-results/**',
+      '**/dev-dist/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
     languageOptions: { globals: { ...globals.node } },
     rules: {
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       '@typescript-eslint/consistent-type-imports': 'error',
     },
   },

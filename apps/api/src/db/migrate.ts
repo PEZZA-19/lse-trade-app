@@ -6,10 +6,16 @@ import type { Sql } from './client';
  * Applies migrations/NNNN_name.sql in order, each in its own transaction, recording them in
  * schema_migrations. Must run as the schema owner (not the app role). Node-only.
  */
-export async function migrate(sql: Sql, dir: string, log: (m: string) => void = () => {}): Promise<string[]> {
+export async function migrate(
+  sql: Sql,
+  dir: string,
+  log: (m: string) => void = () => {},
+): Promise<string[]> {
   await sql`CREATE TABLE IF NOT EXISTS schema_migrations (
     name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`;
-  const done = new Set((await sql<{ name: string }[]>`SELECT name FROM schema_migrations`).map((r) => r.name));
+  const done = new Set(
+    (await sql<{ name: string }[]>`SELECT name FROM schema_migrations`).map((r) => r.name),
+  );
   const files = (await readdir(dir)).filter((f) => /^\d{4}_.+\.sql$/.test(f)).sort();
   const applied: string[] = [];
   for (const file of files) {

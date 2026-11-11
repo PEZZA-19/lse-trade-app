@@ -43,7 +43,11 @@ export interface TenantContext {
  * Runs fn in a transaction scoped to one tenant. Row-level security reads these settings,
  * so even a buggy query cannot see or change another business's rows.
  */
-export async function withTenant<T>(sql: Sql, ctx: TenantContext, fn: (tx: Tx) => Promise<T>): Promise<T> {
+export async function withTenant<T>(
+  sql: Sql,
+  ctx: TenantContext,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
   return sql.begin(async (tx) => {
     await tx`SELECT set_config('app.tenant_id', ${ctx.tenantId}, true), set_config('app.user_id', ${ctx.userId}, true)`;
     return fn(tx);
@@ -51,7 +55,11 @@ export async function withTenant<T>(sql: Sql, ctx: TenantContext, fn: (tx: Tx) =
 }
 
 /** Transaction with only the user set: used to list a user's memberships before a tenant is chosen. */
-export async function withUser<T>(sql: Sql, userId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+export async function withUser<T>(
+  sql: Sql,
+  userId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
   return sql.begin(async (tx) => {
     await tx`SELECT set_config('app.user_id', ${userId}, true)`;
     return fn(tx);

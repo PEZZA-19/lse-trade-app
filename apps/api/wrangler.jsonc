@@ -1,0 +1,18 @@
+{
+  // Cloudflare Workers config. Not deployed yet: no Cloudflare account is connected.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "lse-trade-api",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": { "AUTH_MODE": "dev" },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      // Placeholder until a Neon (London) database and Hyperdrive config exist.
+      "id": "00000000000000000000000000000000",
+      // `wrangler dev` connects straight to the local Postgres from tools/devdb.mjs.
+      "localConnectionString": "postgres://lse_app:lse_app@127.0.0.1:54329/lse_dev",
+    },
+  ],
+}

@@ -26,22 +26,65 @@ export const siteInput = z.object({
 });
 export type SiteInput = z.input<typeof siteInput>;
 
+export const CONTACT_ROLES = [
+  'bill_payer',
+  'site_contact',
+  'tenant',
+  'landlord',
+  'agent',
+  'managing_agent',
+  'other',
+] as const;
+export const contactRole = z.enum(CONTACT_ROLES);
+export type ContactRole = z.infer<typeof contactRole>;
+/** Plain-English labels for the UI. */
+export const CONTACT_ROLE_LABELS: Record<ContactRole, string> = {
+  bill_payer: 'Pays the bills',
+  site_contact: 'On-site contact',
+  tenant: 'Tenant',
+  landlord: 'Landlord',
+  agent: 'Letting agent',
+  managing_agent: 'Managing agent',
+  other: 'Other',
+};
+
+const email = z
+  .string()
+  .trim()
+  .max(254)
+  .nullish()
+  .transform((v) => (v ? v.toLowerCase() : null))
+  .pipe(z.email('Enter a valid email').nullable());
+
+export const contactInput = z.object({
+  name: trimmed(160).min(1, 'Name is required'),
+  role: contactRole.default('other'),
+  siteId: id.nullish().transform((v) => v ?? null),
+  email,
+  phone: optionalText(40),
+  notes: optionalText(2000),
+});
+export type ContactInput = z.input<typeof contactInput>;
+
 export const customerInput = z.object({
   name: trimmed(160).min(1, 'Name is required'),
-  email: z
-    .string()
-    .trim()
-    .max(254)
-    .nullish()
-    .transform((v) => (v ? v.toLowerCase() : null))
-    .pipe(z.email('Enter a valid email').nullable()),
+  email,
   phone: optionalText(40),
   billingAddress: optionalText(500),
   notes: optionalText(4000),
   markupBp: markupBp.nullish().transform((v) => v ?? null),
 });
 export type CustomerInput = z.input<typeof customerInput>;
-export const customerCreate = customerInput.extend({ sites: z.array(siteInput).max(50).default([]) });
+export const customerCreate = customerInput.extend({
+  sites: z.array(siteInput).max(50).default([]),
+  /** Contacts created with the customer; siteIndex links one to a site in `sites`. */
+  contacts: z
+    .array(
+      contactInput.omit({ siteId: true }).extend({ siteIndex: z.number().int().min(0).nullish() }),
+    )
+    .max(50)
+    .default([]),
+});
 export type CustomerCreate = z.input<typeof customerCreate>;
 export const customerUpdate = customerInput.partial();
 
@@ -62,7 +105,14 @@ export const quoteLineInput = z.object({
 });
 export type QuoteLineInput = z.input<typeof quoteLineInput>;
 
-export const QUOTE_STATUSES = ['draft', 'sent', 'accepted', 'converted', 'declined', 'expired'] as const;
+export const QUOTE_STATUSES = [
+  'draft',
+  'sent',
+  'accepted',
+  'converted',
+  'declined',
+  'expired',
+] as const;
 export const quoteStatus = z.enum(QUOTE_STATUSES);
 export type QuoteStatus = z.infer<typeof quoteStatus>;
 

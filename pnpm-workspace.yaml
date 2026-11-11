@@ -6,4 +6,4 @@ onlyBuiltDependencies:
   - workerd
   - sharp
   - embedded-postgres
-  - "@embedded-postgres/linux-x64"
+  - '@embedded-postgres/linux-x64'

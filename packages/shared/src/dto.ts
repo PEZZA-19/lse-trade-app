@@ -1,5 +1,5 @@
 /** Shapes returned by the API. Kept in one place so the web app and API agree. */
-import type { JobStatus, QuoteStatus } from './schemas';
+import type { ContactRole, JobStatus, QuoteStatus } from './schemas';
 import type { LineKind } from './quote-calc';
 
 export interface SiteDto {
@@ -7,6 +7,17 @@ export interface SiteDto {
   customerId: string;
   label: string | null;
   address: string;
+  notes: string | null;
+}
+
+export interface ContactDto {
+  id: string;
+  customerId: string;
+  siteId: string | null;
+  name: string;
+  role: ContactRole;
+  email: string | null;
+  phone: string | null;
   notes: string | null;
 }
 
@@ -24,6 +35,7 @@ export interface CustomerDto {
 
 export interface CustomerDetailDto extends CustomerDto {
   sites: SiteDto[];
+  contacts: ContactDto[];
   quotes: QuoteSummaryDto[];
   jobs: JobSummaryDto[];
 }
@@ -55,7 +67,12 @@ export interface QuoteRevisionDto {
   supersededAt: string | null;
   acceptedOptions: string[];
   lines: QuoteLineDto[];
-  totals: { corePence: number; options: Record<string, number>; totalPence: number; costPence: number };
+  totals: {
+    corePence: number;
+    options: Record<string, number>;
+    totalPence: number;
+    costPence: number;
+  };
 }
 
 export interface QuoteSummaryDto {
@@ -77,7 +94,10 @@ export interface QuoteSummaryDto {
 
 export interface QuoteDetailDto extends QuoteSummaryDto {
   site: SiteDto | null;
-  revisions: Pick<QuoteRevisionDto, 'id' | 'revision' | 'revisionLetter' | 'sentAt' | 'supersededAt'>[];
+  revisions: Pick<
+    QuoteRevisionDto,
+    'id' | 'revision' | 'revisionLetter' | 'sentAt' | 'supersededAt'
+  >[];
   current: QuoteRevisionDto;
 }
 

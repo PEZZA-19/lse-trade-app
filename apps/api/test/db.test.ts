@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { withTenant } from '../src/db/client';
 import { appSql, newTenant } from './helpers';
 
-const ctx = (t: { tenantId: string; userId: string }) => ({ tenantId: t.tenantId, userId: t.userId });
+const ctx = (t: { tenantId: string; userId: string }) => ({
+  tenantId: t.tenantId,
+  userId: t.userId,
+});
 
 async function allocate(t: { tenantId: string; userId: string }, kind: string) {
   return withTenant(appSql, ctx(t), async (tx) => {
-    const [row] = await tx<{ value: number; formatted: string }[]>`SELECT * FROM allocate_number(${kind})`;
+    const [row] = await tx<
+      { value: number; formatted: string }[]
+    >`SELECT * FROM allocate_number(${kind})`;
     return row!;
   });
 }
@@ -48,39 +53,70 @@ describe('number allocation', () => {
   });
 
   it('fails clearly when no tenant is set', async () => {
-    await expect(appSql`SELECT * FROM allocate_number('quote')`).rejects.toThrow(/No quote number sequence/);
+    await expect(appSql`SELECT * FROM allocate_number('quote')`).rejects.toThrow(
+      /No quote number sequence/,
+    );
   });
 });
 
 describe('row-level security', () => {
   it('hides other businesses customers and blocks cross-tenant writes', async () => {
     const [a, b] = await Promise.all([newTenant(), newTenant()]);
-    const [cust] = await withTenant(appSql, ctx(a), (tx) =>
-      tx<{ id: string }[]>`INSERT INTO customers (tenant_id, name) VALUES (${a.tenantId}, 'Alice') RETURNING id`,
+    const [cust] = await withTenant(
+      appSql,
+      ctx(a),
+      (tx) =>
+        tx<
+          { id: string }[]
+        >`INSERT INTO customers (tenant_id, name) VALUES (${a.tenantId}, 'Alice') RETURNING id`,
     );
-    const seenByB = await withTenant(appSql, ctx(b), (tx) => tx`SELECT * FROM customers WHERE id = ${cust!.id}`);
+    const seenByB = await withTenant(
+      appSql,
+      ctx(b),
+      (tx) => tx`SELECT * FROM customers WHERE id = ${cust!.id}`,
+    );
     expect(seenByB).toHaveLength(0);
     await expect(
-      withTenant(appSql, ctx(b), (tx) => tx`INSERT INTO customers (tenant_id, name) VALUES (${a.tenantId}, 'Sneaky')`),
+      withTenant(
+        appSql,
+        ctx(b),
+        (tx) => tx`INSERT INTO customers (tenant_id, name) VALUES (${a.tenantId}, 'Sneaky')`,
+      ),
     ).rejects.toThrow(/row-level security/);
-    const updated = await withTenant(appSql, ctx(b), (tx) => tx`UPDATE customers SET name = 'x' WHERE id = ${cust!.id}`);
+    const updated = await withTenant(
+      appSql,
+      ctx(b),
+      (tx) => tx`UPDATE customers SET name = 'x' WHERE id = ${cust!.id}`,
+    );
     expect(updated.count).toBe(0);
   });
 
   it('sees nothing at all without a tenant', async () => {
     const t = await newTenant();
-    await withTenant(appSql, ctx(t), (tx) => tx`INSERT INTO customers (tenant_id, name) VALUES (${t.tenantId}, 'Bob')`);
+    await withTenant(
+      appSql,
+      ctx(t),
+      (tx) => tx`INSERT INTO customers (tenant_id, name) VALUES (${t.tenantId}, 'Bob')`,
+    );
     expect(await appSql`SELECT * FROM customers`).toHaveLength(0);
   });
 
   it('prevents a site pointing at another tenant customer', async () => {
     const [a, b] = await Promise.all([newTenant(), newTenant()]);
-    const [cust] = await withTenant(appSql, ctx(a), (tx) =>
-      tx<{ id: string }[]>`INSERT INTO customers (tenant_id, name) VALUES (${a.tenantId}, 'Alice') RETURNING id`,
+    const [cust] = await withTenant(
+      appSql,
+      ctx(a),
+      (tx) =>
+        tx<
+          { id: string }[]
+        >`INSERT INTO customers (tenant_id, name) VALUES (${a.tenantId}, 'Alice') RETURNING id`,
     );
     await expect(
-      withTenant(appSql, ctx(b), (tx) =>
-        tx`INSERT INTO sites (tenant_id, customer_id, address) VALUES (${b.tenantId}, ${cust!.id}, 'Somewhere')`,
+      withTenant(
+        appSql,
+        ctx(b),
+        (tx) =>
+          tx`INSERT INTO sites (tenant_id, customer_id, address) VALUES (${b.tenantId}, ${cust!.id}, 'Somewhere')`,
       ),
     ).rejects.toThrow(/foreign key/);
   });
@@ -91,7 +127,9 @@ describe('single conversion guarantee', () => {
     const t = await newTenant();
     await expect(
       withTenant(appSql, ctx(t), async (tx) => {
-        const [c] = await tx<{ id: string }[]>`INSERT INTO customers (tenant_id, name) VALUES (${t.tenantId}, 'C') RETURNING id`;
+        const [c] = await tx<
+          { id: string }[]
+        >`INSERT INTO customers (tenant_id, name) VALUES (${t.tenantId}, 'C') RETURNING id`;
         const [q] = await tx<{ id: string }[]>`
           INSERT INTO quotes (tenant_id, number, customer_id) VALUES (${t.tenantId}, 'Q-0001', ${c!.id}) RETURNING id`;
         await tx`INSERT INTO jobs (tenant_id, number, customer_id, title, source_quote_id, source_quote_revision)
