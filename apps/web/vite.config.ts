@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'LSE Trade',
         short_name: 'LSE Trade',
@@ -18,8 +18,10 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/',
         icons: [
-          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          { src: 'icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {

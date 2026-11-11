@@ -21,7 +21,7 @@ export function SignInScreen() {
 
   return (
     <div className="auth">
-      <img src="/icon.svg" alt="" className="auth__icon" />
+      <img src="/icon-192.png" alt="" className="auth__icon" />
       <h1 className="auth__title">Sign in</h1>
       {request.isSuccess ? (
         <div role="status">
@@ -89,7 +89,7 @@ export function VerifyScreen() {
 
   return (
     <div className="auth">
-      <img src="/icon.svg" alt="" className="auth__icon" />
+      <img src="/icon-192.png" alt="" className="auth__icon" />
       <h1 className="auth__title">Sign in</h1>
       {!token ? (
         <p className="auth__lead">This link is incomplete. Please ask for a new one.</p>

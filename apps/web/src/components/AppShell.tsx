@@ -57,7 +57,7 @@ export function AppShell() {
     <div className="shell">
       <nav className="sidebar" aria-label="Main">
         <div className="sidebar__brand">
-          <img src="/icon.svg" alt="" />
+          <img src="/icon-192.png" alt="" />
           <span>{me.data?.tenant.name ?? 'LSE Trade'}</span>
         </div>
         {SIDEBAR.map(({ to, label, Icon }) => (
