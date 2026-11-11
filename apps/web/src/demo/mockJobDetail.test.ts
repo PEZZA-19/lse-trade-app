@@ -1,4 +1,4 @@
-import type { JobDetailDto, JobListItemDto, JobNoteDto, JobPhotoDto, Paginated } from '@lse/shared';
+import type { JobDetailDto, JobNoteDto, JobPhotoDto } from '@lse/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handle, resetDemo } from './mockApi';
 
@@ -7,7 +7,9 @@ const PNG =
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
 async function barn() {
-  const jobs = (await handle('GET', '/jobs', undefined)) as Paginated<JobListItemDto>;
+  const jobs = (await handle('GET', '/jobs', undefined)) as {
+    items: { id: string; number: string }[];
+  };
   return jobs.items.find((j) => j.number === '122')!;
 }
 
