@@ -145,6 +145,18 @@ describe('calendar feed (one-way iCal subscription)', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('works for a field worker with no areas; stops when the person leaves the business', async () => {
+    const c = await client();
+    const staff = await staffOf(c);
+    const { staffAppt } = await seed(c, staff.id);
+    await c.req('PUT', `/api/team/${staff.id}/access`, { isAdmin: false, areas: [] });
+    expect((await staff.s.req('GET', '/api/calendar-feeds')).status).toBe(200);
+    const path = (await staff.s.req('POST', '/api/calendar-feeds/mine')).body.path;
+    expect((await fetchFeed(path)).text).toContain(staffAppt.id);
+    await adminSql`DELETE FROM memberships WHERE tenant_id = ${c.tenantId} AND user_id = ${staff.id}`;
+    expect((await fetchFeed(path)).status).toBe(404);
+  });
+
   it('is rate-limited per link', async () => {
     const c = await client();
     const limited = createApp({
