@@ -16,6 +16,10 @@
  * 5. If the server refuses for a business reason (e.g. the quote was sent from another device, so it
  *    is locked) → mark it "Couldn't save" with the server's message; the person decides.
  * Network errors, 5xx and 401 keep the edit pending and stop the run; it retries later.
+ *
+ * Actions (kind 'action', e.g. timer start/stop) are POSTs that happened at a moment: they are never
+ * merged, carry no row version (so never conflict), are sent in order with everything else, and are
+ * replay-safe through their idempotency key. A refusal (e.g. "timer running on job 124") is rule 5.
  */
 import { editableFields, sameValue, type Entity, type Fields } from './fields';
 
@@ -24,6 +28,8 @@ export type OpStatus = 'pending' | 'conflict' | 'failed';
 export interface OutboxOp {
   /** Also used as the Idempotency-Key. */
   id: string;
+  /** 'edit' (PATCH, merged, If-Match) is the default; 'action' is a one-off POST. */
+  kind?: 'edit' | 'action';
   seq: number;
   tenantId: string;
   entity: Entity;
@@ -163,9 +169,12 @@ export class Outbox {
     if (!tenantId) throw new Error('Not signed in');
     const now = (this.opts.now?.() ?? new Date()).toISOString();
     const current = editableFields(input.entity, input.record);
-    const existing = this.ops.find(
-      (o) => o.entity === input.entity && o.entityId === input.entityId && o.status === 'pending',
-    );
+    // Merge into the latest pending op for this record, unless that is an action: an edit made after
+    // an action (e.g. starting the timer) must be sent after it.
+    const latest = this.ops
+      .filter((o) => o.entity === input.entity && o.entityId === input.entityId)
+      .at(-1);
+    const existing = latest?.status === 'pending' && latest.kind !== 'action' ? latest : undefined;
     if (existing) {
       for (const k of Object.keys(input.changes))
         if (!(k in existing.base)) existing.base[k] = current[k];
@@ -194,6 +203,41 @@ export class Outbox {
       updatedAt: now,
     };
     // Write to the device before anything else; if this throws, the caller must not say "saved".
+    await this.storage.put(op);
+    this.ops.push(op);
+    this.emit();
+    return op;
+  }
+
+  /** Saves a one-off action (POST) on the device, to be sent in order with the edits. */
+  async enqueueAction(input: {
+    entity: Entity;
+    entityId: string;
+    label: string;
+    path: string;
+    body: Fields;
+  }): Promise<OutboxOp> {
+    await this.load();
+    const tenantId = this.opts.tenantId();
+    if (!tenantId) throw new Error('Not signed in');
+    const now = (this.opts.now?.() ?? new Date()).toISOString();
+    const op: OutboxOp = {
+      id: this.opts.newId?.() ?? crypto.randomUUID(),
+      kind: 'action',
+      seq: Math.max(0, ...this.ops.map((o) => o.seq)) + 1,
+      tenantId,
+      entity: input.entity,
+      entityId: input.entityId,
+      label: input.label,
+      path: input.path,
+      changes: { ...input.body },
+      base: {},
+      baseVersion: 0,
+      status: 'pending',
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
     await this.storage.put(op);
     this.ops.push(op);
     this.emit();
@@ -254,7 +298,7 @@ export class Outbox {
         await this.storage.put(op);
         return 'server';
       }
-      if (err.status === 409 && err.code === 'version_conflict') {
+      if (err.status === 409 && err.code === 'version_conflict' && op.kind !== 'action') {
         const details = err.details as { current: unknown; currentVersion: number };
         const server = editableFields(op.entity, details.current);
         const changed = Object.keys(op.changes);

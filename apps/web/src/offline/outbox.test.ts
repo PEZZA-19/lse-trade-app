@@ -252,3 +252,65 @@ describe('outbox: conflict rules', () => {
     expect(sent).toEqual(['job-2:{"title":"other"}']);
   });
 });
+
+describe('outbox: actions (timer start/stop)', () => {
+  it('are kept in order, never merged, and an edit after an action is sent after it', async () => {
+    let online = false;
+    const calls: string[] = [];
+    const { outbox } = setup(async (op) => {
+      if (!online) throw httpError(0, 'network');
+      calls.push(`${op.kind ?? 'edit'}:${op.path}:${JSON.stringify(op.changes)}`);
+      return { version: 2 };
+    });
+    await edit(outbox, { title: 'Before' });
+    await outbox.enqueueAction({
+      entity: 'job',
+      entityId: 'job-1',
+      label: 'Job 123',
+      path: '/jobs/job-1/timer/start',
+      body: { at: 'T1' },
+    });
+    await edit(outbox, { title: 'After' });
+    await outbox.enqueueAction({
+      entity: 'job',
+      entityId: 'job-1',
+      label: 'Job 123',
+      path: '/jobs/job-1/timer/stop',
+      body: { at: 'T2' },
+    });
+    expect(outbox.getSnapshot().pending).toBe(4);
+    online = true;
+    await outbox.flush();
+    expect(calls).toEqual([
+      'edit:/jobs/job-1:{"title":"Before"}',
+      'action:/jobs/job-1/timer/start:{"at":"T1"}',
+      'edit:/jobs/job-1:{"title":"After"}',
+      'action:/jobs/job-1/timer/stop:{"at":"T2"}',
+    ]);
+  });
+
+  it('survive the app being killed, and a refusal is kept for the person to see', async () => {
+    const name = `t${++dbCount}`;
+    const first = setup(async () => {
+      throw httpError(0, 'network');
+    }, name);
+    await first.outbox.enqueueAction({
+      entity: 'job',
+      entityId: 'job-1',
+      label: 'Job 123',
+      path: '/jobs/job-1/timer/start',
+      body: { at: 'T1' },
+    });
+    // "Restart": a new outbox over the same device storage.
+    const second = setup(async () => {
+      throw httpError(409, 'timer_running', 'Your timer is running on job 124. Stop it first.');
+    }, name);
+    await second.outbox.flush();
+    const [op] = second.outbox.getSnapshot().ops;
+    expect(op).toMatchObject({
+      kind: 'action',
+      status: 'failed',
+      error: 'Your timer is running on job 124. Stop it first.',
+    });
+  });
+});

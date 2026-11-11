@@ -18,15 +18,21 @@ export function initOffline(qc: QueryClient) {
     idbOutboxStorage(() => openOfflineDb()),
     {
       send: (op) =>
-        api<{ version: number }>('PATCH', op.path, op.changes, {
-          ifMatch: op.baseVersion,
-          idempotencyKey: op.id,
-        }),
+        op.kind === 'action'
+          ? api<{ version: number }>('POST', op.path, op.changes, { idempotencyKey: op.id })
+          : api<{ version: number }>('PATCH', op.path, op.changes, {
+              ifMatch: op.baseVersion,
+              idempotencyKey: op.id,
+            }),
       tenantId: () =>
         qc.getQueryData<{ tenantId: string | null } | null>(['session'])?.tenantId ?? null,
       onRecord: (entity, id, record) => {
         qc.setQueryData([entity, id], record);
         void qc.invalidateQueries({ queryKey: [entity === 'job' ? 'jobs' : 'quotes'] });
+        if (entity === 'job') {
+          void qc.invalidateQueries({ queryKey: ['timer'] });
+          void qc.invalidateQueries({ queryKey: ['appointments'] });
+        }
       },
     },
   );
@@ -96,6 +102,36 @@ async function save(
     still.status === 'conflict'
       ? `${label} was changed on another device too. Choose which version to keep.`
       : `${label} couldn’t be saved: ${still.error ?? 'the server refused it'}`,
+  );
+}
+
+/**
+ * Timer start/stop through the outbox: recorded on the device with the time it happened, then sent.
+ * Resolves 'synced' or 'queued'; throws NeedsAttentionError if the server refused it.
+ */
+export async function timerAction(
+  job: { id: string; number: string },
+  action: 'start' | 'stop',
+  opts: { switch?: boolean; at?: Date } = {},
+): Promise<SaveResult> {
+  const box = getOutbox();
+  const label = `Job ${job.number}`;
+  const op = await box.enqueueAction({
+    entity: 'job',
+    entityId: job.id,
+    label,
+    path: `/jobs/${job.id}/timer/${action}`,
+    body: {
+      at: (opts.at ?? new Date()).toISOString(),
+      ...(opts.switch ? { switch: true } : {}),
+    },
+  });
+  await box.flush();
+  const still = box.getSnapshot().ops.find((o) => o.id === op.id);
+  if (!still) return 'synced';
+  if (still.status === 'pending') return 'queued';
+  throw new NeedsAttentionError(
+    `${label}: timer not ${action === 'start' ? 'started' : 'stopped'}. ${still.error ?? ''}`.trim(),
   );
 }
 

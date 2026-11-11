@@ -55,9 +55,13 @@ export function SyncScreen() {
                         <span className="row__main">
                           <span className="row__title">{op.label}</span>
                           <span className="row__sub">
-                            {Object.keys(op.changes)
-                              .map((k) => FIELD_LABEL[k] ?? k)
-                              .join(', ')}{' '}
+                            {op.kind === 'action'
+                              ? op.path.endsWith('/timer/start')
+                                ? 'Timer started'
+                                : 'Timer stopped'
+                              : Object.keys(op.changes)
+                                  .map((k) => FIELD_LABEL[k] ?? k)
+                                  .join(', ')}{' '}
                             · {formatDateTime(op.updatedAt)}
                           </span>
                         </span>

@@ -10,6 +10,14 @@ import {
   customerUpdate,
   jobCreate,
   jobUpdate,
+  appointmentRange,
+  appointmentUpdate,
+  timerAction,
+  minutesBetween,
+  TIMER_MAX_AHEAD_MS,
+  TIMER_MAX_BACKDATE_MS,
+  type AppointmentListItemDto,
+  type MemberDto,
   appointmentCreate,
   autoStage,
   canRenameStage,
@@ -123,7 +131,8 @@ interface Db {
     userId: string | null;
   }[];
   assignees: { jobId: string; userId: string; name: string }[];
-  timers: { jobId: string; running: boolean }[];
+  timers: { id: string; jobId: string; startedAt: string; stoppedAt: string | null }[];
+  timesheets: { id: string; jobId: string; startedAt: string; endedAt: string }[];
   /** Added after v1 shipped; filled in on load if missing. */
   settings?: DemoSettings;
 }
@@ -161,7 +170,7 @@ const S = () => (db!.settings ??= defaultSettings());
 const fmt = (kind: SequenceDto['kind'], value: number) =>
   formatDocNumber(S().numbering[kind].prefix, S().numbering[kind].padding, value);
 
-const KEY = 'lse-demo-db-v2'; // v2: job stages
+const KEY = 'lse-demo-db-v3'; // v3: scheduler, timer, timesheets
 let db: Db | null = null;
 let seeding: Promise<void> | null = null;
 
@@ -241,7 +250,52 @@ function quoteDetail(q: Quote): QuoteDetailDto {
     current: { ...r, revisionLetter: revisionLetter(r.revision), lines, totals: revTotals(r) },
   };
 }
-const DEMO_USER = { id: 'demo-user', name: 'Joe' };
+const DEMO_USER = { id: '00000000-0000-4000-8000-00000000d0e0', name: 'Joe' };
+/** Fictional staff member so assigning and the scheduler have more than one person. */
+const DEMO_STAFF = { id: '00000000-0000-4000-8000-00000000d0e1', name: 'Sam Spark' };
+const MEMBERS: MemberDto[] = [
+  { userId: DEMO_USER.id, name: DEMO_USER.name, role: 'owner' },
+  { userId: DEMO_STAFF.id, name: DEMO_STAFF.name, role: 'staff' },
+];
+const memberName = (id: string | null) => MEMBERS.find((m) => m.userId === id)?.name ?? null;
+const checkMember = (id: string | null | undefined) =>
+  id &&
+  !memberName(id) &&
+  fail(422, 'validation_failed', 'That person is not part of this business', {
+    fields: { userId: 'Not a member' },
+  });
+/** Same limits as the API for a device-reported time. */
+function deviceTime(at: string | undefined) {
+  const now = Date.now();
+  if (!at) return new Date(now).toISOString();
+  const t = Date.parse(at);
+  if (t > now + TIMER_MAX_AHEAD_MS)
+    fail(422, 'validation_failed', 'That time is in the future. Check the clock on this device.');
+  if (t < now - TIMER_MAX_BACKDATE_MS)
+    fail(422, 'validation_failed', 'That time is more than 7 days ago.');
+  return new Date(Math.min(t, now)).toISOString();
+}
+function finishTimer(t: Db['timers'][number], at: string) {
+  t.stoppedAt = at < t.startedAt ? t.startedAt : at;
+  db!.timesheets.push({ id: uid(), jobId: t.jobId, startedAt: t.startedAt, endedAt: t.stoppedAt });
+}
+function apptItem(x: Db['appointments'][number]): AppointmentListItemDto {
+  const j = getJob(x.jobId);
+  const sum = jobSummary(j);
+  return {
+    id: x.id,
+    jobId: j.id,
+    jobNumber: j.number,
+    jobTitle: j.title,
+    customerName: sum.customerName,
+    siteAddress: sum.siteAddress,
+    stage: sum.stage,
+    startsAt: x.startsAt,
+    endsAt: x.endsAt,
+    userId: x.userId,
+    userName: memberName(x.userId),
+  };
+}
 const stageRow = (id: string) => db!.stages.find((s) => s.id === id) ?? notFound('Stage');
 const stageRef = (id: string): JobStageRef => {
   const { sortOrder: _sortOrder, ...ref } = stageRow(id);
@@ -338,7 +392,23 @@ const jobDetail = (j: Job): JobDetailDto => ({
     .filter((a) => a.jobId === j.id)
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .map(({ jobId: _jobId, ...a }) => a),
-  timerRunning: db!.timers.some((t) => t.jobId === j.id && t.running),
+  timerRunning: db!.timers.some((t) => t.jobId === j.id && !t.stoppedAt),
+  timerStartedAt: db!.timers.find((t) => t.jobId === j.id && !t.stoppedAt)?.startedAt ?? null,
+  timesheets: db!.timesheets
+    .filter((t) => t.jobId === j.id)
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+    .map((t) => ({
+      id: t.id,
+      userId: DEMO_USER.id,
+      userName: DEMO_USER.name,
+      startedAt: t.startedAt,
+      endedAt: t.endedAt,
+      minutes: minutesBetween(t.startedAt, t.endedAt),
+      source: 'timer' as const,
+    })),
+  totalMinutes: db!.timesheets
+    .filter((t) => t.jobId === j.id)
+    .reduce((n, t) => n + minutesBetween(t.startedAt, t.endedAt), 0),
 });
 const customerDetail = (c: CustomerDto): CustomerDetailDto => ({
   ...c,
@@ -789,22 +859,25 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     }
     if (method === 'POST' && sub === 'assignees') {
       const { userId } = (body ?? {}) as { userId?: string };
-      if (userId !== DEMO_USER.id)
-        fail(422, 'validation_failed', 'Pick someone from this business', {
-          fields: { userId: 'Not a member' },
-        });
+      if (!userId) fail(422, 'validation_failed', 'Pick someone');
+      checkMember(userId);
       if (!db!.assignees.some((a) => a.jobId === job.id && a.userId === userId))
-        db!.assignees.push({ jobId: job.id, userId: DEMO_USER.id, name: DEMO_USER.name });
+        db!.assignees.push({ jobId: job.id, userId: userId!, name: memberName(userId!)! });
       applyEvent(job, 'assigned');
+      return jobDetail(job);
+    }
+    if (method === 'DELETE' && sub === 'assignees') {
+      db!.assignees = db!.assignees.filter((x) => !(x.jobId === job.id && x.userId === seg[3]));
       return jobDetail(job);
     }
     if (method === 'POST' && sub === 'appointments') {
       const p = parse(appointmentCreate, body);
+      checkMember(p.userId);
       db!.appointments.push({
         id: uid(),
         jobId: job.id,
-        startsAt: p.startsAt,
-        endsAt: p.endsAt,
+        startsAt: new Date(p.startsAt).toISOString(),
+        endsAt: new Date(p.endsAt).toISOString(),
         userId: p.userId ?? null,
       });
       applyEvent(job, 'appointment_created');
@@ -812,17 +885,54 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     }
     if (method === 'POST' && sub === 'timer') {
       const action = seg[3];
-      const running = db!.timers.find((t) => t.running);
+      const input = parse(timerAction, body ?? {});
+      const at = deviceTime(input.at);
+      const running = db!.timers.find((t) => !t.stoppedAt);
       if (action === 'start') {
-        if (running && running.jobId !== job.id)
-          fail(409, 'timer_running', 'Your timer is running on another job. Stop it first.');
-        if (!running) db!.timers.push({ jobId: job.id, running: true });
+        if (running && running.jobId !== job.id) {
+          if (!input.switch)
+            fail(
+              409,
+              'timer_running',
+              `Your timer is running on job ${getJob(running.jobId).number}. Stop it first.`,
+              { jobId: running.jobId, jobNumber: getJob(running.jobId).number },
+            );
+          finishTimer(running, at);
+        }
+        if (!running || running.jobId !== job.id)
+          db!.timers.push({ id: uid(), jobId: job.id, startedAt: at, stoppedAt: null });
         applyEvent(job, 'timer_started');
-      } else if (running?.jobId === job.id) running.running = false;
+      } else if (running?.jobId === job.id) finishTimer(running, at);
       return jobDetail(job);
     }
   }
 
+  if (a === 'members' && method === 'GET') return MEMBERS;
+  if (a === 'timer' && method === 'GET') {
+    const t = db!.timers.find((x) => !x.stoppedAt);
+    if (!t) return null;
+    const j = getJob(t.jobId);
+    return { jobId: j.id, jobNumber: j.number, jobTitle: j.title, startedAt: t.startedAt };
+  }
+  if (a === 'appointments' && method === 'GET' && !id) {
+    const r = parse(appointmentRange, { from: query.get('from'), to: query.get('to') });
+    return db!.appointments
+      .filter(
+        (x) =>
+          x.startsAt < new Date(r.to).toISOString() && x.endsAt > new Date(r.from).toISOString(),
+      )
+      .sort((x, y) => x.startsAt.localeCompare(y.startsAt))
+      .map(apptItem);
+  }
+  if (a === 'appointments' && method === 'PATCH') {
+    const appt = db!.appointments.find((x) => x.id === id) ?? notFound('Appointment');
+    const p = parse(appointmentUpdate, body);
+    if (p.userId !== undefined) checkMember(p.userId);
+    appt.startsAt = new Date(p.startsAt).toISOString();
+    appt.endsAt = new Date(p.endsAt).toISOString();
+    if (p.userId !== undefined) appt.userId = p.userId;
+    return apptItem(appt);
+  }
   if (a === 'appointments' && method === 'DELETE') {
     const appt = db!.appointments.find((x) => x.id === id) ?? notFound('Appointment');
     db!.appointments = db!.appointments.filter((x) => x !== appt);
@@ -895,6 +1005,7 @@ function fresh(): Db {
     appointments: [],
     assignees: [],
     timers: [],
+    timesheets: [],
   };
 }
 
@@ -909,7 +1020,7 @@ async function ready() {
     db = fresh();
     const call = (m: string) => async (p: string, b?: unknown) =>
       structuredClone(route(m, p, new URLSearchParams(), b));
-    await runDemoScript(call('POST'), call('PATCH'));
+    await runDemoScript(call('POST'), call('PATCH'), call('GET'));
     save();
   })();
   await seeding;
