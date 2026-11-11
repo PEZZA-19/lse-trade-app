@@ -46,6 +46,7 @@ test('owner sets a cost rate (base + on-costs) in Settings › Team; job and rep
   await expect(team.getByRole('button', { name: /Joe/ })).toContainText('charge-out £45.00/h');
 
   await page.goto('/jobs');
+  await page.getByRole('searchbox').fill('Barn rewire');
   await page.getByText('Barn rewire and LED lighting').click();
   const qva = page.getByRole('list', { name: 'Quote vs actual' });
   await expect(qva).toContainText('Labour at cost');

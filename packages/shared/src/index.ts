@@ -21,3 +21,4 @@ export * from './proposals';
 export * from './fakeAi';
 export * from './reports';
 export * from './jobdetail';
+export * from './access';

@@ -63,7 +63,10 @@ test('convert to a job, and reject with a private reason', async ({ page }) => {
   await addEnquiry(page, { name: job, message: 'Fuse board buzzing.' });
   await page.getByRole('button', { name: 'Job', exact: true }).click();
   await expect(page).toHaveURL(/\/jobs\/[0-9a-f-]+$/);
-  await expect(page.getByText(job).first()).toBeVisible();
+  // The job is for this enquirer, or for an existing customer with the same phone (dev data
+  // keeps earlier E2E customers, and matching on phone is the intended behaviour).
+  await expect(page.getByText(/E2E Job \d+/).first()).toBeVisible();
+  await expect(page.getByText('Fuse board buzzing').first()).toBeVisible();
 
   const no = `E2E Reject ${Date.now()}`;
   await addEnquiry(page, { name: no, message: 'Can you fix my car radio?' });

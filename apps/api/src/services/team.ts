@@ -10,7 +10,7 @@ import type { Tx } from '../db/client';
 import { invalid, notFound } from '../lib/errors';
 import type { Auth } from '../lib/types';
 import { audit } from './audit';
-import { assertOwnerDecision } from './invoices';
+import { assertAdmin } from './access';
 import { jobProfits } from './reports';
 
 const n = (v: unknown) => Number(v ?? 0);
@@ -23,7 +23,8 @@ async function labourRate(tx: Tx) {
 
 /** Settings › Team: each person's charge-out rate beside what they cost. Owner only. */
 export async function listTeam(tx: Tx, auth: Auth): Promise<TeamMemberDto[]> {
-  assertOwnerDecision(auth, 'see what people cost');
+  // Cost rates area: checked for the route (areaForPath).
+  void auth;
   const rate = await labourRate(tx);
   const rows = await tx<
     {
@@ -72,7 +73,7 @@ export async function setMemberCost(
   input: z.output<typeof memberCostUpdate>,
   opts: { placeholder?: boolean } = {},
 ): Promise<TeamMemberDto> {
-  assertOwnerDecision(auth, 'set what people cost');
+  assertAdmin(auth, 'set what people cost');
   const [m] =
     await tx`SELECT 1 FROM memberships WHERE user_id = ${userId} AND tenant_id = ${auth.tenantId}`;
   if (!m) throw invalid('That person is not part of this business');
@@ -104,7 +105,7 @@ export async function setChargeOut(
   userId: string,
   chargeOutPence: number | null,
 ): Promise<TeamMemberDto> {
-  assertOwnerDecision(auth, 'set charge-out rates');
+  assertAdmin(auth, 'set charge-out rates');
   const [m] =
     await tx`SELECT 1 FROM memberships WHERE user_id = ${userId} AND tenant_id = ${auth.tenantId}`;
   if (!m) throw invalid('That person is not part of this business');
@@ -122,7 +123,8 @@ export async function setChargeOut(
 
 /** Quote against actual for one job: owner only (it shows what people cost). */
 export async function jobCosting(tx: Tx, auth: Auth, jobId: string): Promise<JobCostingDto> {
-  assertOwnerDecision(auth, 'see job costs');
+  // Reports and profit area: checked for the route (areaForPath).
+  void auth;
   const rate = await labourRate(tx);
   const { jobs, labour } = await jobProfits(tx, rate, jobId);
   const profit = jobs[0];

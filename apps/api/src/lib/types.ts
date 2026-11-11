@@ -1,9 +1,12 @@
 import type { Sql, Tx } from '../db/client';
+import type { Access } from '@lse/shared';
 
 export interface Auth {
   userId: string;
   tenantId: string;
   role: 'owner' | 'staff' | 'subcontractor' | 'accountant';
+  /** What this person may open (loaded per request); absent = the default for their role. */
+  access?: Access;
 }
 
 export interface AppEnv {

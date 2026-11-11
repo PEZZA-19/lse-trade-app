@@ -14,6 +14,7 @@ test('job detail: log, edit and delete time by hand; add, edit and remove a mate
   page,
 }) => {
   await page.goto('/jobs');
+  await page.getByRole('searchbox').fill('Barn rewire');
   await page.getByText('Barn rewire and LED lighting').click();
   await expect(page.getByRole('heading', { name: /Job 122/ })).toBeVisible();
 

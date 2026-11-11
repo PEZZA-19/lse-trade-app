@@ -40,6 +40,8 @@ import {
   reportQuery,
   memberCostUpdate,
   chargeOutUpdate,
+  accessUpdate,
+  areaForPath,
   timesheetCreate,
   timesheetUpdate,
   jobLineCreate,
@@ -65,6 +67,7 @@ import {
 } from './auth';
 import { StubTurnstile, type TurnstileVerifier } from './lib/turnstile';
 import { MemoryBlobs, type BlobStore } from './lib/blobs';
+import * as access from './services/access';
 import * as jobDetail from './services/jobDetail';
 import * as enquiries from './services/enquiries';
 import * as proposals from './services/proposals';
@@ -215,6 +218,11 @@ export function createApp(deps: AppDeps) {
       throw new AppError(403, 'forbidden', 'You do not have access to this business');
     }
     const auth: Auth = { userId: session.userId, tenantId: session.tenantId, role: session.role };
+    // What this person may open, chosen by an admin (or their role's default): enforced here for
+    // every route in an area, so hiding things in the app is never the only protection.
+    auth.access = await withTenant(sql, auth, (tx) => access.accessFor(tx, auth.userId, auth.role));
+    const area = areaForPath(c.req.method, c.req.path);
+    if (area) access.assertArea(auth, area);
     c.set('auth', auth);
     c.set('tx', (fn) => withTenant(sql, auth, fn));
     await next();
@@ -253,7 +261,7 @@ export function createApp(deps: AppDeps) {
       >`SELECT id, name, email FROM users WHERE id = ${auth.userId}`;
       const [tenant] =
         await tx`SELECT id, name, default_markup_bp, labour_rate_pence, quote_valid_days, timezone, currency FROM tenants WHERE id = app_current_tenant()`;
-      return { user, tenant, role: auth.role };
+      return { user, tenant, role: auth.role, access: access.accessOf(auth) };
     });
     return c.json(data);
   });
@@ -810,7 +818,6 @@ export function createApp(deps: AppDeps) {
     });
   /* ------------------------------ reports ----------------------------- */
   app.get('/api/reports', async (c) => {
-    ownerOnly(c, 'see the reports');
     const q = parse(reportQuery, { from: c.req.query('from'), to: c.req.query('to') });
     return c.json(await c.var.tx((tx) => reports.getReports(tx, q)));
   });
@@ -890,6 +897,15 @@ export function createApp(deps: AppDeps) {
     const userId = parse(z.uuid(), c.req.param('userId'));
     const input = parse(memberCostUpdate, await jsonBody(c.req));
     return c.json(await c.var.tx((tx) => team.setMemberCost(tx, c.var.auth, userId, input)));
+  });
+  app.get('/api/team/access', async (c) =>
+    c.json(await c.var.tx((tx) => access.listAccess(tx, c.var.auth))),
+  );
+  app.put('/api/team/:userId/access', async (c) => {
+    const userId = c.req.param('userId');
+    if (!/^[0-9a-f-]{36}$/i.test(userId)) throw notFound('Person');
+    const input = parse(accessUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => access.setAccess(tx, c.var.auth, userId, input)));
   });
   app.put('/api/team/:userId/charge-out', async (c) => {
     const userId = c.req.param('userId');
