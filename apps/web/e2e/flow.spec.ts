@@ -57,7 +57,7 @@ test('jobs list shows seeded jobs and filters', async ({ page }) => {
   await page.goto('/jobs');
   await expect(page.getByRole('heading', { name: 'Jobs', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'All' }).click();
-  await expect(page.getByText('Annual PAT testing')).toBeVisible();
+  // Search first: other e2e runs add jobs to the dev database, so the seeded one may be past page 1.
   await page.getByRole('searchbox').fill('PAT');
   await expect(page.getByText('Annual PAT testing')).toBeVisible();
   await expect(page.getByText('Barn rewire and LED lighting')).toHaveCount(0);
