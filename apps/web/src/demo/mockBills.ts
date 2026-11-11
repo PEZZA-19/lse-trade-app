@@ -9,6 +9,8 @@ import {
   billLineTotal,
   billTotal,
   billUpdate,
+  billReadRequest,
+  finishReadBill,
   itemSell,
   sellFromCost,
   signedLineTotal,
@@ -347,6 +349,7 @@ export function billsRoute(
     }
   }
   if (a !== 'supplier-bills') return undefined;
+  if (method === 'POST' && id === 'read') return demoAiBillRead(c.parse(billReadRequest, body));
   if (method === 'GET' && !id) {
     const status = query.get('status');
     const supplierId = query.get('supplierId');
@@ -426,4 +429,57 @@ export function billsRoute(
     return apply(c, b, input.dryRun);
   }
   return undefined;
+}
+
+/**
+ * The preview's stand-in for the AI helper on unknown bill layouts: the same deterministic
+ * reading as the server's fake provider (apps/api/src/ai/fake.ts). No model is called.
+ */
+function demoAiBillRead(input: { text: string; fileName: string | null }) {
+  const text = input.text;
+  const first = text.split('\n').find((l) => l.trim()) ?? 'Unknown supplier';
+  const ref =
+    /invoice\s*(?:no\.?|number|#)?\s*:?\s*([A-Z0-9][A-Z0-9/-]{1,30})/i.exec(text)?.[1] ?? '';
+  const d = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(text);
+  const totals = [...text.matchAll(/total[^0-9£\n]*£?\s*([\d,]+\.\d{2})/gi)];
+  const last = totals[totals.length - 1]?.[1];
+  const total = last ? Math.round(Number(last.replace(/,/g, '')) * 100) : null;
+  const bill = finishReadBill(
+    {
+      parser: 'ai',
+      supplier: first
+        .trim()
+        .split(/\s{2,}/)[0]!
+        .slice(0, 100),
+      supplierLegalName: first.trim().slice(0, 100),
+      kind: /credit note/i.test(text) ? 'credit_note' : 'bill',
+      reference: ref,
+      billDate: d ? `${d[3]}-${d[2]!.padStart(2, '0')}-${d[1]!.padStart(2, '0')}` : null,
+      dueDate: null,
+      dueDateNote: null,
+      orderNumber: null,
+      yourReference: null,
+      accountRef: null,
+      lines: total
+        ? [
+            {
+              qtyMilli: 1000,
+              code: null,
+              description: `Goods on ${input.fileName ?? 'this bill'} (one line: split it if needed)`,
+              unit: null,
+              unitPricePence: total,
+              discountBp: 0,
+              totalPence: total,
+              rrpPence: null,
+            },
+          ]
+        : [],
+      goodsPence: total,
+      vatPence: null,
+      totalPence: total,
+      pages: [],
+    },
+    ['Read by the AI helper: check every line against the PDF before saving.'],
+  );
+  return { ok: true, bill, aiCallId: 'demo', provider: 'fake' };
 }

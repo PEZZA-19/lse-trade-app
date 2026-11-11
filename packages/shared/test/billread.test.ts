@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { billCreate, billTotal } from '../src/bills';
 import { readBillToCreate, suggestJob } from '../src/billread/import';
+import { reconcileStatement } from '../src/billread/reconcile';
 import { expectedLineTotal, parseDate, parsePence, readPdfPages } from '../src/billread/parse';
 import { extractPdfPages } from '../src/pdftext';
 import {
@@ -234,5 +235,72 @@ describe('turning a read bill into a draft', () => {
     expect(suggestJob(['STOCK'], jobs)).toBeNull();
     expect(suggestJob(['EXAMPLE'], jobs)).toBeNull();
     expect(suggestJob([null], jobs)).toBeNull();
+  });
+});
+
+describe('statement reconciliation', () => {
+  it('matches invoices and credits by reference, flags missing and different, ignores payments', async () => {
+    const r = await read(await ciStatementPdf());
+    if (r.kind !== 'statement') throw new Error(r.kind);
+    const held = [
+      {
+        id: '1',
+        kind: 'bill' as const,
+        reference: '90058',
+        billDate: '2026-07-09',
+        totalPence: 58176,
+        status: 'applied' as const,
+      },
+      {
+        id: '2',
+        kind: 'bill' as const,
+        reference: 'INV 90455:1',
+        billDate: '2026-07-23',
+        totalPence: 24100,
+        status: 'applied' as const,
+      },
+      {
+        id: '3',
+        kind: 'credit_note' as const,
+        reference: 'C9042',
+        billDate: '2026-09-29',
+        totalPence: 4775,
+        status: 'draft' as const,
+      },
+      {
+        id: '4',
+        kind: 'bill' as const,
+        reference: '93000',
+        billDate: '2026-10-12',
+        totalPence: 999,
+        status: 'draft' as const,
+      },
+      {
+        id: '5',
+        kind: 'bill' as const,
+        reference: '80000',
+        billDate: '2026-01-01',
+        totalPence: 100,
+        status: 'applied' as const,
+      },
+    ];
+    const rec = reconcileStatement(r.statement, held);
+    expect(rec.rows.map((x) => [x.reference, x.match, x.differencePence])).toEqual([
+      ['90058:1', 'matched', null],
+      ['90455:1', 'amount_differs', 60],
+      ['BACS', 'payment', null],
+      ['BACS', 'payment', null],
+      ['91585:1', 'missing', null],
+      ['91588:1', 'missing', null],
+      ['92078:1', 'missing', null],
+      ['C9042:1', 'matched', null],
+      ['92772:1', 'missing', null],
+      ['BACS', 'payment', null],
+    ]);
+    expect(rec.notOnStatement.map((b) => b.id)).toEqual(['4']);
+    expect(rec.counts).toEqual({ matched: 2, amountDiffers: 1, missing: 4 });
+    expect(rec.closingPence).toBe(74715);
+    // 936.01 + 84.38 + 15.80 − 47.75 + 113.97
+    expect(rec.outstandingPence).toBe(110241);
   });
 });

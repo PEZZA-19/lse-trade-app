@@ -120,6 +120,7 @@ function BillView({ bill: b }: { bill: BillDetailDto }) {
       subtitle={
         <>
           {BILL_KIND_LABELS[b.kind]} · {shortDate(`${b.billDate}T12:00:00Z`)}
+          {b.dueDate && ` · due ${shortDate(`${b.dueDate}T12:00:00Z`)}`}
           {b.jobId && (
             <>
               {' · '}

@@ -16,6 +16,7 @@ import {
 } from '../../components/ui';
 import { shortDate } from '../../lib/status';
 import { NewBillSheet } from './NewBillSheet';
+import { StatementPicker } from './StatementScreen';
 
 const FILTERS: { value: BillFilter; label: string }[] = [
   { value: 'draft', label: 'To Check' },
@@ -53,7 +54,7 @@ export function BillsScreen() {
         <EmptyState
           icon={<IconReceipt />}
           title={filter === 'draft' ? 'Nothing to check' : 'No bills'}
-          message="Enter a supplier bill by hand, from a CSV, or while looking at its PDF."
+          message="Enter a supplier bill by hand, from a CSV, or straight from its PDF."
           action={<Button onClick={() => setAdding(true)}>New Bill</Button>}
         />
       ) : (
@@ -99,6 +100,9 @@ export function BillsScreen() {
           </List>
         </Section>
       )}
+      <Section footer="Checks a supplier statement PDF against the bills here: missing, different, and the balance due.">
+        <StatementPicker />
+      </Section>
       {adding && <NewBillSheet onClose={() => setAdding(false)} />}
     </Page>
   );

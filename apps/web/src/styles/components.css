@@ -1727,3 +1727,17 @@ select.field__input {
   background: #fff;
   object-fit: contain;
 }
+
+/* Things a reader wants checked (bill PDFs, statements). */
+.problem-list {
+  margin: 8px 16px 0;
+  padding: 10px 12px 10px 28px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--orange, #ff9500) 12%, transparent);
+  color: var(--label);
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+.problem-list li + li {
+  margin-top: 4px;
+}

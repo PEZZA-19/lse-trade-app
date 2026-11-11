@@ -22,6 +22,7 @@ import { InvoicesScreen } from './screens/invoices/InvoicesScreen';
 import { BillScreen } from './screens/bills/BillScreen';
 import { BillsScreen } from './screens/bills/BillsScreen';
 import { SupplierScreen, SuppliersScreen } from './screens/bills/SuppliersScreen';
+import { StatementScreen } from './screens/bills/StatementScreen';
 import { KitScreen } from './screens/pricing/KitScreen';
 import { KitsScreen } from './screens/pricing/KitsScreen';
 import { PriceItemScreen } from './screens/pricing/PriceItemScreen';
@@ -72,6 +73,7 @@ export function App() {
           <Route path="bills" element={<BillsScreen />} />
           <Route path="bills/:id" element={<BillScreen />} />
           <Route path="suppliers" element={<SuppliersScreen />} />
+          <Route path="suppliers/statement" element={<StatementScreen />} />
           <Route path="suppliers/:id" element={<SupplierScreen />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Route>
