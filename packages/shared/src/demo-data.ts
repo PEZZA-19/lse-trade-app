@@ -389,6 +389,71 @@ export async function runDemoScript(post: Post, patch: Patch, get?: Get): Promis
     method: 'card',
   });
 
+  // Supplier bills (fictional merchants and references).
+  // Stock bought last week, applied: prices unchanged, nothing on a job.
+  const stockBill = await post('/supplier-bills', {
+    supplier: 'Island Electrical (demo)',
+    reference: 'IE-40112',
+    billDate: ago(60 * 24 * 9).slice(0, 10),
+    source: 'csv',
+    lines: [
+      { code: 'SWA4', description: '4mm 3-core SWA cable', qtyMilli: 25000, unitCostPence: 410 },
+      { code: 'GLD20', description: '20mm SWA gland kit', qtyMilli: 4000, unitCostPence: 235 },
+    ],
+  });
+  await post(`/supplier-bills/${stockBill.id}/apply`, { dryRun: false });
+  // Two floodlights sent back: a credit note, applied. Credit notes never change list prices.
+  const credit = await post('/supplier-bills', {
+    supplier: 'Sarnia Wholesale (demo)',
+    kind: 'credit_note',
+    reference: 'SW-CN-0907',
+    billDate: ago(60 * 24 * 5).slice(0, 10),
+    lines: [
+      {
+        code: 'PIR1',
+        description: 'LED floodlight with PIR (returned)',
+        qtyMilli: 2000,
+        unitCostPence: 2400,
+      },
+    ],
+  });
+  await post(`/supplier-bills/${credit.id}/apply`, { dryRun: false });
+  // Today's bill for the barn, still to check: cable has gone up again and the cable ties are
+  // not on the price list. Joe reviews the cost changes before anything is applied.
+  await post('/supplier-bills', {
+    supplier: 'Island Electrical (demo)',
+    reference: 'IE-40388',
+    billDate: ago(60 * 3).slice(0, 10),
+    jobId: job122.id,
+    source: 'pdf',
+    fileName: 'IE-40388.pdf',
+    lines: [
+      {
+        code: 'TE25',
+        description: '2.5mm twin & earth cable',
+        qtyMilli: 50000,
+        unitCostPence: 124,
+      },
+      { code: 'RCBO32', description: 'RCBO 32A Type A', qtyMilli: 2000, unitCostPence: 1840 },
+      {
+        code: 'CT300',
+        description: 'Cable ties 300mm (bag of 100)',
+        qtyMilli: 1000,
+        unitCostPence: 395,
+      },
+    ],
+  });
+  // Supplier details, as Joe would keep them (fictional).
+  const suppliers: { id: string; name: string }[] = get ? await get('/suppliers') : [];
+  const island = suppliers.find((x) => x.name === 'Island Electrical (demo)');
+  if (island)
+    await patch(`/suppliers/${island.id}`, {
+      email: 'trade@island-electrical.example',
+      phone: '01481 000 111',
+      accountRef: 'LSE-0042',
+      notes: 'Trade counter opens 7:30. Boat order by Tuesday noon for Thursday.',
+    });
+
   // On site at the barn now: starting the timer moves job 122 to In Progress (automatic).
   await post(`/jobs/${job122.id}/timer/start`, { at: ago(95) });
 }

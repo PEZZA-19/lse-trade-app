@@ -1,4 +1,10 @@
-import { formatMinutes, formatPence, formatQty, STAGE_CAUSE_LABEL } from '@lse/shared';
+import {
+  formatMinutes,
+  formatPence,
+  formatQty,
+  STAGE_CAUSE_LABEL,
+  type JobLineDto,
+} from '@lse/shared';
 import { useState } from 'react';
 import { Elapsed, TimerButton } from '../components/Timer';
 import { formatDayShort, formatRange, formatTime } from '../lib/dates';
@@ -55,6 +61,8 @@ export function JobScreen() {
       </Page>
     );
   const j = job.data;
+  const quoted = j.lines.filter((l) => l.source === 'quote');
+  const extra = j.lines.filter((l) => l.source !== 'quote');
   const pending = pendingId === j.id ? set.variables?.stage : undefined;
   // The job's own stage is always listed, even before the stage list has loaded.
   const options = stages.data?.some((s) => s.id === j.stage.id)
@@ -242,27 +250,14 @@ export function JobScreen() {
         </Section>
       )}
 
-      {j.lines.length > 0 && (
+      {quoted.length > 0 && (
         <Section
           header="Quoted work"
           footer="Invoice it from Invoices above: whole, a deposit, a percentage or the rest."
         >
           <List>
-            {j.lines.map((l) => (
-              <li key={l.id}>
-                <div className="row">
-                  <span className="row__main">
-                    <span className="row__title">{l.description}</span>
-                    <span className="row__sub">
-                      {LINE_KIND_LABEL[l.kind]} · {formatQty(l.qtyMilli)} ×{' '}
-                      {formatPence(l.unitSellPence)}
-                    </span>
-                  </span>
-                  <span className="row__meta num" style={{ color: 'var(--label)' }}>
-                    {formatPence(l.totalPence)}
-                  </span>
-                </div>
-              </li>
+            {quoted.map((l) => (
+              <JobLineRow key={l.id} line={l} />
             ))}
             <li>
               <KeyValueRow label="Quoted total" value={formatPence(j.quotedTotalPence)} strong />
@@ -270,6 +265,33 @@ export function JobScreen() {
           </List>
         </Section>
       )}
+
+      <Section
+        header="Materials and extras"
+        footer="From supplier bills and by hand. On a time-and-materials invoice these are billed at the sell price shown."
+      >
+        <List>
+          {extra.map((l) => (
+            <JobLineRow key={l.id} line={l} />
+          ))}
+          {extra.length > 0 && (
+            <li>
+              <KeyValueRow
+                label="Total"
+                value={formatPence(extra.reduce((a, l) => a + l.totalPence, 0))}
+                strong
+              />
+            </li>
+          )}
+          <li>
+            <LinkRow
+              to="/bills"
+              title="Supplier Bills"
+              sub="Enter a bill and pick this job to add its materials"
+            />
+          </li>
+        </List>
+      </Section>
 
       {j.history.length > 0 && (
         <Section header="History" footer="Every stage change, automatic or by hand.">
@@ -297,5 +319,24 @@ export function JobScreen() {
       <AssignSheet open={assigning} job={j} onClose={() => setAssigning(false)} />
       <AppointmentSheet state={booking} onClose={() => setBooking(null)} />
     </Page>
+  );
+}
+
+function JobLineRow({ line: l }: { line: JobLineDto }) {
+  return (
+    <li>
+      <div className="row">
+        <span className="row__main">
+          <span className="row__title">{l.description}</span>
+          <span className="row__sub">
+            {l.source === 'supplier_bill' ? 'From supplier bill' : LINE_KIND_LABEL[l.kind]} ·{' '}
+            {formatQty(l.qtyMilli)} × {formatPence(l.unitSellPence)}
+          </span>
+        </span>
+        <span className="row__meta num" style={{ color: 'var(--label)' }}>
+          {formatPence(l.totalPence)}
+        </span>
+      </div>
+    </li>
   );
 }
