@@ -5,6 +5,10 @@
  * The real rules (numbering in Postgres, RLS, idempotency) live in apps/api.
  */
 import {
+  invoiceDocument,
+  quoteDocument,
+  type BusinessDocument,
+  type InvoiceDetailDto,
   contactInput,
   customerCreate,
   customerUpdate,
@@ -538,12 +542,43 @@ function billingCtx(): BillingCtx {
   };
 }
 
+/** Same layout model as GET /api/{quotes|invoices}/:id/document, built from demo data. */
+function documentFor(kind: 'quotes' | 'invoices', id: string): BusinessDocument {
+  const settings = settingsDto();
+  if (kind === 'invoices') {
+    const ctx = billingCtx();
+    const inv = billingRoute(
+      ctx,
+      'GET',
+      ['invoices', id],
+      new URLSearchParams(),
+      undefined,
+    ) as InvoiceDetailDto;
+    const job = getJob(inv.jobId);
+    const site = db!.sites.find((s) => s.id === job.siteId);
+    return invoiceDocument(inv, settings, { siteAddress: site?.address ?? null });
+  }
+  const qt = getQuote(id);
+  const ctx = billingCtx();
+  const cu = ctx.customer(qt.customerId);
+  const bp = ctx.billPayer(qt.customerId);
+  const to = bp?.email
+    ? { name: `${bp.name} (${cu.name})`, email: bp.email, address: cu.billingAddress }
+    : { name: cu.name, email: cu.email, address: cu.billingAddress };
+  const todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+    new Date(),
+  );
+  return quoteDocument(quoteDetail(qt), settings, to, todayIso);
+}
+
 function route(method: string, path: string, query: URLSearchParams, body: unknown): unknown {
   const seg = path.split('/').filter(Boolean);
   const [a, id, sub] = seg;
   const q = query.get('q');
 
   const user = { ...DEMO_USER, email: 'owner@lse.example' };
+  if (method === 'GET' && sub === 'document' && (a === 'quotes' || a === 'invoices'))
+    return documentFor(a, id!);
   const billed = billingRoute(billingCtx(), method, seg, query, body);
   if (billed !== undefined) return billed;
   if (method === 'GET' && a === 'me')

@@ -24,6 +24,7 @@
     "@cloudflare/workers-types": "^5.20261110.1",
     "@hono/node-server": "^2.1.7",
     "@types/node": "^26.6.6",
+    "pdf-lib": "^1.17.1",
     "tsx": "^4.23.15",
     "vitest": "^3.2.7",
     "wrangler": "^4.160.0"

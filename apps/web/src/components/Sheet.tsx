@@ -12,6 +12,8 @@ export function Sheet(props: {
   onClose: () => void;
   action?: ReactNode;
   cancelLabel?: string;
+  /** Tall sheet for documents and previews. */
+  large?: boolean;
   children: ReactNode;
 }) {
   const { open, onClose } = props;
@@ -60,7 +62,7 @@ export function Sheet(props: {
       <div className="sheet__scrim" onClick={onClose} aria-hidden />
       <div
         ref={panel}
-        className="sheet__panel"
+        className={props.large ? 'sheet__panel sheet__panel--large' : 'sheet__panel'}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

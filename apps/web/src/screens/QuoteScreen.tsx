@@ -16,7 +16,8 @@ import {
   useReadiness,
   useUpdateQuote,
 } from '../api/hooks';
-import { IconJobs, IconPlusCircle, IconQuotes } from '../components/icons';
+import { IconDoc, IconJobs, IconPlusCircle, IconQuotes } from '../components/icons';
+import { DocumentSheet } from './documents/DocumentSheet';
 import { SaveStatus } from '../components/SaveStatus';
 import { Sheet } from '../components/Sheet';
 import { useToast } from '../components/Toast';
@@ -96,6 +97,7 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   const [kitEditing, setKitEditing] = useState<number | null>(null);
   const [addingKit, setAddingKit] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   // Only drafts can take a new kit price, so only drafts need the current kit costs.
   const kits = useKits();
   const currentKit = (id: string) => (editable ? kits.data?.find((k) => k.id === id) : undefined);
@@ -394,6 +396,41 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
           )}
         </div>
       )}
+
+      <Section>
+        <List>
+          <li>
+            <ButtonRow
+              lead={<IconDoc width={22} height={22} color="var(--accent)" />}
+              title="Preview PDF"
+              sub={
+                q.status === 'draft'
+                  ? 'See it as the customer will, then share it'
+                  : `Rev ${q.current.revisionLetter} as sent`
+              }
+              onClick={() => setPreviewing(true)}
+              chevron
+            />
+          </li>
+        </List>
+      </Section>
+      <DocumentSheet
+        open={previewing}
+        onClose={() => setPreviewing(false)}
+        kind="quotes"
+        id={q.id}
+        title={q.displayNumber}
+        shareBlocked={
+          notReady
+            ? `Add your ${readinessMissing.map((m) => m.label.toLowerCase()).join(', ')} in Settings before sharing, so the customer knows who it’s from.`
+            : unsynced
+              ? 'Your latest changes haven’t reached the server yet. Share once they have synced.'
+              : lines.length === 0 || totals.corePence <= 0
+                ? 'Add some work to the quote before sharing it.'
+                : null
+        }
+        afterShare={q.status === 'draft' ? 'Sent it? Tap Mark as sent to record it.' : undefined}
+      />
 
       {editable && (
         <Section header="Details">

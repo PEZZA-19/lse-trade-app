@@ -26,6 +26,7 @@ import {
   invoiceUpdate,
   paymentCreate,
   type ApiErrorBody,
+  type BusinessDocument,
 } from '@lse/shared';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -44,6 +45,7 @@ import * as stages from './services/stages';
 import * as schedule from './services/schedule';
 import * as pricelist from './services/pricelist';
 import * as invoices from './services/invoices';
+import * as documents from './services/documents';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
@@ -495,6 +497,33 @@ export function createApp(deps: AppDeps) {
     );
     if (result.replayed) c.header('Idempotent-Replayed', 'true');
     return c.json(result.body, result.status as 201);
+  });
+
+  // Documents: the layout model (for the in-app preview) and the PDF (for the share sheet).
+  // Reading or downloading a document never sends anything and never changes its status.
+  const pdfResponse = async (c: Context<AppEnv>, doc: BusinessDocument) => {
+    const bytes = await documents.pdfOf(doc);
+    return c.body(bytes as unknown as ArrayBuffer, 200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(doc.fileName)}`,
+      'Cache-Control': 'private, no-store',
+    });
+  };
+  app.get('/api/invoices/:id/document', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => documents.invoiceDoc(tx, id)));
+  });
+  app.get('/api/invoices/:id/pdf', async (c) => {
+    const id = uuidParam(c);
+    return pdfResponse(c, await c.var.tx((tx) => documents.invoiceDoc(tx, id)));
+  });
+  app.get('/api/quotes/:id/document', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => documents.quoteDoc(tx, id)));
+  });
+  app.get('/api/quotes/:id/pdf', async (c) => {
+    const id = uuidParam(c);
+    return pdfResponse(c, await c.var.tx((tx) => documents.quoteDoc(tx, id)));
   });
 
   return app;

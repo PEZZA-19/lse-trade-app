@@ -34,7 +34,7 @@ export function assertOwnerDecision(auth: Auth, what: string) {
     throw new AppError(403, 'owner_only', `Only the business owner can ${what}.`);
 }
 
-async function today(tx: Tx): Promise<string> {
+export async function today(tx: Tx): Promise<string> {
   const [t] = await tx<{ today: string }[]>`
     SELECT (now() AT TIME ZONE timezone)::date::text AS today FROM tenants WHERE id = app_current_tenant()`;
   return t!.today;

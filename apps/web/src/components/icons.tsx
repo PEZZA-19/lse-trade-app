@@ -164,3 +164,28 @@ export const IconBox = (p: SVGProps<SVGSVGElement>) => (
     <path d="M4 7.2 12 11.5l8-4.3M12 11.5V21" />
   </svg>
 );
+export const IconShare = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3.5v11M8 7.5l4-4 4 4" />
+    <path d="M8.5 10.5H6.5v10h11v-10h-2" />
+  </svg>
+);
+export const IconDoc = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M6 3.5h8l4 4v13H6z" />
+    <path d="M14 3.5v4h4" />
+  </svg>
+);
+export const IconTruck = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3 6.5h11v9H3zM14 9.5h4l3 3v3h-7" />
+    <circle cx="7" cy="17.5" r="1.8" />
+    <circle cx="17" cy="17.5" r="1.8" />
+  </svg>
+);
+export const IconReceipt = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M6 3.5h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z" />
+    <path d="M9 8h6M9 11.5h6M9 15h3.5" />
+  </svg>
+);

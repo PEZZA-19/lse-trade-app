@@ -14,7 +14,8 @@ import {
   useUpdateInvoice,
 } from '../../api/billing';
 import { useSession } from '../../api/hooks';
-import { IconPlusCircle, IconQuotes } from '../../components/icons';
+import { IconDoc, IconPlusCircle, IconQuotes } from '../../components/icons';
+import { DocumentSheet } from '../documents/DocumentSheet';
 import { useToast } from '../../components/Toast';
 import {
   Button,
@@ -74,6 +75,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   const del = useDeleteInvoice(inv);
   const [confirm, setConfirm] = useState<'approve' | 'send' | 'delete' | null>(null);
   const [paying, setPaying] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [editing, setEditing] = useState<number | 'new' | null>(null);
   const st = INVOICE_STATUS[inv.displayStatus];
   const draft = inv.status === 'draft';
@@ -168,6 +170,39 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
           )}
         </Section>
       )}
+
+      <Section>
+        <List>
+          <li>
+            <ButtonRow
+              lead={<IconDoc width={22} height={22} color="var(--accent)" />}
+              title="Preview PDF"
+              sub={
+                draft
+                  ? 'Draft preview: approve to share it'
+                  : `Invoice ${inv.number} as the customer gets it`
+              }
+              onClick={() => setPreviewing(true)}
+              chevron
+            />
+          </li>
+        </List>
+      </Section>
+      <DocumentSheet
+        open={previewing}
+        onClose={() => setPreviewing(false)}
+        kind="invoices"
+        id={inv.id}
+        title={inv.number ? `Invoice ${inv.number}` : 'Draft Invoice'}
+        shareBlocked={
+          draft
+            ? 'This is a draft preview. Approve the invoice to give it its number and share it.'
+            : null
+        }
+        afterShare={
+          inv.status === 'approved' ? 'Sent it? Tap Mark as Sent to record it.' : undefined
+        }
+      />
 
       <Section header="Bill to">
         <List>

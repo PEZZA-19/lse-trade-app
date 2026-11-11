@@ -9,3 +9,4 @@ export * from './stages';
 export * from './schedule';
 export * from './pricelist';
 export * from './invoices';
+export * from './documents';
