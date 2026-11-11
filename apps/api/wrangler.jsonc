@@ -6,6 +6,11 @@
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": { "APP_ORIGIN": "http://127.0.0.1:5173" },
+  // Release held emails every minute (the inbox also releases them when it is opened).
+  "triggers": { "crons": ["* * * * *"] },
+  // Photos: uncomment once an R2 bucket exists (London/EU jurisdiction). Until then uploads answer 503.
+  // "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "lse-trade-photos" }],
+  // Secrets, set with `wrangler secret put` (never in this file): TURNSTILE_SECRET.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",

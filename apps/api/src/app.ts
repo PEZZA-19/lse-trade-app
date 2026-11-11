@@ -182,6 +182,12 @@ export function createApp(deps: AppDeps) {
     await hit(sql, `enquiry:ip:${ip}`, enquiryLimits.perIp);
     await hit(sql, `enquiry:form:${formKey}`, enquiryLimits.perForm);
     const input = parse(publicEnquiry, await jsonBody(c.req));
+    if (turnstile.name === 'unconfigured')
+      throw new AppError(
+        503,
+        'form_not_configured',
+        'This form is not switched on yet. Please phone or email instead.',
+      );
     if (!(await turnstile.verify(input.turnstileToken, ip)))
       throw new AppError(400, 'turnstile_failed', 'Please complete the check and send again.');
     // Likely spam is accepted and dropped: bots learn nothing from the response.

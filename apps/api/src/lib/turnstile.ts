@@ -35,3 +35,14 @@ export class CloudflareTurnstile implements TurnstileVerifier {
     return ((await res.json()) as { success?: boolean }).success === true;
   }
 }
+
+/**
+ * Production without a Turnstile secret: the website form is refused (503) rather than left open
+ * to bots. The stub's "any token passes" must never reach a deployed Worker.
+ */
+export class UnconfiguredTurnstile implements TurnstileVerifier {
+  readonly name = 'unconfigured';
+  async verify() {
+    return false;
+  }
+}
