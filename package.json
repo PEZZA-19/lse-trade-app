@@ -1,0 +1,35 @@
+{
+  "name": "lse-trade-app",
+  "private": true,
+  "description": "LSE Trade App: jobs, quotes, invoicing and approval-first AI helpers for trades businesses.",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=22"
+  },
+  "type": "module",
+  "scripts": {
+    "db:start": "node tools/devdb.mjs start",
+    "db:stop": "node tools/devdb.mjs stop",
+    "db:migrate": "pnpm --filter @lse/api migrate",
+    "db:seed": "pnpm --filter @lse/api seed",
+    "dev": "pnpm -r --parallel --filter @lse/api --filter @lse/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @lse/web test:e2e",
+    "ci": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "embedded-postgres": "17.11.0-beta.19",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.2"
+  }
+}
