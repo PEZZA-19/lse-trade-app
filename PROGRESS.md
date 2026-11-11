@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: Wednesday 11 November 2026, ~14:50 Europe/Guernsey (session 2, chunk 5: PDFs, supplier bills, suppliers, credit notes)._
+_Last updated: Wednesday 11 November 2026, ~14:45 Europe/Guernsey (session 2, chunk 5: PDFs, supplier bills, suppliers, credit notes)._
 
 Every session: read this file, [DESIGN.md](DESIGN.md) and
 [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md) (lessons from competitor reviews:
