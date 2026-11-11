@@ -126,3 +126,62 @@ describe('priceItemKey', () => {
     );
   });
 });
+
+import { expandKitLine, kitPriceChanged, kitQuoteLine, snapshotFromKit } from '../src/pricelist';
+
+describe('kits on quotes', () => {
+  const kit = {
+    id: '00000000-0000-4000-8000-000000000001',
+    name: 'Double socket on new radial',
+    costPence: 1829,
+    sellPence: 2418,
+    lines: [
+      {
+        itemId: '00000000-0000-4000-8000-0000000000a1',
+        code: 'TE25',
+        description: 'Cable',
+        unit: 'm',
+        qtyMilli: 12000,
+        unitCostPence: 112,
+        unitSellPence: 146,
+      },
+      {
+        itemId: '00000000-0000-4000-8000-0000000000a2',
+        code: null,
+        description: 'Socket',
+        unit: 'each',
+        qtyMilli: 1000,
+        unitCostPence: 310,
+        unitSellPence: 465,
+      },
+    ],
+  };
+  it('freezes the kit as one costed block', () => {
+    const line = kitQuoteLine(snapshotFromKit(kit), 4000);
+    expect(line).toMatchObject({
+      kind: 'material',
+      description: kit.name,
+      qtyMilli: 4000,
+      unitCostPence: 1829,
+      unitPricePence: 2418,
+    });
+    expect(line.kit.components).toHaveLength(2);
+  });
+  it('expands into components multiplied by the number of kits', () => {
+    const lines = expandKitLine(kitQuoteLine(snapshotFromKit(kit), 2500, 'Kitchen'));
+    expect(lines.map((l) => [l.description, l.qtyMilli, l.unitPricePence, l.optionLabel])).toEqual([
+      ['Cable', 30000, 146, 'Kitchen'],
+      ['Socket', 2500, 465, 'Kitchen'],
+    ]);
+    expect(lines.every((l) => l.kit === null)).toBe(true);
+  });
+  it('spots a price change', () => {
+    expect(kitPriceChanged({ costPence: 1, sellPence: 2 }, { costPence: 1, sellPence: 2 })).toBe(
+      false,
+    );
+    expect(kitPriceChanged({ costPence: 1, sellPence: 2 }, { costPence: 1, sellPence: 3 })).toBe(
+      true,
+    );
+    expect(kitPriceChanged({ costPence: 1, sellPence: 2 }, undefined)).toBe(false);
+  });
+});

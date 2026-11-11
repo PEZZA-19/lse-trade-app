@@ -60,6 +60,7 @@ import {
 } from '@lse/shared';
 import type { z } from 'zod';
 import { ApiError } from '../api/client';
+import { billingRoute, freshBilling, type BillingCtx, type BillingDb } from './mockBilling';
 
 type LineIn = z.output<typeof quoteCreate>['lines'][number];
 interface Rev {
@@ -135,6 +136,7 @@ interface Db {
   timesheets: { id: string; jobId: string; startedAt: string; endedAt: string }[];
   /** Added after v1 shipped; filled in on load if missing. */
   settings?: DemoSettings;
+  billing?: BillingDb;
 }
 type DemoSettings = Omit<SettingsDto, 'sequences'> & {
   numbering: Record<SequenceDto['kind'], { prefix: string; padding: number }>;
@@ -170,7 +172,7 @@ const S = () => (db!.settings ??= defaultSettings());
 const fmt = (kind: SequenceDto['kind'], value: number) =>
   formatDocNumber(S().numbering[kind].prefix, S().numbering[kind].padding, value);
 
-const KEY = 'lse-demo-db-v3'; // v3: scheduler, timer, timesheets
+const KEY = 'lse-demo-db-v4'; // v4: price list, kits, invoices
 let db: Db | null = null;
 let seeding: Promise<void> | null = null;
 
@@ -485,12 +487,65 @@ function settingsDto(): SettingsDto {
   };
 }
 
+function billingCtx(): BillingCtx {
+  return {
+    b: (db!.billing ??= freshBilling()),
+    fail,
+    parse,
+    uid,
+    now,
+    userName: DEMO_USER.name,
+    settings: () => S(),
+    readiness: () => readiness(settingsDto()),
+    job: (id) => {
+      const j = getJob(id);
+      return {
+        id: j.id,
+        number: j.number,
+        title: j.title,
+        customerId: j.customerId,
+        sourceQuoteId: j.sourceQuoteId,
+        lines: j.lines,
+      };
+    },
+    jobIds: () => db!.jobs.map((j) => j.id),
+    quote: (id) => {
+      const qt = db!.quotes.find((x) => x.id === id);
+      if (!qt) return null;
+      const rev =
+        qt.revisions.find((r) => r.revision === (qt.acceptedRevision ?? qt.currentRevision)) ??
+        cur(qt);
+      return { number: qt.number, totalPence: revTotals(rev).totalPence };
+    },
+    customer: (id) => {
+      const c = db!.customers.find((x) => x.id === id) ?? notFound('Customer');
+      return { name: c.name, email: c.email, billingAddress: c.billingAddress };
+    },
+    billPayer: (customerId) =>
+      db!.contacts
+        .filter((x) => x.customerId === customerId && x.role === 'bill_payer')
+        .sort((x, y) => Number(!x.email) - Number(!y.email))[0] ?? null,
+    timesheets: (jobId) => db!.timesheets.filter((t) => t.jobId === jobId),
+    completeJob: (jobId) => {
+      const j = getJob(jobId);
+      applyEvent(j, 'invoiced_and_paid');
+      touch(j);
+    },
+    ifMatch: () => {
+      const v = headers['if-match'];
+      return v ? Number(v.replace(/"/g, '')) : undefined;
+    },
+  };
+}
+
 function route(method: string, path: string, query: URLSearchParams, body: unknown): unknown {
   const seg = path.split('/').filter(Boolean);
   const [a, id, sub] = seg;
   const q = query.get('q');
 
   const user = { ...DEMO_USER, email: 'owner@lse.example' };
+  const billed = billingRoute(billingCtx(), method, seg, query, body);
+  if (billed !== undefined) return billed;
   if (method === 'GET' && a === 'me')
     return {
       user,

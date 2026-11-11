@@ -14,6 +14,7 @@ export const quoteLinesToInput = (q: QuoteDetailDto): QuoteLineInput[] =>
     unitPricePence: l.unitPricePence,
     optionLabel: l.optionLabel,
     taxRateBp: l.taxRateBp,
+    kit: l.kit ?? null,
   }));
 
 /** Reads the editable fields from a server record so offline edits can be compared with it. */

@@ -136,6 +136,97 @@ export const quoteKitSnapshot = z.object({
     .max(200),
 });
 
+/* ------------------------- kits on quote lines --------------------------- */
+
+/** Freezes a kit (as the server costs it now) for a quote line. */
+export function snapshotFromKit(kit: {
+  id: string;
+  name: string;
+  costPence: Pence;
+  sellPence: Pence;
+  lines: KitComponent[];
+}): QuoteKitSnapshot {
+  return {
+    kitId: kit.id,
+    name: kit.name,
+    costPence: kit.costPence,
+    sellPence: kit.sellPence,
+    components: kit.lines.map((l) => ({
+      itemId: l.itemId,
+      code: l.code,
+      description: l.description,
+      unit: l.unit,
+      qtyMilli: l.qtyMilli,
+      unitCostPence: l.unitCostPence,
+      unitSellPence: l.unitSellPence,
+    })),
+  };
+}
+
+export interface KitQuoteLine {
+  kind: 'material';
+  description: string;
+  qtyMilli: number;
+  unitCostPence: Pence;
+  markupBp: null;
+  unitPricePence: Pence;
+  optionLabel: string | null;
+  taxRateBp: number;
+  kit: QuoteKitSnapshot;
+}
+
+/** A kit as one costed block on a quote: cost and sell per kit, qty = number of kits. */
+export function kitQuoteLine(
+  snap: QuoteKitSnapshot,
+  qtyMilli = 1000,
+  optionLabel: string | null = null,
+): KitQuoteLine {
+  return {
+    kind: 'material',
+    description: snap.name,
+    qtyMilli,
+    unitCostPence: snap.costPence,
+    markupBp: null,
+    unitPricePence: snap.sellPence,
+    optionLabel,
+    taxRateBp: 0,
+    kit: snap,
+  };
+}
+
+/**
+ * Expands a kit block into its component lines (qty multiplied by the number of kits), at the
+ * frozen prices. Rounding is per line, so the total can differ from the block by a penny or two.
+ */
+export function expandKitLine(line: {
+  qtyMilli: number;
+  optionLabel: string | null;
+  taxRateBp?: number;
+  kit: QuoteKitSnapshot;
+}) {
+  return line.kit.components.map((c) => ({
+    kind: 'material' as const,
+    description: c.description,
+    qtyMilli: Math.round((c.qtyMilli * line.qtyMilli) / 1000),
+    unitCostPence: c.unitCostPence,
+    markupBp: null,
+    unitPricePence: c.unitSellPence,
+    optionLabel: line.optionLabel,
+    taxRateBp: line.taxRateBp ?? 0,
+    kit: null,
+  }));
+}
+
+/** Has the kit's price moved since this block was added? */
+export function kitPriceChanged(
+  snap: Pick<QuoteKitSnapshot, 'costPence' | 'sellPence'>,
+  current: { costPence: Pence; sellPence: Pence } | undefined,
+): boolean {
+  return (
+    !!current && (current.costPence !== snap.costPence || current.sellPence !== snap.sellPence)
+  );
+}
+
 /* --------------------------------- DTOs --------------------------------- */
 
 export type PriceSource = 'created' | 'manual' | 'csv' | 'supplier_bill';

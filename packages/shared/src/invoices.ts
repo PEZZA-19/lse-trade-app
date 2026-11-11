@@ -223,6 +223,8 @@ export interface InvoiceDetailDto extends InvoiceSummaryDto {
   sentAt: string | null;
   lines: InvoiceLineDto[];
   payments: PaymentDto[];
+  /** Drafts: the number approving it now would give (another approval first would take it). */
+  nextNumber: string | null;
   /** Why it can't be approved yet (settings or bill-to details missing). */
   approvalBlockers: string[];
 }

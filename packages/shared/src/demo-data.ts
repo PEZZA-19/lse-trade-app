@@ -281,6 +281,114 @@ export async function runDemoScript(post: Post, patch: Patch, get?: Get): Promis
     endsAt: at(3, 16),
     userId: sam,
   });
+  // Fictional bank details so invoices can be approved in the demo.
+  await patch('/settings', {
+    bankAccountName: 'Little Sark Electric (demo)',
+    bankSortCode: '112233',
+    bankAccountNumber: '12345678',
+  });
+
+  // Price list, imported from a supplier-style CSV (fictional merchants).
+  await post('/price-list/import', {
+    apply: true,
+    csv: [
+      'Code,Description,Unit,Supplier,Cost,Markup,Sell',
+      'TE25,2.5mm twin & earth cable,m,Island Electrical (demo),0.98,,',
+      'TE15,1.5mm twin & earth cable,m,Island Electrical (demo),0.72,,',
+      'SKT2,Double switched socket,each,Island Electrical (demo),3.10,50%,',
+      'BB35,Flush back box 35mm,each,Sarnia Wholesale (demo),0.55,,1.25',
+      'GRM,Grommets (pack of 10),pack,Sarnia Wholesale (demo),1.20,,',
+      'RCBO32,RCBO 32A Type A,each,Island Electrical (demo),18.40,,',
+      'PIR1,LED floodlight with PIR,each,Sarnia Wholesale (demo),24.00,40%,',
+      'JB20,Weatherproof junction box,each,Sarnia Wholesale (demo),4.60,,',
+      'SWA4,4mm 3-core SWA cable,m,Island Electrical (demo),4.10,,',
+      'GLD20,20mm SWA gland kit,each,Sarnia Wholesale (demo),2.35,,',
+    ].join('\n'),
+  });
+  const items: { id: string; code: string }[] = get ? await get('/price-list') : [];
+  const code = (c: string) => items.find((i) => i.code === c)?.id;
+  const kitLines = (pairs: [string, number][]) =>
+    pairs.filter(([c]) => code(c)).map(([c, qty]) => ({ itemId: code(c)!, qtyMilli: qty }));
+  const socketKit = await post('/kits', {
+    name: 'Double socket on new radial',
+    description: 'Per socket: cable run, socket, back box and grommets.',
+    lines: kitLines([
+      ['TE25', 12000],
+      ['SKT2', 1000],
+      ['BB35', 1000],
+      ['GRM', 1000],
+    ]),
+  });
+  await post('/kits', {
+    name: 'Outside light with PIR',
+    lines: kitLines([
+      ['PIR1', 1000],
+      ['JB20', 1000],
+      ['TE15', 8000],
+    ]),
+  });
+  // A draft quote using the socket kit as one costed block (x4).
+  if (socketKit?.lines) {
+    await post('/quotes', {
+      customerId: cafe.id,
+      siteId: cafe.sites[0].id,
+      title: 'Extra kitchen sockets',
+      lines: [
+        {
+          kind: 'material',
+          description: socketKit.name,
+          qtyMilli: 4000,
+          unitCostPence: socketKit.costPence,
+          unitPricePence: socketKit.sellPence,
+          kit: {
+            kitId: socketKit.id,
+            name: socketKit.name,
+            costPence: socketKit.costPence,
+            sellPence: socketKit.sellPence,
+            components: socketKit.lines.map((l: any) => ({
+              itemId: l.itemId,
+              code: l.code,
+              description: l.description,
+              unit: l.unit,
+              qtyMilli: l.qtyMilli,
+              unitCostPence: l.unitCostPence,
+              unitSellPence: l.unitSellPence,
+            })),
+          },
+        },
+        { kind: 'labour', description: 'First fix, second fix and test', qtyMilli: 5000 },
+      ],
+    });
+  }
+  // The merchant put cable up: the kit recalculates (old and new cost shown); the draft quote
+  // keeps its block until Joe chooses to update it.
+  if (code('TE25')) await patch(`/price-list/${code('TE25')}`, { unitCostPence: 112 });
+
+  // Invoices. Job 122: a 30% deposit, approved, sent and paid; the remainder is a draft.
+  const dep = await post(`/jobs/${job122.id}/invoices`, {
+    source: 'quote',
+    mode: 'percent',
+    percentBp: 3000,
+  });
+  await post(`/invoices/${dep.id}/approve`);
+  await post(`/invoices/${dep.id}/mark-sent`);
+  await post(`/invoices/${dep.id}/payments`, {
+    amountPence: dep.totalPence,
+    paidOn: ago(60 * 24).slice(0, 10),
+    method: 'bank_transfer',
+    reference: 'DEMO FARM DEP',
+  });
+  await post(`/jobs/${job122.id}/invoices`, { source: 'quote', mode: 'remainder' });
+  // PAT testing: time and materials from yesterday's timer entry, sent and awaiting payment.
+  const pat = await post(`/jobs/${done.id}/invoices`, { source: 'job' });
+  await post(`/invoices/${pat.id}/approve`);
+  await post(`/invoices/${pat.id}/mark-sent`);
+  await post(`/invoices/${pat.id}/payments`, {
+    amountPence: 5000,
+    paidOn: ago(0).slice(0, 10),
+    method: 'card',
+  });
+
   // On site at the barn now: starting the timer moves job 122 to In Progress (automatic).
   await post(`/jobs/${job122.id}/timer/start`, { at: ago(95) });
 }
