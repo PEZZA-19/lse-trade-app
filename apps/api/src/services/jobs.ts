@@ -276,6 +276,7 @@ export async function unassign(tx: Tx, auth: Auth, jobId: string, userId: string
   await lockJob(tx, jobId);
   await tx`DELETE FROM job_assignees WHERE job_id = ${jobId} AND user_id = ${userId}`;
   await audit(tx, auth, 'unassign', 'job', jobId, { userId });
+  await applyEvent(tx, auth, jobId, 'last_unassigned');
   return getJob(tx, jobId);
 }
 
@@ -346,6 +347,13 @@ export async function startTimer(
   input: z.output<typeof timerAction> = {},
 ) {
   await lockJob(tx, jobId);
+  const [stage] = await tx<{ systemKey: string | null }[]>`
+    SELECT s.system_key FROM jobs j JOIN job_stages s ON s.id = j.stage_id WHERE j.id = ${jobId}`;
+  if (stage?.systemKey === 'cancelled')
+    throw conflict(
+      'job_cancelled',
+      'This job is cancelled. Move it to another stage to work on it.',
+    );
   const at = deviceTime(input.at, new Date());
   const [running] = await tx<{ id: string; jobId: string; jobNumber: string; startedAt: Date }[]>`
     SELECT t.id, t.job_id, j.number AS job_number, t.started_at

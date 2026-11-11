@@ -110,9 +110,11 @@ export function JobScreen() {
       <Section
         header="Timer"
         footer={
-          j.totalMinutes
-            ? `Total time on this job: ${formatMinutes(j.totalMinutes)}`
-            : 'Starting the timer moves the job to In Progress. Works with no signal.'
+          j.stage.systemKey === 'cancelled' && !j.timerRunning
+            ? 'This job is cancelled. Move it to another stage to time it.'
+            : j.totalMinutes
+              ? `Total time on this job: ${formatMinutes(j.totalMinutes)}`
+              : 'Starting the timer moves the job to In Progress. Works with no signal.'
         }
       >
         <List>
@@ -128,7 +130,9 @@ export function JobScreen() {
                   <span className="row__title">Not running</span>
                 )}
               </span>
-              <TimerButton compact job={j} />
+              {(j.stage.systemKey !== 'cancelled' || j.timerRunning) && (
+                <TimerButton compact job={j} />
+              )}
             </div>
           </li>
         </List>

@@ -149,6 +149,75 @@ describe('automatic transitions', () => {
     expect(key(r.body)).toBe('on_hold');
   });
 
+  it('removing the last person steps Assigned back to Unassigned; others keep their stage', async () => {
+    const c = await client();
+    const j = await newJob(c);
+    const staffEmail = await addMember(c.tenantId, 'staff');
+    const [staff] = await adminSql<
+      { id: string }[]
+    >`SELECT id FROM users WHERE email = ${staffEmail}`;
+    await c.req('POST', `/api/jobs/${j.id}/assignees`, { userId: c.userId });
+    await c.req('POST', `/api/jobs/${j.id}/assignees`, { userId: staff!.id });
+    let r = await c.req('DELETE', `/api/jobs/${j.id}/assignees/${staff!.id}`);
+    expect(key(r.body)).toBe('assigned'); // someone is still on it
+    r = await c.req('DELETE', `/api/jobs/${j.id}/assignees/${c.userId}`);
+    expect(key(r.body)).toBe('unassigned');
+    expect(r.body.history.at(-1)).toMatchObject({
+      cause: 'last_unassigned',
+      fromName: 'Assigned',
+      toName: 'Unassigned',
+    });
+
+    // Booked in stays Booked in: the appointment still stands.
+    await c.req('POST', `/api/jobs/${j.id}/assignees`, { userId: c.userId });
+    await c.req('POST', `/api/jobs/${j.id}/appointments`, {
+      startsAt: hourFromNow(1),
+      endsAt: hourFromNow(2),
+    });
+    r = await c.req('DELETE', `/api/jobs/${j.id}/assignees/${c.userId}`);
+    expect(key(r.body)).toBe('scheduled');
+  });
+
+  it('a cancelled job refuses the timer; Complete stays Complete when a timer runs', async () => {
+    const c = await client();
+    const j = await newJob(c);
+    await c.req('PATCH', `/api/jobs/${j.id}`, { stageKey: 'cancelled' });
+    const r = await c.req('POST', `/api/jobs/${j.id}/timer/start`);
+    expect(r.status).toBe(409);
+    expect(r.body.error.code).toBe('job_cancelled');
+    expect((await c.req('GET', '/api/timer')).body).toBeNull();
+
+    await c.req('PATCH', `/api/jobs/${j.id}`, { stageKey: 'complete' });
+    const t = await c.req('POST', `/api/jobs/${j.id}/timer/start`);
+    expect(t.status).toBe(200);
+    expect(key(t.body)).toBe('complete'); // a snagging visit doesn't reopen it
+    await c.req('POST', `/api/jobs/${j.id}/timer/stop`);
+  });
+
+  it('a job in a custom stage: assigning and booking leave it, the timer moves it to In Progress', async () => {
+    const c = await client();
+    const j = await newJob(c);
+    const st = (
+      await c.req('POST', '/api/job-stages', { name: 'Waiting on parts', colour: 'teal' })
+    ).body;
+    await c.req('PATCH', `/api/jobs/${j.id}`, { stageId: st.id });
+    let r = await c.req('POST', `/api/jobs/${j.id}/assignees`, { userId: c.userId });
+    expect(r.body.stage.id).toBe(st.id);
+    r = await c.req('POST', `/api/jobs/${j.id}/appointments`, {
+      startsAt: hourFromNow(1),
+      endsAt: hourFromNow(2),
+    });
+    expect(r.body.stage.id).toBe(st.id);
+    r = await c.req('POST', `/api/jobs/${j.id}/timer/start`);
+    expect(key(r.body)).toBe('in_progress');
+    expect(r.body.history.at(-1)).toMatchObject({
+      fromName: 'Waiting on parts',
+      toName: 'In Progress',
+      cause: 'timer_started',
+    });
+    await c.req('POST', `/api/jobs/${j.id}/timer/stop`);
+  });
+
   it('one running timer per person', async () => {
     const c = await client();
     const [a, b] = [await newJob(c), await newJob(c)];

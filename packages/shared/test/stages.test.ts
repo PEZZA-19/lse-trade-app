@@ -26,6 +26,47 @@ describe('autoStage', () => {
     ).toBeNull();
     expect(autoStage('appointment_deleted', 'in_progress', none)).toBeNull();
   });
+  it('removing the last person steps Assigned back to Unassigned, nothing else', () => {
+    expect(autoStage('last_unassigned', 'assigned', none)).toBe('unassigned');
+    expect(autoStage('last_unassigned', 'assigned', { ...none, hasAssignees: true })).toBeNull();
+    for (const s of ['unassigned', 'scheduled', 'in_progress', 'on_hold', 'complete'] as const)
+      expect(autoStage('last_unassigned', s, none)).toBeNull();
+    expect(autoStage('last_unassigned', null, none)).toBeNull(); // custom stage: stays put
+  });
+  it('custom stages: only the timer and payment move a job out of one', () => {
+    expect(autoStage('assigned', null)).toBeNull();
+    expect(autoStage('appointment_created', null)).toBeNull();
+    expect(autoStage('appointment_deleted', null, none)).toBeNull();
+    expect(autoStage('timer_started', null)).toBe('in_progress');
+    expect(autoStage('invoiced_and_paid', null)).toBe('complete');
+  });
+  it('every event on every system stage gives a known stage or null', () => {
+    const stages = [
+      'unassigned',
+      'assigned',
+      'scheduled',
+      'in_progress',
+      'on_hold',
+      'to_invoice',
+      'complete',
+      'cancelled',
+    ] as const;
+    const events = [
+      'assigned',
+      'last_unassigned',
+      'appointment_created',
+      'appointment_deleted',
+      'timer_started',
+      'invoiced_and_paid',
+    ] as const;
+    for (const st of stages)
+      for (const e of events) {
+        const next = autoStage(e, st, none);
+        expect(next === null || stages.includes(next)).toBe(true);
+        // Nothing automatic ever moves a cancelled job.
+        if (st === 'cancelled') expect(next).toBeNull();
+      }
+  });
   it('starting the timer moves to In Progress unless finished', () => {
     for (const s of ['unassigned', 'assigned', 'scheduled', 'to_invoice', 'on_hold', null] as const)
       expect(autoStage('timer_started', s)).toBe('in_progress');

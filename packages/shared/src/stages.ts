@@ -59,6 +59,7 @@ export const STAGE_CAUSES = [
   'created_from_quote',
   'manual',
   'assigned',
+  'last_unassigned',
   'appointment_created',
   'appointment_deleted',
   'timer_started',
@@ -72,6 +73,7 @@ export const STAGE_CAUSE_LABEL: Record<StageCause, string> = {
   created_from_quote: 'Created from quote',
   manual: 'Changed by hand',
   assigned: 'Someone was assigned',
+  last_unassigned: 'Last person unassigned',
   appointment_created: 'Appointment booked',
   appointment_deleted: 'Last appointment removed',
   timer_started: 'Timer started',
@@ -100,6 +102,9 @@ export function autoStage(
   switch (event) {
     case 'assigned':
       return current === 'unassigned' ? 'assigned' : null;
+    case 'last_unassigned':
+      // Only Assigned depends on people alone; Booked in and later keep their stage.
+      return current === 'assigned' && !ctx.hasAssignees ? 'unassigned' : null;
     case 'appointment_created':
       return current === 'unassigned' || current === 'assigned' ? 'scheduled' : null;
     case 'appointment_deleted':

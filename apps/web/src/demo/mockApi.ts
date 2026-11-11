@@ -1095,6 +1095,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     }
     if (method === 'DELETE' && sub === 'assignees') {
       db!.assignees = db!.assignees.filter((x) => !(x.jobId === job.id && x.userId === seg[3]));
+      applyEvent(job, 'last_unassigned');
       return jobDetail(job);
     }
     if (method === 'POST' && sub === 'appointments') {
@@ -1116,6 +1117,12 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       const at = deviceTime(input.at);
       const running = db!.timers.find((t) => !t.stoppedAt);
       if (action === 'start') {
+        if (stageRow(job.stageId).systemKey === 'cancelled')
+          fail(
+            409,
+            'job_cancelled',
+            'This job is cancelled. Move it to another stage to work on it.',
+          );
         if (running && running.jobId !== job.id) {
           if (!input.switch)
             fail(
