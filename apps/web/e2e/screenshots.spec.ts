@@ -285,6 +285,14 @@ for (const vp of VIEWPORTS) {
       await expect(costSheet.getByText('£24.50/h')).toBeVisible();
       await shot(page, '54-team-cost-sheet', vp.name, scheme);
       await page.keyboard.press('Escape');
+      // Who sees what: Sam as a field worker (not saved).
+      const accessList = page.getByRole('list', { name: 'Access' });
+      await accessList.getByRole('button', { name: /Sam Spark/ }).click();
+      const accessSheet = page.getByRole('dialog', { name: 'Sam Spark' });
+      await accessSheet.getByRole('button', { name: 'Field worker', exact: true }).click();
+      await expect(accessSheet.getByRole('switch', { name: /Accounts/ })).not.toBeChecked();
+      await shot(page, '59-settings-access', vp.name, scheme);
+      await page.keyboard.press('Escape');
       await page.goto('/jobs');
       await page.getByText('Barn rewire and LED lighting').click();
       const qva = page.getByRole('list', { name: 'Quote vs actual' });

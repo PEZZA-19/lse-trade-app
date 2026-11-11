@@ -1,4 +1,12 @@
 import {
+  ACCESS_AREAS,
+  AREA_LABEL,
+  PRESET_AREAS,
+  PRESET_LABEL,
+  presetOf,
+  type AccessArea,
+  type AccessPreset,
+  type MemberAccessDto,
   costRate,
   formatPence,
   formatPercentBp,
@@ -11,7 +19,13 @@ import {
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import { useMe } from '../api/hooks';
-import { useSetChargeOut, useSetMemberCost, useTeam } from '../api/team';
+import {
+  useAccessList,
+  useSetAccess,
+  useSetChargeOut,
+  useSetMemberCost,
+  useTeam,
+} from '../api/team';
 import { Sheet } from '../components/Sheet';
 import { useToast } from '../components/Toast';
 import {
@@ -22,6 +36,7 @@ import {
   Pill,
   Section,
   Segmented,
+  StaticRow,
   TextField,
 } from '../components/ui';
 
@@ -34,10 +49,11 @@ const ROLE: Record<string, string> = {
 const pounds = (p: number | null) => (p === null ? '' : formatPence(p).replace('£', ''));
 
 /**
- * Settings › Team (owner only): each person's charge-out rate beside what they really cost per
- * hour (base + tax/on-costs). Reports and job costs use the cost rate for true profit.
+ * Settings › Team: each person's charge-out rate beside what they really cost per hour
+ * (base + tax/on-costs). Reports and job costs use the cost rate for true profit. Anyone with
+ * cost-rate access sees it; only admins change it.
  */
-export function TeamSection() {
+export function TeamSection({ canEdit }: { canEdit: boolean }) {
   const team = useTeam();
   const [editing, setEditing] = useState<TeamMemberDto | null>(null);
   return (
@@ -48,23 +64,27 @@ export function TeamSection() {
       <List label="Team">
         {(team.data ?? []).map((m) => (
           <li key={m.userId}>
-            <ButtonRow
-              onClick={() => setEditing(m)}
-              chevron
-              title={
-                <>
-                  {m.name} {m.isPlaceholder && <Pill tone="orange">Placeholder</Pill>}
-                </>
-              }
-              sub={`${ROLE[m.role] ?? m.role} · charge-out ${formatPence(m.chargeOutPence)}/h`}
-              meta={
-                m.costRatePence === null ? (
-                  <span className="team-cost team-cost--unset">Cost not set</span>
-                ) : (
-                  <span className="team-cost">{formatPence(m.costRatePence)}/h cost</span>
-                )
-              }
-            />
+            {canEdit ? (
+              <ButtonRow
+                onClick={() => setEditing(m)}
+                chevron
+                title={
+                  <>
+                    {m.name} {m.isPlaceholder && <Pill tone="orange">Placeholder</Pill>}
+                  </>
+                }
+                sub={teamSub(m)}
+                meta={<CostMeta m={m} />}
+              />
+            ) : (
+              <StaticRow>
+                <span className="row__main">
+                  <span className="row__title">{m.name}</span>
+                  <span className="row__sub">{teamSub(m)}</span>
+                </span>
+                <CostMeta m={m} />
+              </StaticRow>
+            )}
           </li>
         ))}
       </List>
@@ -75,6 +95,169 @@ export function TeamSection() {
       )}
       {editing && <CostSheet m={editing} onClose={() => setEditing(null)} />}
     </Section>
+  );
+}
+
+const teamSub = (m: TeamMemberDto) =>
+  `${ROLE[m.role] ?? m.role} · charge-out ${formatPence(m.chargeOutPence)}/h`;
+
+function CostMeta({ m }: { m: TeamMemberDto }) {
+  return m.costRatePence === null ? (
+    <span className="team-cost team-cost--unset">Cost not set</span>
+  ) : (
+    <span className="team-cost">{formatPence(m.costRatePence)}/h cost</span>
+  );
+}
+
+const PRESETS: AccessPreset[] = ['admin', 'office', 'field', 'subcontractor'];
+const accessSub = (a: MemberAccessDto) =>
+  a.isAdmin
+    ? 'Admin · sees everything, manages access'
+    : `${PRESET_LABEL[a.preset]} · ${
+        a.areas.length
+          ? a.areas.map((x) => AREA_LABEL[x].title).join(', ')
+          : 'jobs, schedule and time only'
+      }`;
+
+/** Settings › Access (admins only): who can see accounts, reports, cost rates, quotes and settings. */
+export function AccessSection() {
+  const list = useAccessList();
+  const [editing, setEditing] = useState<MemberAccessDto | null>(null);
+  return (
+    <Section
+      header="Access"
+      footer="Choose what each person can open. Everyone sees jobs, the schedule, customers and their own time. The owner is always an admin."
+    >
+      <List label="Access">
+        {(list.data ?? []).map((a) => (
+          <li key={a.userId}>
+            <ButtonRow
+              onClick={() => setEditing(a)}
+              chevron
+              title={a.name}
+              sub={accessSub(a)}
+              meta={
+                <span className="team-cost">{a.isAdmin ? 'Admin' : PRESET_LABEL[a.preset]}</span>
+              }
+            />
+          </li>
+        ))}
+      </List>
+      {list.isError && (
+        <p className="field-error" role="alert">
+          {list.error.message}
+        </p>
+      )}
+      {editing && <AccessSheet a={editing} onClose={() => setEditing(null)} />}
+    </Section>
+  );
+}
+
+function AccessSheet({ a, onClose }: { a: MemberAccessDto; onClose: () => void }) {
+  const [isAdmin, setIsAdmin] = useState(a.isAdmin);
+  const [areas, setAreas] = useState<AccessArea[]>(a.areas);
+  const save = useSetAccess(a.userId);
+  const toast = useToast();
+  const owner = a.role === 'owner';
+  const preset = presetOf({ isAdmin, areas });
+  const pick = (p: AccessPreset) => {
+    setIsAdmin(p === 'admin');
+    setAreas([...PRESET_AREAS[p as Exclude<AccessPreset, 'custom'>]]);
+  };
+  const toggle = (x: AccessArea, on: boolean) =>
+    setAreas((cur) => ACCESS_AREAS.filter((y) => (y === x ? on : cur.includes(y))));
+  const onSave = () =>
+    save.mutate(
+      { isAdmin, areas: isAdmin ? [...ACCESS_AREAS] : areas },
+      {
+        onSuccess: () => {
+          toast.show('Access saved');
+          onClose();
+        },
+      },
+    );
+  return (
+    <Sheet
+      open
+      title={a.name}
+      onClose={onClose}
+      action={
+        <Button
+          variant="plain"
+          disabled={owner}
+          loading={save.isPending}
+          style={{ fontWeight: 600 }}
+          onClick={onSave}
+        >
+          Save
+        </Button>
+      }
+    >
+      <Section
+        header="Start from"
+        footer={
+          owner ? 'The owner is always an admin.' : 'Then switch single areas on or off below.'
+        }
+      >
+        <List label="Start from">
+          {PRESETS.map((p) => (
+            <li key={p}>
+              <ButtonRow
+                onClick={() => !owner && pick(p)}
+                title={PRESET_LABEL[p]}
+                meta={
+                  preset === p ? (
+                    <span className="team-cost" aria-label="Selected">
+                      ✓
+                    </span>
+                  ) : undefined
+                }
+              />
+            </li>
+          ))}
+        </List>
+      </Section>
+      <Section header="Can open" footer={isAdmin ? 'Admins see everything.' : undefined}>
+        <List className="form-list" label="Can open">
+          <li>
+            <label className="row" style={{ cursor: owner ? 'default' : 'pointer' }}>
+              <span className="row__main">Admin (manages access and rates)</span>
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch"
+                checked={isAdmin}
+                disabled={owner}
+                onChange={(e) => setIsAdmin(e.target.checked)}
+              />
+            </label>
+          </li>
+          {ACCESS_AREAS.map((x) => (
+            <li key={x}>
+              <label className="row" style={{ cursor: isAdmin ? 'default' : 'pointer' }}>
+                <span className="row__main">
+                  <span className="row__title">{AREA_LABEL[x].title}</span>
+                  <span className="row__sub">{AREA_LABEL[x].sub}</span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="switch"
+                  checked={isAdmin || areas.includes(x)}
+                  disabled={isAdmin}
+                  onChange={(e) => toggle(x, e.target.checked)}
+                />
+              </label>
+            </li>
+          ))}
+        </List>
+      </Section>
+      {save.error && (
+        <p className="field-error" role="alert">
+          {save.error.message}
+        </p>
+      )}
+    </Sheet>
   );
 }
 

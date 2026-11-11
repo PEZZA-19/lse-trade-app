@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useAppointments, useJobs, useMe, useRunningTimer } from '../api/hooks';
+import { canSee } from '@lse/shared';
+import { useAccess, useAppointments, useJobs, useMe, useRunningTimer } from '../api/hooks';
 import { useEnquiryCounts, useProposalCounts } from '../api/inbox';
 import { IconCalendar, IconCustomers, IconJobs, IconQuotes } from '../components/icons';
 import { StagePill } from '../components/Stage';
@@ -17,6 +18,7 @@ export function HomeScreen() {
   const [today] = useState(() => startOfDay(new Date()));
   const appts = useAppointments(today, addDays(today, 1));
   const timer = useRunningTimer();
+  const quotesOk = canSee(useAccess(), 'quotes');
   const jobs = useJobs('active');
   const me = useMe();
   const [sheet, setSheet] = useState<'job' | 'quote' | 'customer' | null>(null);
@@ -77,10 +79,12 @@ export function HomeScreen() {
           <IconCalendar />
           Book
         </button>
-        <button type="button" onClick={() => setSheet('quote')}>
-          <IconQuotes />
-          New quote
-        </button>
+        {quotesOk && (
+          <button type="button" onClick={() => setSheet('quote')}>
+            <IconQuotes />
+            New quote
+          </button>
+        )}
         <button type="button" onClick={() => setSheet('customer')}>
           <IconCustomers />
           Customer

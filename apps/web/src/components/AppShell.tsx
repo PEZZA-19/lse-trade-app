@@ -1,7 +1,9 @@
-import { NavLink, Outlet, useLocation } from 'react-router';
+import { AREA_LABEL, type AccessArea } from '@lse/shared';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 // Bundled (not /public) so it also shows in the single-file local demo.
 import appIcon from '../assets/app-icon.png';
-import { useMe } from '../api/hooks';
+import { useAccess, useMe } from '../api/hooks';
+import { areaForRoute, canOpen } from '../access';
 import { useEnquiryCounts, useProposalCounts } from '../api/inbox';
 import {
   IconCalendar,
@@ -22,6 +24,7 @@ import {
 } from './icons';
 import { OfflineBanner } from './OfflineBanner';
 import { SyncBadge } from './SyncBadge';
+import { Button, EmptyState, Page } from './ui';
 
 /**
  * Phones: five tabs at most (Apple HIG). Approvals and Enquiries are things to act on today, so
@@ -67,9 +70,14 @@ const SIDEBAR = [
 /** Sidebar on desktop and tablets in landscape; bottom tab bar on phones. */
 export function AppShell() {
   const me = useMe();
+  const access = useAccess();
+  // Areas an admin has switched off for this person are left out of the menus altogether.
+  const tabs = TABS.filter((t) => canOpen(access, t.to));
+  const sidebar = SIDEBAR.filter((t) => canOpen(access, t.to));
   const { pathname } = useLocation();
   const inMore = UNDER_MORE.some((p) => pathname.startsWith(p));
   const inHome = UNDER_HOME.some((p) => pathname.startsWith(p));
+  const blocked = access.ready && !canOpen(access, pathname);
   const waiting = useProposalCounts().data?.pending ?? 0;
   const todo = useEnquiryCounts().data?.todo ?? 0;
   const badges: Record<string, number> = {
@@ -84,7 +92,7 @@ export function AppShell() {
           <img src={appIcon} alt="" />
           <span>{me.data?.tenant.name ?? 'LSE Trade'}</span>
         </div>
-        {SIDEBAR.map(({ to, label, Icon }) => (
+        {sidebar.map(({ to, label, Icon }) => (
           <NavLink key={to} to={to} className="sidebar__item">
             <Icon />
             {label}
@@ -103,10 +111,10 @@ export function AppShell() {
         <OfflineBanner />
         <SyncBadge />
         {import.meta.env.VITE_DEMO === '1' && <DemoBanner />}
-        <Outlet />
+        {blocked ? <NoAccess area={areaForRoute(pathname)} /> : <Outlet />}
       </main>
       <nav className="tabbar" aria-label="Main">
-        {TABS.map(({ to, label, Icon }) => (
+        {tabs.map(({ to, label, Icon }) => (
           <NavLink
             key={to}
             to={to}
@@ -128,6 +136,21 @@ export function AppShell() {
         ))}
       </nav>
     </div>
+  );
+}
+
+/** Shown instead of a screen this person's access doesn't include (e.g. a shared link). */
+function NoAccess({ area }: { area: AccessArea | null }) {
+  const navigate = useNavigate();
+  return (
+    <Page title="No Access">
+      <EmptyState
+        icon={<IconSeal />}
+        title="Not available to you"
+        message={`Your account can’t open ${area ? AREA_LABEL[area].title.toLowerCase() : 'this'}. Ask an admin if you need it.`}
+        action={<Button onClick={() => navigate('/home')}>Go to Home</Button>}
+      />
+    </Page>
   );
 }
 

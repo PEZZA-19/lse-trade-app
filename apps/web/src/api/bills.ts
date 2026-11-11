@@ -49,7 +49,7 @@ export function useSaveSupplier(s?: { id: string; version: number }) {
   });
 }
 
-export const useBills = (filter: BillFilter, supplierId?: string) =>
+export const useBills = (filter: BillFilter, supplierId?: string, enabled = true) =>
   useQuery({
     queryKey: billKeys.bills(filter, supplierId),
     queryFn: () =>
@@ -61,6 +61,7 @@ export const useBills = (filter: BillFilter, supplierId?: string) =>
         })}`,
       ),
     placeholderData: keepPreviousData,
+    enabled,
   });
 
 export const useBill = (id: string) =>

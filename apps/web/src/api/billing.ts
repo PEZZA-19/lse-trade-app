@@ -139,10 +139,11 @@ export function useDeleteKit() {
 
 /* ------------------------------- invoices -------------------------------- */
 
-export const useInvoices = (filter: InvoiceFilter) =>
+export const useInvoices = (filter: InvoiceFilter, enabled = true) =>
   useQuery({
     queryKey: billingKeys.invoices(filter),
     queryFn: () => api<InvoiceSummaryDto[]>('GET', `/invoices?filter=${filter}`),
+    enabled,
     placeholderData: keepPreviousData,
   });
 

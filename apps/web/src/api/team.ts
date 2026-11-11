@@ -1,4 +1,11 @@
-import type { JobCostingDto, MemberCostUpdate, TeamMemberDto } from '@lse/shared';
+import type {
+  AccessArea,
+  JobCostingDto,
+  MemberAccessDto,
+  MemberCostUpdate,
+  TeamMemberDto,
+} from '@lse/shared';
+import { keys } from './hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 
@@ -36,6 +43,26 @@ export function useSetChargeOut(userId: string) {
     onSuccess: () => {
       for (const k of ['team', 'reports', 'job-costing', 'job-invoicing'])
         void qc.invalidateQueries({ queryKey: [k] });
+    },
+  });
+}
+
+/** Admins only: who can see what. */
+export const useAccessList = (enabled = true) =>
+  useQuery({
+    queryKey: ['team-access'],
+    queryFn: () => api<MemberAccessDto[]>('GET', '/team/access'),
+    enabled,
+  });
+
+export function useSetAccess(userId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { isAdmin: boolean; areas: AccessArea[] }) =>
+      api<MemberAccessDto>('PUT', `/team/${userId}/access`, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['team-access'] });
+      void qc.invalidateQueries({ queryKey: keys.me });
     },
   });
 }

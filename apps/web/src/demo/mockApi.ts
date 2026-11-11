@@ -65,6 +65,7 @@ import {
   type QuoteStatus,
   type QuoteSummaryDto,
   type SiteDto,
+  type Access,
 } from '@lse/shared';
 import type { z } from 'zod';
 import { ApiError } from '../api/client';
@@ -78,7 +79,7 @@ import {
   type BillingDb,
 } from './mockBilling';
 import { demoJobCosting, demoReports, type ReportsCtx } from './mockReports';
-import { freshTeam, teamRoute, type TeamDb } from './mockTeam';
+import { accessOf, freshTeam, teamRoute, type TeamDb } from './mockTeam';
 import { freshJobDetail, jobDetailRoute, type JobDetailDb } from './mockJobDetail';
 // Joe's own logo (his choice to show it in the preview); cleaned by tools/logo.py.
 import demoLogo from '../../../../assets/lse-logo.png?inline';
@@ -174,6 +175,8 @@ interface Db {
   team?: TeamDb;
   /** Own charge-out rates per person (pence/h). */
   chargeOut?: Record<string, number>;
+  /** Who can see what (set in Settings › Access). */
+  access?: Record<string, Access>;
   jobDetail?: JobDetailDb;
 }
 type DemoSettings = Omit<SettingsDto, 'sequences'> & {
@@ -674,6 +677,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     {
       team,
       chargeOut: (db!.chargeOut ??= {}),
+      access: (db!.access ??= {}),
       members: MEMBERS,
       labourRatePence: S().labourRatePence,
       parse,
@@ -742,6 +746,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
         quoteValidDays: S().quoteValidDays,
       },
       role: 'owner',
+      access: accessOf({ access: db!.access ?? {} }, DEMO_USER.id, 'owner'),
     };
 
   // The preview has no real sign-in: it is always "signed in" as the demo owner.

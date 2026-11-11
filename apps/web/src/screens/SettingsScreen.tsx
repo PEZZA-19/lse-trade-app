@@ -1,4 +1,5 @@
 import {
+  canSee,
   formatDocNumber,
   formatMarkup,
   formatPence,
@@ -13,6 +14,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import {
   useReadiness,
+  useAccess,
   useSession,
   useSetLogo,
   useSettings,
@@ -24,7 +26,7 @@ import { resizeLogo } from '../lib/image';
 import { useToast } from '../components/Toast';
 import { SaveStatus } from '../components/SaveStatus';
 import { JobStagesSection } from './JobStagesSection';
-import { TeamSection } from './TeamSection';
+import { AccessSection, TeamSection } from './TeamSection';
 import { useSync } from '../offline';
 import {
   Button,
@@ -178,6 +180,7 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
   const readiness = useReadiness();
   const session = useSession();
   const isOwner = session.data?.role === 'owner';
+  const access = useAccess();
   const dirty = useMemo(
     () => JSON.stringify(form) !== JSON.stringify(savedForm),
     [form, savedForm],
@@ -230,7 +233,14 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
       )}
       <LogoSection logo={initial.logoDataUrl} name={initial.name} isOwner={isOwner} />
       {isOwner && <EnquiryFormSection />}
-      {isOwner && <TeamSection />}
+      {access.isAdmin ? (
+        <>
+          <TeamSection canEdit />
+          <AccessSection />
+        </>
+      ) : (
+        canSee(access, 'costs') && <TeamSection canEdit={false} />
+      )}
       <fieldset disabled={!isOwner} style={{ border: 0, padding: 0, margin: 0 }}>
         <Section header="Business" footer="Shown on quotes and invoices.">
           <List className="form-list">

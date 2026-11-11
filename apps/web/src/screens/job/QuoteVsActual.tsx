@@ -1,21 +1,20 @@
-import { formatMinutes, formatPence, marginBp } from '@lse/shared';
+import { canSee, formatMinutes, formatPence, marginBp } from '@lse/shared';
 import { Link } from 'react-router';
-import { useMe } from '../../api/hooks';
+import { useAccess } from '../../api/hooks';
 import { useJobCosting } from '../../api/team';
 import { KeyValueRow, List, Section } from '../../components/ui';
 
 const signed = (p: number) => `${p < 0 ? '−' : ''}${formatPence(Math.abs(p))}`;
 
 /**
- * Owner only: what was quoted against what the job has really used, and the true profit
+ * Reports and profit access only: what was quoted against what the job has really used, and the true profit
  * (revenue − labour at each person's cost rate − materials at cost). Updates as time and
  * materials are added.
  */
 export function QuoteVsActual({ jobId }: { jobId: string }) {
-  const me = useMe();
-  const owner = me.data?.role === 'owner';
-  const c = useJobCosting(jobId, owner);
-  if (!owner || !c.data) return null;
+  const allowed = canSee(useAccess(), 'reports');
+  const c = useJobCosting(jobId, allowed);
+  if (!allowed || !c.data) return null;
   const { profit: p, quoted: q, labour } = c.data;
   const bp = marginBp(p.expectedProfitPence, p.revenuePence);
   const soFarBp = marginBp(p.profitPence, p.invoicedPence);

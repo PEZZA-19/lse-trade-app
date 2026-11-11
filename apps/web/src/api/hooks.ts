@@ -1,3 +1,4 @@
+import { defaultAccess, type Access } from '@lse/shared';
 import type {
   AppointmentCreate,
   AppointmentListItemDto,
@@ -47,6 +48,8 @@ export interface Me {
     quoteValidDays: number;
   };
   role: string;
+  /** What this person may open (set by an admin); older servers leave it out. */
+  access?: Access;
 }
 
 const qs = (params: Record<string, string | number | boolean | undefined>) => {
@@ -166,6 +169,19 @@ export const useUpdateSettings = () => {
 
 export const useMe = () =>
   useQuery({ queryKey: keys.me, queryFn: () => api<Me>('GET', '/me'), staleTime: 5 * 60_000 });
+
+/**
+ * What the signed-in person may see. Until /me loads, nothing is assumed (so blocked areas never
+ * flash on screen); the API enforces the same rules either way.
+ */
+export function useAccess(): Access & { ready: boolean } {
+  const me = useMe().data;
+  if (!me) return { isAdmin: false, areas: [], ready: false };
+  const a =
+    me.access ??
+    defaultAccess((me.role as Parameters<typeof defaultAccess>[0] | undefined) ?? 'staff');
+  return { ...a, ready: true };
+}
 
 export const useCustomers = (q?: string) =>
   useQuery({

@@ -17,7 +17,8 @@ import { MaterialsSection } from './job/MaterialsSection';
 import { NotesSection } from './job/NotesSection';
 import { PhotosSection } from './job/PhotosSection';
 import { useParams } from 'react-router';
-import { useJob, useJobStages, useMembers } from '../api/hooks';
+import { canSee } from '@lse/shared';
+import { useAccess, useJob, useJobStages, useMembers } from '../api/hooks';
 import { StageDot, StagePill, useChangeStage } from '../components/Stage';
 import { formatDateTime } from './syncFormat';
 import { IconCalendar, IconJobs, IconQuotes } from '../components/icons';
@@ -39,6 +40,7 @@ import { initials, LINE_KIND_LABEL } from '../lib/status';
 const PLACE = { sark: 'Sark', guernsey: 'Guernsey', other: 'Elsewhere' } as const;
 
 export function JobScreen() {
+  const access = useAccess();
   const { id = '' } = useParams();
   const job = useJob(id);
   const stages = useJobStages();
@@ -203,7 +205,7 @@ export function JobScreen() {
 
       <TimeSection job={j} />
 
-      <JobInvoicesSection jobId={j.id} />
+      {canSee(access, 'financials') && <JobInvoicesSection jobId={j.id} />}
 
       <Section header="Customer">
         <List>
@@ -248,7 +250,11 @@ export function JobScreen() {
       {quoted.length > 0 && (
         <Section
           header="Quoted work"
-          footer="Invoice it from Invoices above: whole, a deposit, a percentage or the rest."
+          footer={
+            canSee(access, 'financials')
+              ? 'Invoice it from Invoices above: whole, a deposit, a percentage or the rest.'
+              : undefined
+          }
         >
           <List>
             {quoted.map((l) => (
