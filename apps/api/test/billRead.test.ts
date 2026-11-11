@@ -85,7 +85,7 @@ describe('bills read from PDFs', () => {
     ] as const) {
       const s = await signIn(app, mailer, c.email);
       const res = await s.request('POST', '/api/supplier-bills/read', { text: 'Some invoice' });
-      const body = await res.json();
+      const body = (await res.json()) as { ok: boolean; message: string };
       expect(body.ok).toBe(false);
       expect(body.message).toMatch(message);
     }
