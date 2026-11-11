@@ -5,9 +5,11 @@
  * The real rules (numbering in Postgres, RLS, idempotency) live in apps/api.
  */
 import {
+  creditNoteDocument,
   invoiceDocument,
   quoteDocument,
   type BusinessDocument,
+  type CreditNoteDto,
   type InvoiceDetailDto,
   contactInput,
   customerCreate,
@@ -531,6 +533,11 @@ function billingCtx(): BillingCtx {
         .filter((x) => x.customerId === customerId && x.role === 'bill_payer')
         .sort((x, y) => Number(!x.email) - Number(!y.email))[0] ?? null,
     timesheets: (jobId) => db!.timesheets.filter((t) => t.jobId === jobId),
+    creditNumber: (take) => {
+      const v = S().seqExtra.credit_note;
+      if (take) S().seqExtra.credit_note = v + 1;
+      return fmt('credit_note', v);
+    },
     completeJob: (jobId) => {
       const j = getJob(jobId);
       applyEvent(j, 'invoiced_and_paid');
@@ -544,8 +551,20 @@ function billingCtx(): BillingCtx {
 }
 
 /** Same layout model as GET /api/{quotes|invoices}/:id/document, built from demo data. */
-function documentFor(kind: 'quotes' | 'invoices', id: string): BusinessDocument {
+function documentFor(kind: 'quotes' | 'invoices' | 'credit-notes', id: string): BusinessDocument {
   const settings = settingsDto();
+  if (kind === 'credit-notes') {
+    const cn = billingRoute(
+      billingCtx(),
+      'GET',
+      ['credit-notes', id],
+      new URLSearchParams(),
+      undefined,
+    ) as CreditNoteDto;
+    const job = getJob(cn.jobId);
+    const site = db!.sites.find((s) => s.id === job.siteId);
+    return creditNoteDocument(cn, settings, { siteAddress: site?.address ?? null });
+  }
   if (kind === 'invoices') {
     const ctx = billingCtx();
     const inv = billingRoute(
@@ -578,7 +597,11 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
   const q = query.get('q');
 
   const user = { ...DEMO_USER, email: 'owner@lse.example' };
-  if (method === 'GET' && sub === 'document' && (a === 'quotes' || a === 'invoices'))
+  if (
+    method === 'GET' &&
+    sub === 'document' &&
+    (a === 'quotes' || a === 'invoices' || a === 'credit-notes')
+  )
     return documentFor(a, id!);
   const bills = billsRoute(billingCtx(), method, seg, query, body);
   if (bills !== undefined) return bills;

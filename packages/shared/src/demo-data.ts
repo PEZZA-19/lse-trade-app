@@ -388,6 +388,12 @@ export async function runDemoScript(post: Post, patch: Patch, get?: Get): Promis
     paidOn: ago(0).slice(0, 10),
     method: 'card',
   });
+  // Two appliances couldn't be tested (room locked): a credit note, approved by Joe.
+  const credit0 = await post(`/invoices/${pat.id}/credit-notes`, {
+    amountPence: 1500,
+    reason: 'Two appliances not tested (room locked on the day)',
+  });
+  if (credit0?.id) await post(`/credit-notes/${credit0.id}/approve`);
 
   // Supplier bills (fictional merchants and references).
   // Stock bought last week, applied: prices unchanged, nothing on a job.

@@ -2,6 +2,10 @@ import type {
   BillApplyResultDto,
   BillDetailDto,
   BillSummaryDto,
+  BusinessDocument,
+  CreditNoteDto,
+  InvoiceDetailDto,
+  InvoiceSummaryDto,
   JobDetailDto,
   SupplierDto,
 } from '@lse/shared';
@@ -57,5 +61,37 @@ describe('demo supplier bills (mirrors the server rules)', () => {
     await expect(post(`/supplier-bills/${bill.id}/apply`, { dryRun: false })).rejects.toMatchObject(
       { status: 409 },
     );
+  });
+});
+
+describe('demo customer credit notes', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetDemo();
+  });
+
+  it('seeds CN-0001 on the PAT invoice; a new draft changes nothing until approved', async () => {
+    const invs = await get<InvoiceSummaryDto[]>('/invoices?filter=all');
+    const pat = invs.find((i) => i.customerName.startsWith('Coupée'))!;
+    expect(pat.creditedPence).toBe(1500);
+    expect(pat.balancePence).toBe(pat.totalPence - pat.paidPence - 1500);
+    const draft = await post<CreditNoteDto>(`/invoices/${pat.id}/credit-notes`, {
+      amountPence: 1000,
+      reason: 'Goodwill',
+    });
+    expect(draft).toMatchObject({ status: 'draft', nextNumber: 'CN-0002' });
+    expect((await get<InvoiceDetailDto>(`/invoices/${pat.id}`)).balancePence).toBe(
+      pat.balancePence,
+    );
+    await expect(
+      post(`/invoices/${pat.id}/credit-notes`, { amountPence: pat.balancePence, reason: 'x' }),
+    ).rejects.toMatchObject({ status: 422 });
+    const ok = await post<CreditNoteDto>(`/credit-notes/${draft.id}/approve`);
+    expect(ok.number).toBe('CN-0002');
+    const after = await get<InvoiceDetailDto>(`/invoices/${pat.id}`);
+    expect(after.balancePence).toBe(pat.balancePence - 1000);
+    expect(after.creditNotes.map((c) => c.number)).toEqual(['CN-0001', 'CN-0002']);
+    const doc = await get<BusinessDocument>(`/credit-notes/${draft.id}/document`);
+    expect(doc).toMatchObject({ kind: 'credit_note', number: 'CN-0002', payment: null });
   });
 });

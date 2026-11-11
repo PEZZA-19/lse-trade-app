@@ -12,6 +12,8 @@ export function Sheet(props: {
   onClose: () => void;
   action?: ReactNode;
   cancelLabel?: string;
+  /** The left button's action when it isn't "close" (e.g. Back from a confirm step). */
+  onCancel?: () => void;
   /** Tall sheet for documents and previews. */
   large?: boolean;
   children: ReactNode;
@@ -73,7 +75,7 @@ export function Sheet(props: {
           <button
             type="button"
             className="btn btn--plain"
-            onClick={onClose}
+            onClick={props.onCancel ?? onClose}
             style={{ justifySelf: 'start' }}
           >
             {props.cancelLabel ?? 'Cancel'}

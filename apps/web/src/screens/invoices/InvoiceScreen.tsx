@@ -1,5 +1,6 @@
 import {
   PAYMENT_METHOD_LABELS,
+  creditBlocker,
   formatPence,
   formatQty,
   type InvoiceDetailDto,
@@ -30,6 +31,7 @@ import {
 } from '../../components/ui';
 import { formatDayShort, formatTime } from '../../lib/dates';
 import { INVOICE_STATUS, dueLabel, shortDate } from '../../lib/status';
+import { CreditNoteSheet, NewCreditNoteSheet } from './CreditNoteSheets';
 import { ConfirmSheet, InvoiceLineSheet, PaymentSheet } from './InvoiceSheets';
 
 export function InvoiceScreen() {
@@ -79,6 +81,16 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   const [editing, setEditing] = useState<number | 'new' | null>(null);
   const st = INVOICE_STATUS[inv.displayStatus];
   const draft = inv.status === 'draft';
+  const [crediting, setCrediting] = useState(false);
+  const [creditId, setCreditId] = useState<string | null>(null);
+  const [creditPreview, setCreditPreview] = useState<{
+    id: string;
+    title: string;
+    draft: boolean;
+  } | null>(null);
+  const canCredit = !creditBlocker(inv);
+  /** Something has come off: show what's still owed rather than the total. */
+  const owing = inv.status !== 'paid' && inv.balancePence !== inv.totalPence && !draft;
   const lines = toInput(inv);
 
   const saveLines = (next: InvoiceLineInput[]) =>
@@ -120,13 +132,11 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
     >
       <div className="hero">
         <div className="hero__amount" aria-label={`Total ${formatPence(inv.totalPence)}`}>
-          {formatPence(inv.status === 'part_paid' ? inv.balancePence : inv.totalPence)}
+          {formatPence(owing ? inv.balancePence : inv.totalPence)}
         </div>
         <div className="hero__meta">
           <Pill tone={st.tone}>{st.label}</Pill>
-          <span>
-            {inv.status === 'part_paid' ? `owed of ${formatPence(inv.totalPence)}` : dueLabel(inv)}
-          </span>
+          <span>{owing ? `owed of ${formatPence(inv.totalPence)}` : dueLabel(inv)}</span>
         </div>
       </div>
 
@@ -289,10 +299,22 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
             />
           </li>
           {inv.paidPence > 0 && (
-            <>
-              <li>
-                <KeyValueRow label="Paid" value={`−${formatPence(inv.paidPence)}`} />
+            <li>
+              <KeyValueRow label="Paid" value={`−${formatPence(inv.paidPence)}`} />
+            </li>
+          )}
+          {inv.creditNotes
+            .filter((c) => c.status === 'approved')
+            .map((c) => (
+              <li key={c.id}>
+                <KeyValueRow
+                  label={`Credit note ${c.number}`}
+                  value={`−${formatPence(c.amountPence)}`}
+                />
               </li>
+            ))}
+          {(inv.paidPence > 0 || inv.creditedPence > 0) && (
+            <>
               <li>
                 <KeyValueRow label="Balance due" value={formatPence(inv.balancePence)} strong />
               </li>
@@ -323,6 +345,76 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
           </List>
         </Section>
       )}
+
+      {(inv.creditNotes.length > 0 || canCredit) && (
+        <Section
+          header="Credit notes"
+          footer={
+            canCredit
+              ? 'Take money off this invoice for a mistake, goodwill or work not done. The owner approves it.'
+              : undefined
+          }
+        >
+          <List label="Credit notes">
+            {inv.creditNotes.map((c) => (
+              <li key={c.id}>
+                <ButtonRow
+                  title={c.number ? `Credit note ${c.number}` : 'Draft credit note'}
+                  sub={
+                    <>
+                      {c.status === 'draft' ? (
+                        <Pill tone="orange">Draft</Pill>
+                      ) : (
+                        <Pill tone="green">Approved</Pill>
+                      )}{' '}
+                      {c.reason}
+                    </>
+                  }
+                  meta={<span className="num">−{formatPence(c.amountPence)}</span>}
+                  onClick={() => setCreditId(c.id)}
+                  chevron
+                />
+              </li>
+            ))}
+            {canCredit && (
+              <li>
+                <ButtonRow
+                  onClick={() => setCrediting(true)}
+                  lead={<IconPlusCircle width={22} height={22} color="var(--accent)" />}
+                  title={<span style={{ color: 'var(--accent)' }}>New credit note…</span>}
+                />
+              </li>
+            )}
+          </List>
+        </Section>
+      )}
+      <NewCreditNoteSheet
+        open={crediting}
+        invoice={inv}
+        onClose={() => setCrediting(false)}
+        onCreated={(cid) => setCreditId(cid)}
+      />
+      <CreditNoteSheet
+        id={creditId}
+        isOwner={isOwner}
+        onClose={() => setCreditId(null)}
+        onPreview={(cid, title, isDraft) => {
+          setCreditId(null);
+          setCreditPreview({ id: cid, title, draft: isDraft });
+        }}
+      />
+      <DocumentSheet
+        open={!!creditPreview}
+        onClose={() => setCreditPreview(null)}
+        kind="credit-notes"
+        id={creditPreview?.id ?? ''}
+        title={creditPreview?.title ?? 'Credit Note'}
+        shareBlocked={
+          creditPreview?.draft
+            ? 'This is a draft preview. Approve the credit note to give it its number and share it.'
+            : null
+        }
+      />
 
       <Section header="Details" footer={inv.termsText}>
         <List>

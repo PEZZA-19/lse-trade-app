@@ -5,6 +5,8 @@
 import {
   DEFAULT_INVOICE_TERMS,
   addDaysIso,
+  creditBlocker,
+  creditNoteCreate,
   displayStatus,
   formatPence,
   invoiceCreate,
@@ -24,6 +26,7 @@ import {
   priceRowsFromCsv,
   importChanges,
   statusAfterPayment,
+  type CreditNoteDto,
   type InvoiceDetailDto,
   type InvoiceLineKind,
   type InvoiceStatus,
@@ -89,6 +92,19 @@ interface Invoice {
   sentAt: string | null;
   createdAt: string;
   version: number;
+  /** Customer credit notes against this invoice. */
+  credits?: DemoCredit[];
+}
+export interface DemoCredit {
+  id: string;
+  number: string | null;
+  status: 'draft' | 'approved';
+  issueDate: string | null;
+  reason: string;
+  amountPence: number;
+  approvedAt: string | null;
+  createdAt: string;
+  version: number;
 }
 export interface BillingDb {
   items: Item[];
@@ -141,6 +157,8 @@ export interface BillingCtx {
   billPayer: (customerId: string) => { name: string; email: string | null } | null;
   timesheets: (jobId: string) => { id: string; startedAt: string; endedAt: string }[];
   completeJob: (jobId: string) => void;
+  /** The next credit note number; `take` uses it up (gap-free, on approval only). */
+  creditNumber: (take: boolean) => string;
   ifMatch: () => number | undefined;
 }
 
@@ -367,6 +385,9 @@ function summary(c: BillingCtx, i: Invoice): InvoiceSummaryDto {
   const j = c.job(i.jobId);
   const t = totalsOf(i).totalPence;
   const paid = i.payments.reduce((a, p) => a + p.amountPence, 0);
+  const credited = (i.credits ?? [])
+    .filter((x) => x.status === 'approved')
+    .reduce((a, x) => a + x.amountPence, 0);
   return {
     id: i.id,
     number: i.number,
@@ -382,7 +403,8 @@ function summary(c: BillingCtx, i: Invoice): InvoiceSummaryDto {
     dueDate: i.dueDate,
     totalPence: t,
     paidPence: paid,
-    balancePence: t - paid,
+    creditedPence: credited,
+    balancePence: t - paid - credited,
     createdAt: i.createdAt,
     version: i.version,
   };
@@ -424,6 +446,14 @@ function detail(c: BillingCtx, i: Invoice): InvoiceDetailDto {
       totalPence: t.lineTotals[n]!,
     })),
     payments: i.payments.map((p) => ({ ...p, recordedByName: c.userName })),
+    creditNotes: (i.credits ?? []).map((x) => ({
+      id: x.id,
+      number: x.number,
+      status: x.status,
+      issueDate: x.issueDate,
+      reason: x.reason,
+      amountPence: x.amountPence,
+    })),
     nextNumber:
       i.status === 'draft' ? invoiceNumber(j.number, (c.b.invoiceCount[i.jobId] ?? 0) + 1) : null,
     approvalBlockers: blockers,
@@ -822,7 +852,11 @@ export function billingRoute(
           fields: { paidOn: 'In the future' },
         });
       inv.payments.push({ id: c.uid(), ...input, createdAt: c.now() });
-      inv.status = statusAfterPayment(s.totalPence, s.paidPence + input.amountPence);
+      inv.status = statusAfterPayment(
+        s.totalPence,
+        s.paidPence + input.amountPence,
+        s.creditedPence,
+      );
       inv.version += 1;
       let jobCompleted = false;
       if (inv.status === 'paid' && settled(c, inv.jobId)) {
@@ -832,5 +866,107 @@ export function billingRoute(
       return { ...detail(c, inv), jobCompleted };
     }
   }
+  if (a === 'invoices' && id && sub === 'credit-notes' && method === 'POST') {
+    const inv = getInvoice(c, id);
+    const input = c.parse(creditNoteCreate, body);
+    const s = summary(c, inv);
+    const blocked = creditBlocker(s);
+    if (blocked) c.fail(409, 'invoice_not_creditable', blocked);
+    const drafts = (inv.credits ?? [])
+      .filter((x) => x.status === 'draft')
+      .reduce((t, x) => t + x.amountPence, 0);
+    const room = s.balancePence - drafts;
+    if (input.amountPence > room)
+      c.fail(
+        422,
+        'validation_failed',
+        drafts
+          ? `Another draft credit note already covers part of this invoice; ${formatPence(Math.max(0, room))} is left to credit.`
+          : `That is more than the ${formatPence(s.balancePence)} still owed on the invoice.`,
+        { fields: { amountPence: `At most ${formatPence(Math.max(0, room))}` } },
+      );
+    const cn: DemoCredit = {
+      id: c.uid(),
+      number: null,
+      status: 'draft',
+      issueDate: null,
+      reason: input.reason,
+      amountPence: input.amountPence,
+      approvedAt: null,
+      createdAt: c.now(),
+      version: 1,
+    };
+    (inv.credits ??= []).push(cn);
+    return creditDto(c, inv, cn);
+  }
+  if (a === 'credit-notes' && id) {
+    const inv = c.b.invoices.find((i) => i.credits?.some((x) => x.id === id));
+    const cn = inv?.credits?.find((x) => x.id === id);
+    if (!inv || !cn) return notFound(c, 'Credit note');
+    if (method === 'GET' && !sub) return creditDto(c, inv, cn);
+    if (method === 'DELETE' && !sub) {
+      if (cn.status !== 'draft')
+        c.fail(
+          409,
+          'credit_note_locked',
+          'An approved credit note keeps its number and cannot be deleted.',
+        );
+      inv.credits = inv.credits!.filter((x) => x !== cn);
+      return null;
+    }
+    if (method === 'POST' && sub === 'approve') {
+      if (cn.status !== 'draft')
+        c.fail(409, 'credit_note_not_draft', 'This credit note is already approved.');
+      const s = summary(c, inv);
+      const blocked = creditBlocker(s);
+      if (blocked) c.fail(409, 'invoice_not_creditable', blocked);
+      if (cn.amountPence > s.balancePence)
+        c.fail(
+          422,
+          'validation_failed',
+          `That is more than the ${formatPence(s.balancePence)} still owed on the invoice.`,
+        );
+      Object.assign(cn, {
+        status: 'approved',
+        number: c.creditNumber(true),
+        issueDate: today(),
+        approvedAt: c.now(),
+        version: cn.version + 1,
+      });
+      inv.status = statusAfterPayment(s.totalPence, s.paidPence, s.creditedPence + cn.amountPence);
+      inv.version += 1;
+      let jobCompleted = false;
+      if (inv.status === 'paid' && settled(c, inv.jobId)) {
+        c.completeJob(inv.jobId);
+        jobCompleted = true;
+      }
+      return { ...creditDto(c, inv, cn), jobCompleted };
+    }
+  }
   return undefined;
+}
+
+function creditDto(c: BillingCtx, inv: Invoice, cn: DemoCredit): CreditNoteDto {
+  const d = detail(c, inv);
+  return {
+    id: cn.id,
+    number: cn.number,
+    status: cn.status,
+    issueDate: cn.issueDate,
+    reason: cn.reason,
+    amountPence: cn.amountPence,
+    invoiceId: inv.id,
+    invoiceNumber: inv.number ?? 'Draft',
+    invoiceTotalPence: d.totalPence,
+    invoiceBalancePence: d.balancePence,
+    jobId: d.jobId,
+    jobNumber: d.jobNumber,
+    jobTitle: d.jobTitle,
+    billTo: d.billTo,
+    approvedByName: cn.approvedAt ? c.userName : null,
+    approvedAt: cn.approvedAt,
+    createdAt: cn.createdAt,
+    nextNumber: cn.status === 'draft' ? c.creditNumber(false) : null,
+    version: cn.version,
+  };
 }

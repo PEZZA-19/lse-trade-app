@@ -2,7 +2,7 @@ import type { BusinessDocument } from '@lse/shared';
 import { useQuery } from '@tanstack/react-query';
 import { api } from './client';
 
-export type DocSource = 'quotes' | 'invoices';
+export type DocSource = 'quotes' | 'invoices' | 'credit-notes';
 
 export const documentKey = (kind: DocSource, id: string) => ['document', kind, id] as const;
 
