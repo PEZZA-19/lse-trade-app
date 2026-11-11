@@ -79,6 +79,7 @@ import {
 } from './mockBilling';
 import { demoJobCosting, demoReports, type ReportsCtx } from './mockReports';
 import { freshTeam, teamRoute, type TeamDb } from './mockTeam';
+import { freshJobDetail, jobDetailRoute, type JobDetailDb } from './mockJobDetail';
 // Joe's own logo (his choice to show it in the preview); cleaned by tools/logo.py.
 import demoLogo from '../../../../assets/lse-logo.png?inline';
 
@@ -169,6 +170,7 @@ interface Db {
   billing?: BillingDb;
   inbox?: InboxDb;
   team?: TeamDb;
+  jobDetail?: JobDetailDb;
 }
 type DemoSettings = Omit<SettingsDto, 'sequences'> & {
   numbering: Record<SequenceDto['kind'], { prefix: string; padding: number }>;
@@ -668,6 +670,25 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     body,
   );
   if (teamResult !== undefined) return teamResult;
+  const detail = jobDetailRoute(
+    {
+      db: (db!.jobDetail ??= freshJobDetail()),
+      timesheets: db!.timesheets,
+      jobs: db!.jobs,
+      members: MEMBERS,
+      userId: DEMO_USER.id,
+      markupBp: S().defaultMarkupBp,
+      parse,
+      fail,
+      uid,
+      now,
+      jobDetail: (jid) => jobDetail(getJob(jid)),
+    },
+    method,
+    seg,
+    body,
+  );
+  if (detail !== undefined) return detail;
   const inbox = inboxRoute(
     {
       db: (db!.inbox ??= freshInbox()),

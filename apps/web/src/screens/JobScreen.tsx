@@ -12,6 +12,10 @@ import { AppointmentSheet, type AppointmentSheetState } from './sheets/Appointme
 import { AssignSheet } from './sheets/AssignSheet';
 import { JobInvoicesSection } from './invoices/JobInvoicesSection';
 import { QuoteVsActual } from './job/QuoteVsActual';
+import { TimeSection } from './job/TimeSection';
+import { MaterialsSection } from './job/MaterialsSection';
+import { NotesSection } from './job/NotesSection';
+import { PhotosSection } from './job/PhotosSection';
 import { useParams } from 'react-router';
 import { useJob, useJobStages, useMembers } from '../api/hooks';
 import { StageDot, StagePill, useChangeStage } from '../components/Stage';
@@ -63,7 +67,6 @@ export function JobScreen() {
     );
   const j = job.data;
   const quoted = j.lines.filter((l) => l.source === 'quote');
-  const extra = j.lines.filter((l) => l.source !== 'quote');
   const pending = pendingId === j.id ? set.variables?.stage : undefined;
   // The job's own stage is always listed, even before the stage list has loaded.
   const options = stages.data?.some((s) => s.id === j.stage.id)
@@ -194,20 +197,7 @@ export function JobScreen() {
         </List>
       </Section>
 
-      {j.timesheets.length > 0 && (
-        <Section header="Time" footer={`${formatMinutes(j.totalMinutes)} in total`}>
-          <List label="Timesheet entries">
-            {j.timesheets.map((t) => (
-              <li key={t.id}>
-                <KeyValueRow
-                  label={`${formatDayShort(new Date(t.startedAt))} · ${formatRange(t.startedAt, t.endedAt)} · ${t.userName}`}
-                  value={formatMinutes(t.minutes)}
-                />
-              </li>
-            ))}
-          </List>
-        </Section>
-      )}
+      <TimeSection job={j} />
 
       <JobInvoicesSection jobId={j.id} />
 
@@ -240,7 +230,7 @@ export function JobScreen() {
       </Section>
 
       {j.description && (
-        <Section header="Notes">
+        <Section header="Description">
           <List>
             <li>
               <div className="row" style={{ whiteSpace: 'pre-wrap' }}>
@@ -267,32 +257,11 @@ export function JobScreen() {
         </Section>
       )}
 
-      <Section
-        header="Materials and extras"
-        footer="From supplier bills and by hand. On a time-and-materials invoice these are billed at the sell price shown."
-      >
-        <List>
-          {extra.map((l) => (
-            <JobLineRow key={l.id} line={l} />
-          ))}
-          {extra.length > 0 && (
-            <li>
-              <KeyValueRow
-                label="Total"
-                value={formatPence(extra.reduce((a, l) => a + l.totalPence, 0))}
-                strong
-              />
-            </li>
-          )}
-          <li>
-            <LinkRow
-              to="/bills"
-              title="Supplier Bills"
-              sub="Enter a bill and pick this job to add its materials"
-            />
-          </li>
-        </List>
-      </Section>
+      <MaterialsSection job={j} />
+
+      <NotesSection jobId={j.id} />
+
+      <PhotosSection jobId={j.id} />
 
       <QuoteVsActual jobId={j.id} />
 
