@@ -23,6 +23,9 @@ import { BillScreen } from './screens/bills/BillScreen';
 import { BillsScreen } from './screens/bills/BillsScreen';
 import { SupplierScreen, SuppliersScreen } from './screens/bills/SuppliersScreen';
 import { StatementScreen } from './screens/bills/StatementScreen';
+import { EnquiriesScreen } from './screens/inbox/EnquiriesScreen';
+import { EnquiryScreen } from './screens/inbox/EnquiryScreen';
+import { ApprovalsScreen, ProposalScreen } from './screens/inbox/ApprovalsScreen';
 import { KitScreen } from './screens/pricing/KitScreen';
 import { KitsScreen } from './screens/pricing/KitsScreen';
 import { PriceItemScreen } from './screens/pricing/PriceItemScreen';
@@ -70,6 +73,10 @@ export function App() {
           <Route path="price-list/:id" element={<PriceItemScreen />} />
           <Route path="kits" element={<KitsScreen />} />
           <Route path="kits/:id" element={<KitScreen />} />
+          <Route path="approvals" element={<ApprovalsScreen />} />
+          <Route path="approvals/:id" element={<ProposalScreen />} />
+          <Route path="enquiries" element={<EnquiriesScreen />} />
+          <Route path="enquiries/:id" element={<EnquiryScreen />} />
           <Route path="bills" element={<BillsScreen />} />
           <Route path="bills/:id" element={<BillScreen />} />
           <Route path="suppliers" element={<SuppliersScreen />} />

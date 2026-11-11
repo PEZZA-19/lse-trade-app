@@ -18,6 +18,7 @@ import {
   useSignOut,
   useUpdateSettings,
 } from '../api/hooks';
+import { useEnquiryForm, useSetEnquiryForm } from '../api/inbox';
 import { resizeLogo } from '../lib/image';
 import { useToast } from '../components/Toast';
 import { SaveStatus } from '../components/SaveStatus';
@@ -25,6 +26,7 @@ import { JobStagesSection } from './JobStagesSection';
 import { useSync } from '../offline';
 import {
   Button,
+  KeyValueRow,
   List,
   ListSkeleton,
   Page,
@@ -213,6 +215,7 @@ function SettingsForm({ initial }: { initial: SettingsDto }) {
         </p>
       )}
       <LogoSection logo={initial.logoDataUrl} name={initial.name} isOwner={isOwner} />
+      {isOwner && <EnquiryFormSection />}
       <fieldset disabled={!isOwner} style={{ border: 0, padding: 0, margin: 0 }}>
         <Section header="Business" footer="Shown on quotes and invoices.">
           <List className="form-list">
@@ -516,6 +519,73 @@ function LogoSection(props: { logo: string | null; name: string; isOwner: boolea
           {error}
         </p>
       )}
+    </Section>
+  );
+}
+
+/** The website enquiry form: a private address Joe's website posts to. */
+function EnquiryFormSection() {
+  const form = useEnquiryForm();
+  const set = useSetEnquiryForm();
+  const toast = useToast();
+  const url = form.data?.endpoint ? `${window.location.origin}${form.data.endpoint}` : null;
+  const snippet = url
+    ? `<form method="post" action="${url}">\n  <input name="name" required> <input name="email" type="email"> <input name="phone">\n  <textarea name="message" required></textarea>\n  <input name="website" hidden tabindex="-1" autocomplete="off">\n  <!-- Cloudflare Turnstile widget goes here -->\n</form>`
+    : '';
+  return (
+    <Section
+      header="Website enquiry form"
+      footer={
+        url
+          ? 'Posts land in Enquiries › To Do. Spam is filtered (hidden field, timing, links) and rate-limited; the Turnstile check is a stub until a Cloudflare account exists. New Address stops the old one working.'
+          : 'Lets your website send enquiries straight into the app.'
+      }
+    >
+      <List className="form-list" label="Website enquiry form">
+        <KeyValueRow label="Status" value={form.isPending ? '…' : url ? 'On' : 'Off'} />
+        {url && (
+          <li className="row">
+            <code className="code-block" aria-label="Form address">
+              {url}
+            </code>
+          </li>
+        )}
+        {url && (
+          <li className="row">
+            <pre className="code-block" aria-label="Form HTML">
+              {snippet}
+            </pre>
+          </li>
+        )}
+      </List>
+      <div className="button-stack">
+        <Button
+          variant="secondary"
+          block
+          loading={set.isPending && set.variables === true}
+          onClick={() =>
+            set.mutate(true, {
+              onSuccess: () =>
+                toast.show(
+                  url ? 'New address made; the old one no longer works' : 'Website form turned on',
+                ),
+            })
+          }
+        >
+          {url ? 'New Address' : 'Turn On Website Form'}
+        </Button>
+        {url && (
+          <Button
+            variant="plain"
+            block
+            onClick={() =>
+              set.mutate(false, { onSuccess: () => toast.show('Website form turned off') })
+            }
+          >
+            Turn Off
+          </Button>
+        )}
+      </div>
     </Section>
   );
 }

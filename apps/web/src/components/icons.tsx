@@ -189,3 +189,20 @@ export const IconReceipt = (p: SVGProps<SVGSVGElement>) => (
     <path d="M9 8h6M9 11.5h6M9 15h3.5" />
   </svg>
 );
+export const IconTray = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 13.5 6.2 5.6A2 2 0 0 1 8.1 4h7.8a2 2 0 0 1 1.9 1.6L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+    <path d="M4 13.5h4.5a3.5 3.5 0 0 0 7 0H20" />
+  </svg>
+);
+export const IconSeal = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 2.8 14.2 4.5l2.8-.2.9 2.6 2.4 1.5-.8 2.7.8 2.7-2.4 1.5-.9 2.6-2.8-.2L12 21.2l-2.2-1.7-2.8.2-.9-2.6-2.4-1.5.8-2.7-.8-2.7 2.4-1.5.9-2.6 2.8.2z" />
+    <path d="m8.8 12.2 2.2 2.2 4.4-4.6" />
+  </svg>
+);
+export const IconChart = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 20h16M7 16v-5M12 16V7M17 16v-8" />
+  </svg>
+);

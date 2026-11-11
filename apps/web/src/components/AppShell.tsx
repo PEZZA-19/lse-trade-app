@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { useMe } from '../api/hooks';
+import { useEnquiryCounts, useProposalCounts } from '../api/inbox';
 import {
   IconCalendar,
   IconCustomers,
@@ -13,11 +14,17 @@ import {
   IconBox,
   IconReceipt,
   IconTruck,
+  IconTray,
+  IconSeal,
 } from './icons';
 import { OfflineBanner } from './OfflineBanner';
 import { SyncBadge } from './SyncBadge';
 
-/** Phones: five tabs at most (Apple HIG); Invoices, Bills, Customers, Price List, Kits, Suppliers and Settings live under More. */
+/**
+ * Phones: five tabs at most (Apple HIG). Approvals and Enquiries are things to act on today, so
+ * they hang off Home (cards with counts, and a badge on the Home tab); Invoices, Bills,
+ * Customers, Price List, Kits, Suppliers, Reports and Settings live under More.
+ */
 const TABS = [
   { to: '/home', label: 'Home', Icon: IconHome },
   { to: '/jobs', label: 'Jobs', Icon: IconJobs },
@@ -25,6 +32,7 @@ const TABS = [
   { to: '/quotes', label: 'Quotes', Icon: IconQuotes },
   { to: '/more', label: 'More', Icon: IconMoreCircle },
 ];
+const UNDER_HOME = ['/home', '/approvals', '/enquiries'];
 const UNDER_MORE = [
   '/more',
   '/customers',
@@ -38,7 +46,10 @@ const UNDER_MORE = [
 ];
 /** Desktop sidebar has room for everything. */
 const SIDEBAR = [
-  ...TABS.slice(0, 4),
+  TABS[0]!,
+  { to: '/approvals', label: 'Approvals', Icon: IconSeal },
+  { to: '/enquiries', label: 'Enquiries', Icon: IconTray },
+  ...TABS.slice(1, 4),
   { to: '/invoices', label: 'Invoices', Icon: IconInvoice },
   { to: '/bills', label: 'Supplier Bills', Icon: IconReceipt },
   { to: '/customers', label: 'Customers', Icon: IconCustomers },
@@ -53,6 +64,14 @@ export function AppShell() {
   const me = useMe();
   const { pathname } = useLocation();
   const inMore = UNDER_MORE.some((p) => pathname.startsWith(p));
+  const inHome = UNDER_HOME.some((p) => pathname.startsWith(p));
+  const waiting = useProposalCounts().data?.pending ?? 0;
+  const todo = useEnquiryCounts().data?.todo ?? 0;
+  const badges: Record<string, number> = {
+    '/home': waiting + todo,
+    '/approvals': waiting,
+    '/enquiries': todo,
+  };
   return (
     <div className="shell">
       <nav className="sidebar" aria-label="Main">
@@ -64,6 +83,11 @@ export function AppShell() {
           <NavLink key={to} to={to} className="sidebar__item">
             <Icon />
             {label}
+            {to !== '/home' && badges[to] ? (
+              <span className="nav-badge" aria-label={`${badges[to]} waiting`}>
+                {badges[to]}
+              </span>
+            ) : null}
           </NavLink>
         ))}
       </nav>
@@ -78,9 +102,19 @@ export function AppShell() {
           <NavLink
             key={to}
             to={to}
-            className={`tabbar__item${to === '/more' && inMore ? ' is-current' : ''}`}
+            className={`tabbar__item${(to === '/more' && inMore) || (to === '/home' && inHome) ? ' is-current' : ''}`}
           >
-            <Icon />
+            <span className="tabbar__icon">
+              <Icon />
+              {to === '/home' && badges['/home'] ? (
+                <span
+                  className="nav-badge nav-badge--tab"
+                  aria-label={`${badges['/home']} waiting`}
+                >
+                  {badges['/home']}
+                </span>
+              ) : null}
+            </span>
             {label}
           </NavLink>
         ))}

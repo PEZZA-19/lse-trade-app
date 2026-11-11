@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useAppointments, useJobs, useMe, useRunningTimer } from '../api/hooks';
+import { useEnquiryCounts, useProposalCounts } from '../api/inbox';
 import { IconCalendar, IconCustomers, IconJobs, IconQuotes } from '../components/icons';
 import { StagePill } from '../components/Stage';
 import { Elapsed, TimerButton } from '../components/Timer';
@@ -28,6 +29,9 @@ export function HomeScreen() {
     (j) => j.stage.systemKey === 'unassigned' || j.stage.systemKey === 'assigned',
   );
   const firstName = me.data?.user.name.split(' ')[0];
+  const waiting = useProposalCounts().data;
+  const todo = useEnquiryCounts().data?.todo ?? 0;
+  const pending = waiting?.pending ?? 0;
 
   return (
     <Page
@@ -49,6 +53,20 @@ export function HomeScreen() {
           />
         </div>
       )}
+
+      <nav className="home-inbox" aria-label="Inbox">
+        <Link to="/approvals" data-attention={pending > 0}>
+          <strong>{pending}</strong>
+          <span>
+            {pending === 1 ? 'Draft to approve' : 'Drafts to approve'}
+            {waiting?.held ? ` · ${waiting.held} sending` : ''}
+          </span>
+        </Link>
+        <Link to="/enquiries" data-attention={todo > 0}>
+          <strong>{todo}</strong>
+          <span>{todo === 1 ? 'Enquiry to do' : 'Enquiries to do'}</span>
+        </Link>
+      </nav>
 
       <div className="quick-actions" role="group" aria-label="Create">
         <button type="button" onClick={() => setSheet('job')}>

@@ -8,8 +8,11 @@ import {
   IconSettings,
   IconTag,
   IconTruck,
+  IconTray,
+  IconSeal,
 } from '../components/icons';
 import { useBills } from '../api/bills';
+import { useEnquiryCounts, useProposalCounts } from '../api/inbox';
 import { useSync } from '../offline';
 import { LinkRow, List, Page, Section } from '../components/ui';
 
@@ -23,8 +26,30 @@ export function MoreScreen() {
   const overdue = items.filter((i) => i.displayStatus === 'overdue').length;
   const owed = items.reduce((a, i) => a + i.balancePence, 0);
   const toCheck = useBills('draft').data?.length ?? 0;
+  const pending = useProposalCounts().data?.pending ?? 0;
+  const todo = useEnquiryCounts().data?.todo ?? 0;
   return (
     <Page title="More">
+      <Section header="Inbox">
+        <List label="Inbox">
+          <li>
+            <LinkRow
+              to="/approvals"
+              lead={icon(IconSeal)}
+              title="Approvals"
+              sub={pending ? `${pending} waiting for you` : 'Nothing waiting'}
+            />
+          </li>
+          <li>
+            <LinkRow
+              to="/enquiries"
+              lead={icon(IconTray)}
+              title="Enquiries"
+              sub={todo ? `${todo} to do` : 'All caught up'}
+            />
+          </li>
+        </List>
+      </Section>
       <Section header="Money">
         <List label="Money">
           <li>
