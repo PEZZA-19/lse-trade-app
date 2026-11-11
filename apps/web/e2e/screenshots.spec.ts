@@ -21,7 +21,7 @@ async function shot(page: Page, name: string, vp: string, scheme: string) {
 for (const vp of VIEWPORTS) {
   for (const scheme of SCHEMES) {
     test(`${vp.name} ${scheme}`, async ({ browser }) => {
-      test.setTimeout(540_000); // 55 screens per pass
+      test.setTimeout(600_000); // 58 screens per pass
       const ctx = await browser.newContext({
         viewport: { width: vp.width, height: vp.height },
         deviceScaleFactor: vp.scale,
@@ -29,6 +29,8 @@ for (const vp of VIEWPORTS) {
         hasTouch: vp.mobile,
         colorScheme: scheme,
         reducedMotion: 'reduce',
+        locale: 'en-GB',
+        timezoneId: 'Europe/Guernsey',
       });
       const page = await ctx.newPage();
       await page.goto('/jobs');
@@ -284,6 +286,83 @@ for (const vp of VIEWPORTS) {
       await qva.scrollIntoViewIfNeeded();
       await expect(qva).toContainText('Labour at cost');
       await shot(page, '55-job-quote-vs-actual', vp.name, scheme);
+
+      // Job detail: time and materials by hand, notes, photos (all made-up demo values).
+      const time = page.getByRole('list', { name: 'Timesheet entries' });
+      await time.scrollIntoViewIfNeeded();
+      await time.getByRole('button', { name: 'Log Time…' }).click();
+      let sheet = page.getByRole('dialog', { name: 'Log Time' });
+      const d = new Date(Date.now() - 3 * 86_400_000);
+      await sheet
+        .getByLabel('Date')
+        .fill(
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        );
+      await sheet.getByLabel('Start').fill('08:00');
+      await sheet.getByLabel('End').fill('10:30');
+      await sheet.getByLabel('Note').fill('Second fix, workshop end');
+      await expect(sheet.getByText('2 h 30 min')).toBeVisible();
+      await shot(page, '56-job-log-time', vp.name, scheme);
+      await sheet.getByRole('button', { name: 'Save' }).click();
+      await expect(sheet).toBeHidden();
+
+      const mats = page.getByRole('list', { name: 'Materials and extras' });
+      await mats.getByRole('button', { name: 'Add Material…' }).click();
+      sheet = page.getByRole('dialog', { name: 'Add Material' });
+      await sheet.getByLabel('Item').fill('Lever connectors (box of 50)');
+      await sheet.getByLabel('Quantity').fill('1');
+      await sheet.getByLabel('Cost each (£)').fill('18.40');
+      await expect(sheet.getByText('£23.92')).toBeVisible();
+      await expect(page.locator('.toast')).toHaveCount(0, { timeout: 8000 });
+      await shot(page, '57-job-add-material', vp.name, scheme);
+      await sheet.getByRole('button', { name: 'Add' }).click();
+      await expect(sheet).toBeHidden();
+
+      const notes = page.getByRole('list', { name: 'Job notes' });
+      await notes.getByRole('button', { name: 'Add Note…' }).click();
+      sheet = page.getByRole('dialog', { name: 'Add Note' });
+      await sheet
+        .getByLabel('Note')
+        .fill('Isolator is behind the feed bins.\nGate code is on the job sheet.');
+      await sheet.getByRole('button', { name: 'Add' }).click();
+      await expect(sheet).toBeHidden();
+      // A drawn placeholder image, not a real photo.
+      const png = await page.evaluate(async () => {
+        const c = new OffscreenCanvas(1200, 900);
+        const g = c.getContext('2d')!;
+        const grad = g.createLinearGradient(0, 0, 1200, 900);
+        grad.addColorStop(0, '#d9dde3');
+        grad.addColorStop(1, '#9aa3ad');
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 1200, 900);
+        g.fillStyle = '#f4f5f7';
+        g.fillRect(300, 220, 600, 460);
+        g.fillStyle = '#2b2f36';
+        for (let i = 0; i < 10; i++) g.fillRect(340 + i * 54, 380, 34, 120);
+        g.fillStyle = '#1f7ae0';
+        g.fillRect(340, 300, 520, 40);
+        g.fillStyle = '#6b7380';
+        g.font = '600 44px sans-serif';
+        g.fillText('DEMO IMAGE', 470, 620);
+        const b = await c.convertToBlob({ type: 'image/png' });
+        const bytes = new Uint8Array(await b.arrayBuffer());
+        let s = '';
+        for (const x of bytes) s += String.fromCharCode(x);
+        return btoa(s);
+      });
+      await page.getByTestId('photo-input').setInputFiles({
+        name: 'board.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(png, 'base64'),
+      });
+      sheet = page.getByRole('dialog', { name: 'Add Photo' });
+      await sheet.getByLabel('Caption').fill('Board before');
+      await sheet.getByRole('button', { name: 'Upload' }).click();
+      await expect(sheet).toBeHidden();
+      await notes.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await page.evaluate(() => window.scrollBy(0, -60));
+      await expect(page.locator('.toast')).toHaveCount(0, { timeout: 8000 });
+      await shot(page, '58-job-notes-photos', vp.name, scheme);
 
       await page.goto('/settings');
       await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');

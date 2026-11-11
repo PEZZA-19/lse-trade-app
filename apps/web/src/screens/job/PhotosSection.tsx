@@ -42,30 +42,34 @@ export function PhotosSection({ jobId }: { jobId: string }) {
           : 'Photos are resized on your phone before they upload.')
       }
     >
-      {list.length > 0 && (
-        <ul className="photo-grid" aria-label="Job photos">
-          {list.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                className="photo-grid__item"
-                onClick={() => setViewing(p)}
-                aria-label={p.caption ?? `Photo by ${p.userName}`}
-              >
-                <img src={p.url} alt="" loading="lazy" decoding="async" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {canRecord && (
+      {(list.length > 0 || canRecord) && (
         <List>
-          <li>
-            <ButtonRow
-              onClick={() => input.current?.click()}
-              title={<span className="row-action">Add Photo…</span>}
-            />
-          </li>
+          {list.length > 0 && (
+            <li className="photo-grid-row">
+              <ul className="photo-grid" aria-label="Job photos">
+                {list.map((p) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      className="photo-grid__item"
+                      onClick={() => setViewing(p)}
+                      aria-label={p.caption ?? `Photo by ${p.userName}`}
+                    >
+                      <img src={p.url} alt="" loading="lazy" decoding="async" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          )}
+          {canRecord && (
+            <li>
+              <ButtonRow
+                onClick={() => input.current?.click()}
+                title={<span className="row-action">Add Photo…</span>}
+              />
+            </li>
+          )}
         </List>
       )}
       <input
