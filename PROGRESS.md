@@ -649,7 +649,13 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
    last year) and CSV and PDF export. A Balance Sheet and Account Transactions need proper ledger
    accounts (a chart of accounts and double-entry postings from invoices, payments, bills and credit
    notes), so that comes first.
-2. **Two-way calendar sync** (Google and Microsoft): see the design note above. The one-way link is
+2. **Labour in every quote kit** (Joe, 11 Nov 2026): each kit gets labour hours (and optionally hours
+   per item in the kit), priced at the charge-out rate (the business default, or a named person's
+   rate if Q28 goes that way). When a kit is added to a quote, the labour line appears next to the
+   kit's materials and can be changed on that quote without changing the kit. Needs a labour-hours
+   field on kits and kit items (migration), the kit sheet, the quote's add-kit step, and tests.
+   Kits exist already, but this touches pricing on quotes, so it was left for next session.
+3. **Two-way calendar sync** (Google and Microsoft): see the design note above. The one-way link is
    done.
 
 ## Next session, top priority (Joe, 11 Nov 2026)
