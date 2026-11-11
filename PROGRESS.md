@@ -526,7 +526,7 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     drafts, price updates)? Is 2 minutes the right hold before an approved email goes?
 19. Enquiry form: will it live on your website (we give you a snippet) or a page on the app's domain?
 20. PDF bills: CEF, DOCI and CI Lighting now read. Which other merchants send PDFs? A sample of each helps.
-21. Sark Electric / Sarnia: the Sarnia rename is still waiting for your go-ahead (nothing changed).
+21. Sarnia: the rename is still waiting for your go-ahead (nothing changed).
 22. Charge-out rate: one labour rate for everyone (now), or a rate per person?
 23. Expected profit: quoted labour is costed at the job's own average cost so far (or the team average,
     or the labour rate if no cost rates are set). Is that the estimate you want?
