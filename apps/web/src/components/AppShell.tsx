@@ -84,9 +84,12 @@ export function AppShell() {
             <Icon />
             {label}
             {to !== '/home' && badges[to] ? (
-              <span className="nav-badge" aria-label={`${badges[to]} waiting`}>
-                {badges[to]}
-              </span>
+              <>
+                <span className="nav-badge" aria-hidden="true">
+                  {badges[to]}
+                </span>
+                <span className="visually-hidden">, {badges[to]} to check</span>
+              </>
             ) : null}
           </NavLink>
         ))}
@@ -107,15 +110,15 @@ export function AppShell() {
             <span className="tabbar__icon">
               <Icon />
               {to === '/home' && badges['/home'] ? (
-                <span
-                  className="nav-badge nav-badge--tab"
-                  aria-label={`${badges['/home']} waiting`}
-                >
+                <span className="nav-badge nav-badge--tab" aria-hidden="true">
                   {badges['/home']}
                 </span>
               ) : null}
             </span>
             {label}
+            {to === '/home' && badges['/home'] ? (
+              <span className="visually-hidden">, {badges['/home']} to check</span>
+            ) : null}
           </NavLink>
         ))}
       </nav>

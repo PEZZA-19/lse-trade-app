@@ -37,6 +37,7 @@ import {
   enquiryConvert,
   enquiryReject,
   proposalEdit,
+  reportQuery,
   supplierInput,
   supplierUpdate,
   type ApiErrorBody,
@@ -75,6 +76,7 @@ import * as documents from './services/documents';
 import * as bills from './services/bills';
 import * as creditNotes from './services/creditNotes';
 import * as billRead from './services/billRead';
+import * as reports from './services/reports';
 import { AiGateway } from './ai/gateway';
 
 export interface AppDeps {
@@ -761,6 +763,13 @@ export function createApp(deps: AppDeps) {
       await proposals.releaseDue(tx, sender);
       return fn(tx);
     });
+  /* ------------------------------ reports ----------------------------- */
+  app.get('/api/reports', async (c) => {
+    ownerOnly(c, 'see the reports');
+    const q = parse(reportQuery, { from: c.req.query('from'), to: c.req.query('to') });
+    return c.json(await c.var.tx((tx) => reports.getReports(tx, q)));
+  });
+
   app.get('/api/proposals', async (c) => {
     const which = c.req.query('status') === 'done' ? 'done' : 'open';
     return c.json(await withRelease(c, (tx) => proposals.listProposals(tx, which)));

@@ -151,7 +151,13 @@ test('Home shows the running timer and today; five tabs with Customers and Setti
 
   if (isMobile) {
     const tabs = page.locator('nav.tabbar').getByRole('link');
-    await expect(tabs).toHaveText(['Home', 'Jobs', 'Schedule', 'Quotes', 'More']);
+    await expect(tabs).toHaveText([
+      /^Home(, \d+ to check)?$/,
+      'Jobs',
+      'Schedule',
+      'Quotes',
+      'More',
+    ]);
     await tabs.filter({ hasText: 'More' }).click();
     await page.getByRole('link', { name: /Customers/ }).click();
     await expect(page.getByRole('heading', { name: 'Customers', level: 1 })).toBeVisible();
