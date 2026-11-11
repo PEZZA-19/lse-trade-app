@@ -41,6 +41,7 @@ const TABS = [
 const UNDER_HOME = ['/home', '/approvals', '/enquiries'];
 const UNDER_MORE = [
   '/more',
+  '/calendar',
   '/customers',
   '/settings',
   '/sync',

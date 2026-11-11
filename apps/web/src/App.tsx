@@ -17,6 +17,7 @@ import { QuotesScreen } from './screens/QuotesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SignInScreen, VerifyScreen } from './screens/SignInScreen';
 import { SyncScreen } from './screens/SyncScreen';
+import { CalendarScreen } from './screens/CalendarScreen';
 import { InvoiceScreen } from './screens/invoices/InvoiceScreen';
 import { InvoicesScreen } from './screens/invoices/InvoicesScreen';
 import { BillScreen } from './screens/bills/BillScreen';
@@ -68,6 +69,7 @@ export function App() {
           <Route path="customers/:id" element={<CustomerScreen />} />
           <Route path="settings" element={<SettingsScreen />} />
           <Route path="sync" element={<SyncScreen />} />
+          <Route path="calendar" element={<CalendarScreen />} />
           <Route path="invoices" element={<InvoicesScreen />} />
           <Route path="invoices/:id" element={<InvoiceScreen />} />
           <Route path="price-list" element={<PriceListScreen />} />

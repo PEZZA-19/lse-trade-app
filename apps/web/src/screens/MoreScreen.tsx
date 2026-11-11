@@ -1,6 +1,7 @@
 import { canSee, formatPence } from '@lse/shared';
 import { useInvoices } from '../api/billing';
 import {
+  IconCalendar,
   IconBox,
   IconCustomers,
   IconInvoice,
@@ -139,6 +140,14 @@ export function MoreScreen() {
         <List label="More">
           <li>
             <LinkRow to="/customers" lead={icon(IconCustomers)} title="Customers" />
+          </li>
+          <li>
+            <LinkRow
+              to="/calendar"
+              lead={icon(IconCalendar)}
+              title="Calendar"
+              sub="Your jobs in Google Calendar or Outlook"
+            />
           </li>
           {canSee(access, 'settings') && (
             <li>

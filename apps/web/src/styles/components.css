@@ -1975,3 +1975,13 @@ select.field__input {
   width: 100%;
   max-width: 160px;
 }
+
+/* Links styled as buttons (calendar subscribe links). */
+a.btn {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.confirm-inline {
+  display: grid;
+  gap: 8px;
+}
