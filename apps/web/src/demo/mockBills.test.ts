@@ -54,8 +54,8 @@ describe('demo supplier bills (mirrors the server rules)', () => {
     const job = await get<JobDetailDto>(`/jobs/${bill.jobId}`);
     const fromBill = job.lines.filter((l) => l.source === 'supplier_bill');
     expect(fromBill).toHaveLength(3);
-    await expect(
-      post(`/supplier-bills/${bill.id}/apply`, { dryRun: false }),
-    ).rejects.toMatchObject({ status: 409 });
+    await expect(post(`/supplier-bills/${bill.id}/apply`, { dryRun: false })).rejects.toMatchObject(
+      { status: 409 },
+    );
   });
 });

@@ -17,7 +17,7 @@ async function shot(page: Page, name: string, vp: string, scheme: string) {
 for (const vp of VIEWPORTS) {
   for (const scheme of SCHEMES) {
     test(`${vp.name} ${scheme}`, async ({ browser }) => {
-      test.setTimeout(240_000); // 33 screens per pass
+      test.setTimeout(360_000); // 42 screens per pass
       const ctx = await browser.newContext({
         viewport: { width: vp.width, height: vp.height },
         deviceScaleFactor: vp.scale,
@@ -166,6 +166,56 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByRole('dialog', { name: 'Double socket on new radial' })).toBeVisible();
       await shot(page, '33-kit-line-sheet', vp.name, scheme);
       await page.keyboard.press('Escape');
+
+      // Quote and invoice PDFs (the LSE layout), supplier bills and suppliers.
+      await page.goto('/quotes');
+      await page.getByText('EV charger').click();
+      await page.getByRole('button', { name: /Preview PDF/ }).click();
+      await expect(page.getByRole('article', { name: /preview/ })).toBeVisible();
+      await shot(page, '34-quote-pdf', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/invoices');
+      await page.getByRole('link', { name: /Coupée View Hotel/ }).click();
+      await page.getByRole('button', { name: /Preview PDF/ }).click();
+      await expect(page.getByRole('article', { name: /preview/ })).toBeVisible();
+      await shot(page, '35-invoice-pdf', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/bills');
+      await expect(page.getByRole('heading', { name: 'Supplier Bills', level: 1 })).toBeVisible();
+      await page.getByRole('button', { name: 'All', exact: true }).click();
+      await expect(page.getByRole('link', { name: /IE-40388/ })).toBeVisible();
+      await shot(page, '36-bills', vp.name, scheme);
+      await page.getByRole('link', { name: /IE-40388/ }).click();
+      await expect(page.getByRole('list', { name: 'Bill lines' })).toBeVisible();
+      await shot(page, '37-bill-detail', vp.name, scheme);
+      await page.getByRole('button', { name: 'Review and Apply…' }).click();
+      await expect(page.getByText('Nothing has changed yet')).toBeVisible();
+      await shot(page, '38-bill-review', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: /Cable ties/ }).click();
+      await expect(page.getByRole('dialog', { name: 'Bill Line' })).toBeVisible();
+      await shot(page, '39-bill-line-sheet', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/bills');
+      await page.getByRole('button', { name: 'New bill' }).click();
+      const nb = page.getByRole('dialog', { name: 'New Bill' });
+      await nb.getByLabel('Supplier').fill('Sarnia Wholesale (demo)');
+      await nb.getByLabel('Bill reference').fill('SW-55120');
+      await nb.getByRole('button', { name: 'CSV' }).click();
+      await nb
+        .getByRole('textbox', { name: 'Bill CSV' })
+        .fill(
+          'Code,Description,Qty,Unit cost\nBB35,Flush back box 35mm,20,0.58\nGLD20,20mm SWA gland kit,4,2.35\n',
+        );
+      await expect(nb.getByText(/2 lines read/)).toBeVisible();
+      await shot(page, '40-new-bill-sheet', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/suppliers');
+      await expect(page.getByRole('heading', { name: 'Suppliers', level: 1 })).toBeVisible();
+      await shot(page, '41-suppliers', vp.name, scheme);
+      await page.getByRole('link', { name: /Island Electrical/ }).click();
+      await expect(page.getByRole('link', { name: /IE-40112/ })).toBeVisible();
+      await shot(page, '42-supplier-detail', vp.name, scheme);
 
       await page.goto('/settings');
       await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');

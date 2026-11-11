@@ -120,7 +120,8 @@ export function BillLineSheet(props: {
               label="Description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              data-autofocus
+              // Focus only a new line: focusing a long existing value scrolls it to its end.
+              data-autofocus={l ? undefined : true}
             />
             <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} />
             <TextField

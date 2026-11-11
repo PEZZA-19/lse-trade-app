@@ -593,7 +593,13 @@ textarea.field__input {
 select.field__input {
   appearance: none;
   color: var(--label-2);
-  direction: rtl;
+  /* Right-aligned like iOS, but long values keep their start ("122 · Barn rewire…"), not their end. */
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-align-last: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .field-error {
   padding: var(--space-1) var(--space-4) 0;

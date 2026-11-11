@@ -23,6 +23,9 @@ import {
 } from '../../components/ui';
 import { shortDate } from '../../lib/status';
 
+/** Net spend; a supplier you've only had credit from reads "£48.00 credit", not a bare minus. */
+const spend = (p: number) => (p < 0 ? `${formatPence(-p)} credit` : formatPence(p));
+
 /** Merchants and wholesalers: their bills, spend and price-list items. */
 export function SuppliersScreen() {
   const list = useSuppliers();
@@ -71,7 +74,7 @@ export function SuppliersScreen() {
                   ]
                     .filter(Boolean)
                     .join(' · ')}
-                  meta={<span className="num">{formatPence(s.spendPence)}</span>}
+                  meta={<span className="num">{spend(s.spendPence)}</span>}
                 />
               </li>
             ))}
@@ -119,11 +122,11 @@ export function SupplierScreen() {
       }
     >
       <div className="hero">
-        <div className="hero__amount">{formatPence(sup.spendPence)}</div>
+        <div className="hero__amount">{formatPence(Math.abs(sup.spendPence))}</div>
         <div className="hero__meta">
           <span>
-            spent · {sup.priceItemCount} {sup.priceItemCount === 1 ? 'item' : 'items'} on the price
-            list
+            {sup.spendPence < 0 ? 'in credit' : 'spent'} · {sup.priceItemCount}{' '}
+            {sup.priceItemCount === 1 ? 'item' : 'items'} on the price list
           </span>
         </div>
       </div>
