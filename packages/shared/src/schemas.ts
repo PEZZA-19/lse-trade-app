@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SYSTEM_STAGE_KEYS } from './stages';
+import { quoteKitSnapshot } from './pricelist';
 
 /* ----------------------------- primitives ----------------------------- */
 
@@ -103,6 +104,8 @@ export const quoteLineInput = z.object({
   unitPricePence: pence.nullish().transform((v) => v ?? null),
   optionLabel: optionalText(80),
   taxRateBp: z.number().int().min(0).max(10000).default(0),
+  /** Set when the line is a kit block: the costed kit as it was when added. */
+  kit: quoteKitSnapshot.nullish().transform((v) => v ?? null),
 });
 export type QuoteLineInput = z.input<typeof quoteLineInput>;
 

@@ -1,3 +1,4 @@
+import type { QuoteKitSnapshot } from './pricelist';
 import type { TimesheetDto } from './schedule';
 /** Shapes returned by the API. Kept in one place so the web app and API agree. */
 import type { ContactRole, QuoteStatus } from './schemas';
@@ -55,6 +56,8 @@ export interface QuoteLineDto {
   unitPricePence: number | null;
   optionLabel: string | null;
   taxRateBp: number;
+  /** Kit block: frozen components and cost. */
+  kit: QuoteKitSnapshot | null;
   /** Computed by the server with the shared pricing rules. */
   unitSellPence: number;
   totalPence: number;
