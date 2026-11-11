@@ -33,6 +33,7 @@ try {
       name: 'Little Sark Electric',
       slug: 'lse',
       owner: { email: 'owner@lse.example', name: 'Joe' },
+      staff: [{ email: 'sam@lse.example', name: 'Sam Spark' }], // fictional
       nextJobNumber: 122,
       nextQuoteNumber: 1,
       // Fictional details (the real ones are entered by Joe in Settings).
@@ -54,6 +55,7 @@ try {
     await runDemoScript(
       (p, b) => call('POST', p, b),
       (p, b) => call('PATCH', p, b),
+      (p) => call('GET', p),
     );
     console.log('Seeded demo data for Little Sark Electric');
   }

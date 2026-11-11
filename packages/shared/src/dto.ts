@@ -1,3 +1,4 @@
+import type { TimesheetDto } from './schedule';
 /** Shapes returned by the API. Kept in one place so the web app and API agree. */
 import type { ContactRole, QuoteStatus } from './schemas';
 import type { AppointmentDto, JobHistoryDto, JobStageRef } from './stages';
@@ -148,7 +149,11 @@ export interface JobDetailDto extends JobSummaryDto {
   history: JobHistoryDto[];
   assignees: { userId: string; name: string }[];
   appointments: AppointmentDto[];
+  /** My timer on this job. */
   timerRunning: boolean;
+  timerStartedAt: string | null;
+  timesheets: TimesheetDto[];
+  totalMinutes: number;
 }
 
 export interface ApiErrorBody {

@@ -4,6 +4,9 @@ import {
   customerUpdate,
   jobCreate,
   appointmentCreate,
+  appointmentRange,
+  appointmentUpdate,
+  timerAction,
   jobStageCreate,
   jobStageUpdate,
   jobUpdate,
@@ -30,6 +33,7 @@ import * as jobs from './services/jobs';
 import * as quotes from './services/quotes';
 import * as settings from './services/settings';
 import * as stages from './services/stages';
+import * as schedule from './services/schedule';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
@@ -284,13 +288,47 @@ export function createApp(deps: AppDeps) {
     const id = uuidParam(c);
     return c.json(await c.var.tx((tx) => jobs.deleteAppointment(tx, c.var.auth, id)));
   });
-  app.post('/api/jobs/:id/timer/start', async (c) => {
-    const id = uuidParam(c);
-    return c.json(await c.var.tx((tx) => jobs.startTimer(tx, c.var.auth, id)));
+  // Timer start/stop can be queued offline and replayed: Idempotency-Key makes a replay harmless.
+  for (const action of ['start', 'stop'] as const) {
+    app.post(`/api/jobs/:id/timer/${action}`, async (c) => {
+      const id = uuidParam(c);
+      const body = await jsonBody(c.req).catch(() => ({}));
+      const input = parse(timerAction, body ?? {});
+      const key = c.req.header('idempotency-key');
+      const result = await c.var.tx((tx) =>
+        idempotent(
+          tx,
+          c.var.auth,
+          key,
+          `timer:${action}:${id}:${JSON.stringify(input)}`,
+          async () => ({
+            status: 200,
+            body:
+              action === 'start'
+                ? await jobs.startTimer(tx, c.var.auth, id, input)
+                : await jobs.stopTimer(tx, c.var.auth, id, input),
+          }),
+        ),
+      );
+      if (result.replayed) c.header('Idempotent-Replayed', 'true');
+      return c.json(result.body);
+    });
+  }
+  app.get('/api/timer', async (c) => c.json(await c.var.tx((tx) => schedule.runningTimer(tx))));
+
+  /* ----------------------------- schedule ---------------------------- */
+  app.get('/api/members', async (c) => c.json(await c.var.tx((tx) => schedule.listMembers(tx))));
+  app.get('/api/appointments', async (c) => {
+    const range = parse(appointmentRange, {
+      from: c.req.query('from'),
+      to: c.req.query('to'),
+    });
+    return c.json(await c.var.tx((tx) => schedule.listAppointments(tx, range)));
   });
-  app.post('/api/jobs/:id/timer/stop', async (c) => {
+  app.patch('/api/appointments/:id', async (c) => {
     const id = uuidParam(c);
-    return c.json(await c.var.tx((tx) => jobs.stopTimer(tx, c.var.auth, id)));
+    const input = parse(appointmentUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => schedule.updateAppointment(tx, c.var.auth, id, input)));
   });
 
   /* ---------------------------- job stages --------------------------- */

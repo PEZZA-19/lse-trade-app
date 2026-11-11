@@ -6,6 +6,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Post = (path: string, body?: unknown) => Promise<any>;
 type Patch = (path: string, body: unknown) => Promise<any>;
+type Get = (path: string) => Promise<any>;
+/** `minutes` ago, as ISO (never in the future, whatever time the seed runs). */
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
 /** ISO time `days` from today at `hour`:00 local time (demo appointments stay current). */
 const at = (days: number, hour: number) => {
@@ -15,7 +18,14 @@ const at = (days: number, hour: number) => {
   return d.toISOString();
 };
 
-export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
+export async function runDemoScript(post: Post, patch: Patch, get?: Get): Promise<void> {
+  const members: { userId: string; name: string; role: string }[] = get
+    ? await get('/members')
+    : [];
+  const joe = members.find((m) => m.role === 'owner')?.userId;
+  const sam = members.find((m) => m.role === 'staff')?.userId;
+  const assign = async (jobId: string, userId: string | undefined) =>
+    userId && post(`/jobs/${jobId}/assignees`, { userId });
   const farm = await post('/customers', {
     name: 'Demo Farm Ltd',
     email: 'accounts@demo-farm.example',
@@ -119,8 +129,19 @@ export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
   await post(`/quotes/${q1.id}/send`);
   await post(`/quotes/${q1.id}/accept`, { acceptedOptions: ['Yard floodlight'] });
   const job122 = await post(`/quotes/${q1.id}/convert`);
-  // Booked in for this morning (automatic). The timer is started at the end (one timer at a time).
-  await post(`/jobs/${job122.id}/appointments`, { startsAt: at(0, 8), endsAt: at(0, 17) });
+  // Joe assigned (automatic: Assigned), booked in for today (automatic: Booked in). The timer is
+  // started at the end (one timer per person).
+  await assign(job122.id, joe);
+  await post(`/jobs/${job122.id}/appointments`, {
+    startsAt: at(0, 8),
+    endsAt: at(0, 17),
+    userId: joe,
+  });
+  await post(`/jobs/${job122.id}/appointments`, {
+    startsAt: at(1, 8),
+    endsAt: at(1, 13),
+    userId: joe,
+  });
 
   // Q-0002: sent, waiting on the customer.
   const q2 = await post('/quotes', {
@@ -227,15 +248,23 @@ export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
     siteId: cafe.sites[0].id,
     title: 'Replace faulty extractor fan',
   });
-  await post(`/jobs/${j.id}/appointments`, { startsAt: at(2, 9), endsAt: at(2, 12) });
+  await assign(j.id, sam);
+  await post(`/jobs/${j.id}/appointments`, { startsAt: at(2, 9), endsAt: at(2, 12), userId: sam });
   const done = await post('/jobs', {
     customerId: hotel.id,
     siteId: hotel.sites[1].id,
     title: 'Annual PAT testing',
     placeOfWork: 'sark',
   });
-  await post(`/jobs/${done.id}/timer/start`);
-  await post(`/jobs/${done.id}/timer/stop`);
+  // Done yesterday: booked, timed on site (a timesheet entry), then invoiced by hand.
+  await assign(done.id, joe);
+  await post(`/jobs/${done.id}/appointments`, {
+    startsAt: at(-1, 9),
+    endsAt: at(-1, 13),
+    userId: joe,
+  });
+  await post(`/jobs/${done.id}/timer/start`, { at: at(-1, 9) });
+  await post(`/jobs/${done.id}/timer/stop`, { at: at(-1, 12) });
   await patch(`/jobs/${done.id}`, { stageKey: 'to_invoice' });
   await patch(`/jobs/${done.id}`, { stageKey: 'complete' });
   // A custom stage, as a business might add in Settings.
@@ -246,6 +275,12 @@ export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
     placeOfWork: 'sark',
   });
   await patch(`/jobs/${fault.id}`, { stageId: waiting.id });
+  // Parts due Friday-ish: booking it in doesn't override a custom stage.
+  await post(`/jobs/${fault.id}/appointments`, {
+    startsAt: at(3, 14),
+    endsAt: at(3, 16),
+    userId: sam,
+  });
   // On site at the barn now: starting the timer moves job 122 to In Progress (automatic).
-  await post(`/jobs/${job122.id}/timer/start`);
+  await post(`/jobs/${job122.id}/timer/start`, { at: ago(95) });
 }

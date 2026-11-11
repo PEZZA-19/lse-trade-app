@@ -4,6 +4,8 @@ export interface SeedTenantInput {
   name: string;
   slug: string;
   owner: { email: string; name: string };
+  /** Extra people (fictional in the demo) added as staff. */
+  staff?: { email: string; name: string }[];
   /** First job number to hand out (LSE continues from 122). */
   nextJobNumber?: number;
   /** First quote number (Q-0001 unless legacy quotes are imported). */
@@ -44,6 +46,12 @@ export async function seedTenant(sql: Sql, input: SeedTenantInput): Promise<Seed
       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING id`;
     await tx`SELECT create_system_stages(${tenant!.id})`;
     await tx`INSERT INTO memberships (tenant_id, user_id, role) VALUES (${tenant!.id}, ${user!.id}, 'owner')`;
+    for (const p of input.staff ?? []) {
+      const [u] = await tx<{ id: string }[]>`
+        INSERT INTO users (email, name) VALUES (${p.email.toLowerCase()}, ${p.name})
+        ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING id`;
+      await tx`INSERT INTO memberships (tenant_id, user_id, role) VALUES (${tenant!.id}, ${u!.id}, 'staff')`;
+    }
     await tx`
       INSERT INTO number_sequences (tenant_id, kind, prefix, padding, next_value, gaps_allowed) VALUES
         (${tenant!.id}, 'quote', 'Q-', 4, ${input.nextQuoteNumber ?? 1}, true),

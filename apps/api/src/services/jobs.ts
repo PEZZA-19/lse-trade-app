@@ -7,14 +7,18 @@ import type {
   Page,
   appointmentCreate,
   jobCreate,
+  timerAction,
+  TimesheetDto,
   jobUpdate,
 } from '@lse/shared';
+import { minutesBetween, TIMER_MAX_AHEAD_MS, TIMER_MAX_BACKDATE_MS } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
 import { assertVersion, conflict, invalid, notFound } from '../lib/errors';
 import { isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { assertSiteOfCustomer, toSite } from './customers';
+import { assertMember } from './schedule';
 import { applyEvent, jobHistory, moveJob, recordCreated, stageByKey } from './stages';
 
 interface JobRow {
@@ -141,8 +145,27 @@ export async function getJob(tx: Tx, id: string): Promise<JobDetailDto> {
     { id: string; startsAt: Date; endsAt: Date; userId: string | null }[]
   >`
     SELECT id, starts_at, ends_at, user_id FROM appointments WHERE job_id = ${id} ORDER BY starts_at`;
-  const [timer] =
-    await tx`SELECT 1 FROM job_timers WHERE job_id = ${id} AND stopped_at IS NULL LIMIT 1`;
+  const [timer] = await tx<{ startedAt: Date }[]>`
+    SELECT started_at FROM job_timers
+     WHERE job_id = ${id} AND user_id = app_current_user() AND stopped_at IS NULL LIMIT 1`;
+  const timesheets = await tx<
+    {
+      id: string;
+      userId: string;
+      userName: string;
+      startedAt: Date;
+      endedAt: Date;
+      source: TimesheetDto['source'];
+    }[]
+  >`
+    SELECT t.id, t.user_id, u.name AS user_name, t.started_at, t.ended_at, t.source
+      FROM timesheets t JOIN users u ON u.id = t.user_id
+     WHERE t.job_id = ${id} ORDER BY t.started_at DESC`;
+  const sheets = timesheets.map((t): TimesheetDto => {
+    const startedAt = isoNN(t.startedAt);
+    const endedAt = isoNN(t.endedAt);
+    return { ...t, startedAt, endedAt, minutes: minutesBetween(startedAt, endedAt) };
+  });
   return {
     ...toSummary(row),
     description: extra!.description,
@@ -159,6 +182,9 @@ export async function getJob(tx: Tx, id: string): Promise<JobDetailDto> {
       userId: a.userId,
     })),
     timerRunning: !!timer,
+    timerStartedAt: timer ? isoNN(timer.startedAt) : null,
+    timesheets: sheets,
+    totalMinutes: sheets.reduce((n, t) => n + t.minutes, 0),
   };
 }
 
@@ -257,6 +283,7 @@ export async function createAppointment(
   input: z.output<typeof appointmentCreate>,
 ) {
   await lockJob(tx, jobId);
+  await assertMember(tx, auth, input.userId);
   const [a] = await tx<{ id: string }[]>`
     INSERT INTO appointments (tenant_id, job_id, user_id, starts_at, ends_at)
     VALUES (${auth.tenantId}, ${jobId}, ${input.userId ?? null}, ${input.startsAt}, ${input.endsAt}) RETURNING id`;
@@ -278,23 +305,83 @@ export async function deleteAppointment(tx: Tx, auth: Auth, appointmentId: strin
   return getJob(tx, a.jobId);
 }
 
-/** Start my timer on this job. → In Progress. One running timer per person. */
-export async function startTimer(tx: Tx, auth: Auth, jobId: string) {
+/** When the device says it happened, within reason; otherwise now. */
+function deviceTime(at: string | undefined, now: Date): Date {
+  if (!at) return now;
+  const t = new Date(at);
+  if (+t > +now + TIMER_MAX_AHEAD_MS)
+    throw invalid('That time is in the future. Check the clock on this device.', {
+      fields: { at: 'In the future' },
+    });
+  if (+t < +now - TIMER_MAX_BACKDATE_MS)
+    throw invalid('That time is more than 7 days ago.', { fields: { at: 'Too long ago' } });
+  return +t > +now ? now : t;
+}
+
+/** Stops a running timer and records its timesheet entry. */
+async function finishTimer(
+  tx: Tx,
+  timer: { id: string; jobId: string; startedAt: Date },
+  at: Date,
+) {
+  const end = +at < +timer.startedAt ? timer.startedAt : at;
+  await tx`UPDATE job_timers SET stopped_at = ${end} WHERE id = ${timer.id}`;
+  await tx`
+    INSERT INTO timesheets (tenant_id, job_id, user_id, timer_id, started_at, ended_at, source)
+    SELECT tenant_id, job_id, user_id, id, started_at, stopped_at, 'timer' FROM job_timers WHERE id = ${timer.id}`;
+}
+
+/**
+ * Start my timer on this job. → In Progress. One running timer per person: if one is running on
+ * another job, refuse (409 timer_running) unless `switch` is set, which stops it at the same moment.
+ */
+export async function startTimer(
+  tx: Tx,
+  auth: Auth,
+  jobId: string,
+  input: z.output<typeof timerAction> = {},
+) {
   await lockJob(tx, jobId);
-  const [running] = await tx<{ jobId: string }[]>`
-    SELECT job_id FROM job_timers WHERE user_id = ${auth.userId} AND stopped_at IS NULL FOR UPDATE`;
-  if (running && running.jobId !== jobId)
-    throw conflict('timer_running', 'Your timer is running on another job. Stop it first.');
-  if (!running) {
-    await tx`INSERT INTO job_timers (tenant_id, job_id, user_id) VALUES (${auth.tenantId}, ${jobId}, ${auth.userId})`;
+  const at = deviceTime(input.at, new Date());
+  const [running] = await tx<{ id: string; jobId: string; jobNumber: string; startedAt: Date }[]>`
+    SELECT t.id, t.job_id, j.number AS job_number, t.started_at
+      FROM job_timers t JOIN jobs j ON j.id = t.job_id
+     WHERE t.user_id = ${auth.userId} AND t.stopped_at IS NULL FOR UPDATE OF t`;
+  if (running && running.jobId !== jobId) {
+    if (!input.switch)
+      throw conflict(
+        'timer_running',
+        `Your timer is running on job ${running.jobNumber}. Stop it first.`,
+        { jobId: running.jobId, jobNumber: running.jobNumber },
+      );
+    await finishTimer(tx, running, at);
+    await audit(tx, auth, 'timer_stop', 'job', running.jobId, { switchedTo: jobId });
+  }
+  if (!running || running.jobId !== jobId) {
+    await tx`INSERT INTO job_timers (tenant_id, job_id, user_id, started_at)
+             VALUES (${auth.tenantId}, ${jobId}, ${auth.userId}, ${at})`;
+    await audit(tx, auth, 'timer_start', 'job', jobId, {});
   }
   await applyEvent(tx, auth, jobId, 'timer_started');
   return getJob(tx, jobId);
 }
 
-export async function stopTimer(tx: Tx, auth: Auth, jobId: string) {
+/** Stop my timer on this job and record the time as a timesheet entry. Stopping twice is harmless. */
+export async function stopTimer(
+  tx: Tx,
+  auth: Auth,
+  jobId: string,
+  input: z.output<typeof timerAction> = {},
+) {
   await lockJob(tx, jobId);
-  await tx`UPDATE job_timers SET stopped_at = now() WHERE job_id = ${jobId} AND user_id = ${auth.userId} AND stopped_at IS NULL`;
+  const at = deviceTime(input.at, new Date());
+  const [running] = await tx<{ id: string; jobId: string; startedAt: Date }[]>`
+    SELECT id, job_id, started_at FROM job_timers
+     WHERE job_id = ${jobId} AND user_id = ${auth.userId} AND stopped_at IS NULL FOR UPDATE`;
+  if (running) {
+    await finishTimer(tx, running, at);
+    await audit(tx, auth, 'timer_stop', 'job', jobId, {});
+  }
   return getJob(tx, jobId);
 }
 

@@ -6,3 +6,4 @@ export * from './dto';
 export * from './demo-data';
 export * from './settings';
 export * from './stages';
+export * from './schedule';
