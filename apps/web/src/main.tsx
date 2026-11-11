@@ -37,7 +37,7 @@ createRoot(document.getElementById('root')!).render(
         persister,
         maxAge: CACHE_MAX_AGE,
         // Bump when cached data shapes change, so an old cache is dropped rather than misread.
-        buster: 'v2',
+        buster: 'v3', // v3: jobs carry `stage` instead of `status`
         dehydrateOptions: {
           // Never persist "signed out", or the next launch would skip checking the session.
           shouldDehydrateQuery: (q) =>

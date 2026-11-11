@@ -1,4 +1,4 @@
-import { JOB_STATUS } from '../lib/status';
+import { useJobStages } from '../api/hooks';
 import { getOutbox, useSync } from '../offline';
 import type { OutboxOp } from '../offline/outbox';
 import { Button, EmptyState, List, Page, Section, StaticRow } from '../components/ui';
@@ -6,7 +6,7 @@ import { IconCheckCircle } from '../components/icons';
 import { formatDateTime } from './syncFormat';
 
 const FIELD_LABEL: Record<string, string> = {
-  status: 'Status',
+  stageId: 'Stage',
   title: 'Title',
   description: 'Description',
   notes: 'Notes',
@@ -16,9 +16,8 @@ const FIELD_LABEL: Record<string, string> = {
   validDays: 'Valid for',
 };
 
-const show = (field: string, v: unknown) => {
-  if (field === 'status' && typeof v === 'string' && v in JOB_STATUS)
-    return JOB_STATUS[v as keyof typeof JOB_STATUS].label;
+const show = (field: string, v: unknown, stageName: (id: string) => string | undefined) => {
+  if (field === 'stageId' && typeof v === 'string') return stageName(v) ?? 'A removed stage';
   if (field === 'lines' && Array.isArray(v)) return `${v.length} line${v.length === 1 ? '' : 's'}`;
   if (v == null || v === '') return '—';
   return String(v);
@@ -83,6 +82,8 @@ export function SyncScreen() {
 }
 
 function ProblemCard({ op }: { op: OutboxOp }) {
+  const stages = useJobStages();
+  const stageName = (id: string) => stages.data?.find((s) => s.id === id)?.name;
   const box = getOutbox();
   if (op.status === 'conflict' && op.conflict) {
     return (
@@ -97,8 +98,8 @@ function ProblemCard({ op }: { op: OutboxOp }) {
                 <span className="row__main">
                   <span className="row__title">{FIELD_LABEL[f] ?? f}</span>
                   <span className="row__sub">
-                    Yours: {show(f, op.changes[f])} · Other device:{' '}
-                    {show(f, op.conflict!.server[f])}
+                    Yours: {show(f, op.changes[f], stageName)} · Other device:{' '}
+                    {show(f, op.conflict!.server[f], stageName)}
                   </span>
                 </span>
               </StaticRow>

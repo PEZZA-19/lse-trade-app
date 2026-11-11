@@ -84,6 +84,15 @@
   --red-soft: rgba(255, 59, 48, 0.12);
   --purple: #8944ab;
   --purple-soft: rgba(175, 82, 222, 0.14);
+  /* Extra stage colours (job stages can be any of 10). Text colours meet 4.5:1 on their soft fill. */
+  --indigo: #3634a3;
+  --indigo-soft: rgba(88, 86, 214, 0.14);
+  --teal: #00646e;
+  --teal-soft: rgba(48, 176, 199, 0.16);
+  --yellow: #7a5900;
+  --yellow-soft: rgba(255, 204, 0, 0.22);
+  --pink: #b8124e;
+  --pink-soft: rgba(255, 45, 85, 0.12);
   --grey-soft: rgba(118, 118, 128, 0.14);
   --shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.12);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -113,6 +122,14 @@
     --red-soft: rgba(255, 69, 58, 0.18);
     --purple: #bf5af2;
     --purple-soft: rgba(191, 90, 242, 0.2);
+    --indigo: #8e8cff;
+    --indigo-soft: rgba(94, 92, 230, 0.24);
+    --teal: #5ad0e6;
+    --teal-soft: rgba(64, 200, 224, 0.18);
+    --yellow: #ffd60a;
+    --yellow-soft: rgba(255, 214, 10, 0.16);
+    --pink: #ff6482;
+    --pink-soft: rgba(255, 55, 95, 0.18);
     --grey-soft: rgba(118, 118, 128, 0.28);
     --shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.6);
     --scrim: rgba(0, 0, 0, 0.55);

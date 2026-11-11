@@ -463,6 +463,12 @@ button.row:active {
 .swipe__action--grey {
   background: #636366;
 }
+.swipe__action--purple {
+  background: #8944ab;
+}
+.swipe__action--yellow {
+  background: #7a5900;
+}
 .swipe__content {
   position: relative;
   z-index: 1;
@@ -506,6 +512,31 @@ button.row:active {
 .pill--purple {
   background: var(--purple-soft);
   color: var(--purple);
+}
+.pill--indigo {
+  background: var(--indigo-soft);
+  color: var(--indigo);
+}
+.pill--teal {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+.pill--yellow {
+  background: var(--yellow-soft);
+  color: var(--yellow);
+}
+.pill--pink {
+  background: var(--pink-soft);
+  color: var(--pink);
+}
+/* A small coloured dot before a stage name (history, pickers). */
+.stage-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  background: currentColor;
 }
 
 /* ============================== Forms ============================== */

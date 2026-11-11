@@ -12,6 +12,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import { useReadiness, useSession, useSettings, useSignOut, useUpdateSettings } from '../api/hooks';
 import { SaveStatus } from '../components/SaveStatus';
+import { JobStagesSection } from './JobStagesSection';
 import { useSync } from '../offline';
 import {
   Button,
@@ -138,6 +139,7 @@ export function SettingsScreen() {
       ) : (
         <ListSkeleton rows={6} />
       )}
+      <JobStagesSection />
       <AccountSection />
     </Page>
   );

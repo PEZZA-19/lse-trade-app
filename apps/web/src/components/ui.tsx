@@ -1,3 +1,4 @@
+import type { StageColour } from '@lse/shared';
 import {
   forwardRef,
   useId,
@@ -211,7 +212,8 @@ export function Segmented<T extends string>(props: {
   );
 }
 
-export type Tone = 'grey' | 'blue' | 'green' | 'orange' | 'red' | 'purple';
+/** Pill colours: the 10 stage colours (quotes use a subset). */
+export type Tone = StageColour;
 export function Pill(props: { tone: Tone; children: ReactNode }) {
   return <span className={`pill pill--${props.tone}`}>{props.children}</span>;
 }

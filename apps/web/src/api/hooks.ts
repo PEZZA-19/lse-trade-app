@@ -4,7 +4,10 @@ import type {
   CustomerDto,
   JobCreate,
   JobDetailDto,
-  JobStatus,
+  JobStageCreate,
+  JobStageDto,
+  JobStageRef,
+  JobStageUpdate,
   JobSummaryDto,
   Page,
   QuoteCreate,
@@ -59,6 +62,7 @@ export const keys = {
   quotes: (status?: QuoteStatus, q?: string) => ['quotes', status ?? 'all', q ?? ''] as const,
   quote: (id: string) => ['quote', id] as const,
   jobs: (filter: string, q?: string) => ['jobs', filter, q ?? ''] as const,
+  stages: ['job-stages'] as const,
   job: (id: string) => ['job', id] as const,
 };
 
@@ -170,13 +174,19 @@ export const useQuote = (id: string) =>
     queryFn: () => api<QuoteDetailDto>('GET', `/quotes/${id}`),
   });
 
-export const useJobs = (filter: 'active' | 'all', q?: string) =>
+/** filter: 'active', 'all', or a stage id. */
+export const useJobs = (filter: string, q?: string) =>
   useQuery({
     queryKey: keys.jobs(filter, q),
     queryFn: ({ signal }) =>
       api<Page<JobSummaryDto>>(
         'GET',
-        `/jobs${qs({ active: filter === 'active' ? true : undefined, q, limit: 100 })}`,
+        `/jobs${qs({
+          active: filter === 'active' ? true : undefined,
+          stageId: filter !== 'active' && filter !== 'all' ? filter : undefined,
+          q,
+          limit: 100,
+        })}`,
         undefined,
         { signal },
       ),
@@ -284,16 +294,45 @@ export function useCreateJob() {
   });
 }
 
+/** The business's job stages, in display order. Rarely change, so cached for a while. */
+export const useJobStages = () =>
+  useQuery({
+    queryKey: keys.stages,
+    queryFn: () => api<JobStageDto[]>('GET', '/job-stages'),
+    staleTime: 5 * 60_000,
+  });
+
+function useStageMutation<V>(fn: (v: V) => Promise<unknown>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.stages });
+      // Names and colours show on every job chip.
+      void qc.invalidateQueries({ queryKey: ['jobs'] });
+      void qc.invalidateQueries({ queryKey: ['job'] });
+    },
+  });
+}
+export const useCreateStage = () =>
+  useStageMutation((input: JobStageCreate) => api<JobStageDto>('POST', '/job-stages', input));
+export const useUpdateStage = () =>
+  useStageMutation(({ id, ...input }: JobStageUpdate & { id: string }) =>
+    api<JobStageDto>('PATCH', `/job-stages/${id}`, input),
+  );
+export const useDeleteStage = () =>
+  useStageMutation((id: string) => api<null>('DELETE', `/job-stages/${id}`));
+
 /**
- * Status change: the list updates instantly and the change is written to the device (outbox).
- * Resolves 'synced' once the server confirmed, or 'queued' if it will sync later. Rolls back
- * only if it couldn't even be stored on the device.
+ * Stage change by hand: the list updates instantly and the change is written to the device
+ * (outbox). Resolves 'synced' once the server confirmed, or 'queued' if it will sync later.
+ * Rolls back only if it couldn't even be stored on the device.
  */
-export function useSetJobStatus() {
+export function useSetJobStage() {
   const qc = useQueryClient();
   return useMutation({
     // Through the outbox: saved on the device first, so it works with no signal.
-    mutationFn: async ({ id, status }: { id: string; status: JobStatus }) => {
+    mutationFn: async ({ id, stage }: { id: string; stage: JobStageRef }) => {
       await qc.cancelQueries({ queryKey: ['jobs'] });
       const snapshots = qc.getQueriesData<Page<JobSummaryDto>>({ queryKey: ['jobs'] });
       const detail = qc.getQueryData<JobDetailDto>(keys.job(id));
@@ -302,13 +341,13 @@ export function useSetJobStatus() {
           if (!data) continue;
           qc.setQueryData<Page<JobSummaryDto>>(key, {
             ...data,
-            items: data.items.map((j) => (j.id === id ? { ...j, status } : j)),
+            items: data.items.map((j) => (j.id === id ? { ...j, stage } : j)),
           });
         }
-        if (detail) qc.setQueryData<JobDetailDto>(keys.job(id), { ...detail, status });
+        if (detail) qc.setQueryData<JobDetailDto>(keys.job(id), { ...detail, stage });
       };
       try {
-        return await saveJob(id, { status }, showLocally);
+        return await saveJob(id, { stageId: stage.id }, showLocally);
       } catch (e) {
         // Stored on the device but needs a decision: keep showing it (the Sync screen explains).
         if (!(e instanceof NeedsAttentionError)) {
@@ -318,8 +357,12 @@ export function useSetJobStatus() {
         throw e;
       }
     },
-    onSettled: (result) => {
-      if (result === 'synced') void qc.invalidateQueries({ queryKey: ['jobs'] });
+    onSettled: (result, _e, v) => {
+      if (result === 'synced') {
+        void qc.invalidateQueries({ queryKey: ['jobs'] });
+        void qc.invalidateQueries({ queryKey: keys.job(v.id) }); // fresh history
+        void qc.invalidateQueries({ queryKey: keys.stages }); // job counts
+      }
     },
   });
 }

@@ -5,13 +5,15 @@ import { idbOutboxStorage, openOfflineDb } from './idb';
 import { Outbox, type OutboxOp, type SendError } from './outbox';
 
 let dbCount = 0;
+const stg = (id: string) =>
+  ({ id, systemKey: null, name: id, colour: 'grey', isActive: true }) as const;
 const job = (over: Partial<JobDetailDto> = {}) =>
   ({
     id: 'job-1',
     number: '123',
     title: 'Fuse board',
     description: null,
-    status: 'open',
+    stage: stg('open'),
     placeOfWork: 'sark',
     siteId: 'site-1',
     version: 1,
@@ -49,7 +51,7 @@ describe('outbox: saved on the device first', () => {
   it('keeps edits across a reload / app kill and sends them later', async () => {
     const offline = () => Promise.reject(httpError(0, 'network'));
     const { outbox, make, storage } = setup(offline);
-    await edit(outbox, { status: 'completed' });
+    await edit(outbox, { stageId: 'completed' });
     await outbox.flush();
     expect(outbox.getSnapshot()).toMatchObject({ pending: 1, stalled: 'offline' });
 
@@ -66,7 +68,7 @@ describe('outbox: saved on the device first', () => {
     expect(revived.getSnapshot().pending).toBe(1);
     await revived.flush();
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ changes: { status: 'completed' }, baseVersion: 1 });
+    expect(sent[0]).toMatchObject({ changes: { stageId: 'completed' }, baseVersion: 1 });
     expect(revived.getSnapshot().pending).toBe(0);
     expect((await storage.all()).length).toBe(0);
     void make;
@@ -80,16 +82,16 @@ describe('outbox: saved on the device first', () => {
       calls.push(structuredClone(op));
       return { version: 2 };
     });
-    await edit(outbox, { status: 'scheduled' });
-    await edit(outbox, { status: 'in_progress' }, job({ status: 'scheduled' }));
-    await edit(outbox, { title: 'Fuse board + RCD' }, job({ status: 'in_progress' }));
+    await edit(outbox, { stageId: 'scheduled' });
+    await edit(outbox, { stageId: 'in_progress' }, job({ stage: stg('scheduled') }));
+    await edit(outbox, { title: 'Fuse board + RCD' }, job({ stage: stg('in_progress') }));
     expect(outbox.getSnapshot().pending).toBe(1);
     online = true;
     await outbox.flush();
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.changes).toEqual({ status: 'in_progress', title: 'Fuse board + RCD' });
+    expect(calls[0]!.changes).toEqual({ stageId: 'in_progress', title: 'Fuse board + RCD' });
     // The base is what the record looked like before the FIRST edit.
-    expect(calls[0]!.base).toEqual({ status: 'open', title: 'Fuse board' });
+    expect(calls[0]!.base).toEqual({ stageId: 'open', title: 'Fuse board' });
   });
 
   it('sends in order and stops at the first network failure', async () => {
@@ -100,9 +102,9 @@ describe('outbox: saved on the device first', () => {
       order.push(op.entityId);
       return { version: 2 };
     });
-    await edit(outbox, { status: 'completed' }, job({ id: 'job-1' }));
-    await edit(outbox, { status: 'completed' }, job({ id: 'job-2' }));
-    await edit(outbox, { status: 'completed' }, job({ id: 'job-3' }));
+    await edit(outbox, { stageId: 'completed' }, job({ id: 'job-1' }));
+    await edit(outbox, { stageId: 'completed' }, job({ id: 'job-2' }));
+    await edit(outbox, { stageId: 'completed' }, job({ id: 'job-3' }));
     await outbox.flush();
     expect(order).toEqual(['job-1']);
     failOn = '';
@@ -115,7 +117,7 @@ describe('outbox: saved on the device first', () => {
     const { outbox } = setup(async () => {
       throw httpError(status, 'x');
     });
-    await edit(outbox, { status: 'completed' });
+    await edit(outbox, { stageId: 'completed' });
     await outbox.flush();
     expect(outbox.getSnapshot()).toMatchObject({ pending: 1, stalled: 'server' });
     expect(outbox.getSnapshot().ops[0]!.attempts).toBe(1);
@@ -133,7 +135,7 @@ describe('outbox: saved on the device first', () => {
     setTenant('tenant-a');
     await outbox.load();
     // queue for A while offline-ish: enqueue then switch business before flushing
-    await edit(outbox, { status: 'completed' });
+    await edit(outbox, { stageId: 'completed' });
     setTenant('tenant-b');
     await outbox.flush();
     expect(sent).toEqual([]);
@@ -144,10 +146,10 @@ describe('outbox: saved on the device first', () => {
   });
 
   it('confirms with the server record so the screen shows the real saved state', async () => {
-    const { outbox, onRecord } = setup(async () => ({ version: 2, status: 'completed' }) as never);
-    await edit(outbox, { status: 'completed' });
+    const { outbox, onRecord } = setup(async () => ({ version: 2, stageId: 'completed' }) as never);
+    await edit(outbox, { stageId: 'completed' });
     await outbox.flush();
-    expect(onRecord).toHaveBeenCalledWith('job', 'job-1', { version: 2, status: 'completed' });
+    expect(onRecord).toHaveBeenCalledWith('job', 'job-1', { version: 2, stageId: 'completed' });
   });
 });
 
@@ -163,49 +165,49 @@ describe('outbox: conflict rules', () => {
       if (op.baseVersion !== server.version) throw conflict(server);
       return { version: 3 };
     });
-    await edit(outbox, { status: 'completed' });
+    await edit(outbox, { stageId: 'completed' });
     await outbox.flush();
     expect(seen.map((o) => o.baseVersion)).toEqual([1, 2]);
     expect(outbox.getSnapshot().ops).toHaveLength(0);
   });
 
   it('rule 3: server already has my value → treated as saved', async () => {
-    const server = job({ status: 'completed', version: 4 });
+    const server = job({ stage: stg('completed'), version: 4 });
     let n = 0;
     const { outbox } = setup(async (op) => {
       n++;
       if (op.baseVersion !== 4) throw conflict(server);
       return { version: 5 };
     });
-    await edit(outbox, { status: 'completed' });
+    await edit(outbox, { stageId: 'completed' });
     await outbox.flush();
     expect(n).toBe(2);
     expect(outbox.getSnapshot().needsAttention).toBe(0);
   });
 
   it('rule 4: same field changed on both sides → asks; "Keep mine" re-sends, "Use theirs" drops', async () => {
-    const server = job({ status: 'cancelled', version: 2 });
+    const server = job({ stage: stg('cancelled'), version: 2 });
     const sends: OutboxOp[] = [];
     const { outbox, onRecord } = setup(async (op) => {
       sends.push(structuredClone(op));
       if (op.baseVersion !== 2) throw conflict(server);
       return { version: 3 };
     });
-    await edit(outbox, { status: 'completed' });
+    await edit(outbox, { stageId: 'completed' });
     await outbox.flush();
     const snap = outbox.getSnapshot();
     expect(snap.needsAttention).toBe(1);
     expect(snap.ops[0]!.conflict).toMatchObject({
-      fields: ['status'],
-      server: { status: 'cancelled' },
+      fields: ['stageId'],
+      server: { stageId: 'cancelled' },
     });
 
     await outbox.keepMine(snap.ops[0]!.id);
-    expect(sends.at(-1)).toMatchObject({ baseVersion: 2, changes: { status: 'completed' } });
+    expect(sends.at(-1)).toMatchObject({ baseVersion: 2, changes: { stageId: 'completed' } });
     expect(outbox.getSnapshot().ops).toHaveLength(0);
 
     // Use theirs
-    await edit(outbox, { status: 'completed' });
+    await edit(outbox, { stageId: 'completed' });
     await outbox.flush(); // baseVersion 1 -> conflict again
     const op = outbox.getSnapshot().ops[0]!;
     expect(op.status).toBe('conflict');
@@ -237,12 +239,12 @@ describe('outbox: conflict rules', () => {
   it('a record with an unresolved problem holds back later edits to it, but not to others', async () => {
     const sent: string[] = [];
     const { outbox } = setup(async (op) => {
-      if (op.entityId === 'job-1' && op.changes.status === 'completed')
+      if (op.entityId === 'job-1' && op.changes.stageId === 'completed')
         throw httpError(422, 'validation_failed', 'bad');
       sent.push(`${op.entityId}:${JSON.stringify(op.changes)}`);
       return { version: 9 };
     });
-    await edit(outbox, { status: 'completed' }, job({ id: 'job-1' }));
+    await edit(outbox, { stageId: 'completed' }, job({ id: 'job-1' }));
     await outbox.flush();
     await edit(outbox, { title: 'later' }, job({ id: 'job-1' }));
     await edit(outbox, { title: 'other' }, job({ id: 'job-2' }));

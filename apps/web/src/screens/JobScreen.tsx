@@ -1,9 +1,9 @@
-import { formatPence, formatQty, JOB_STATUSES, type JobStatus } from '@lse/shared';
+import { formatPence, formatQty, STAGE_CAUSE_LABEL } from '@lse/shared';
 import { useParams } from 'react-router';
-import { useJob, useSetJobStatus } from '../api/hooks';
-import { NeedsAttentionError } from '../offline';
+import { useJob, useJobStages } from '../api/hooks';
+import { StageDot, StagePill, useChangeStage } from '../components/Stage';
+import { formatDateTime } from './syncFormat';
 import { IconJobs, IconQuotes } from '../components/icons';
-import { useToast } from '../components/Toast';
 import {
   Button,
   EmptyState,
@@ -12,19 +12,19 @@ import {
   List,
   ListSkeleton,
   Page,
-  Pill,
   Section,
   SelectField,
+  StaticRow,
 } from '../components/ui';
-import { JOB_STATUS, LINE_KIND_LABEL } from '../lib/status';
+import { LINE_KIND_LABEL } from '../lib/status';
 
 const PLACE = { sark: 'Sark', guernsey: 'Guernsey', other: 'Elsewhere' } as const;
 
 export function JobScreen() {
   const { id = '' } = useParams();
   const job = useJob(id);
-  const setStatus = useSetJobStatus();
-  const toast = useToast();
+  const stages = useJobStages();
+  const { change, pendingId, set } = useChangeStage();
 
   if (job.isPending)
     return (
@@ -44,7 +44,11 @@ export function JobScreen() {
       </Page>
     );
   const j = job.data;
-  const pending = setStatus.isPending ? setStatus.variables?.status : undefined;
+  const pending = pendingId === j.id ? set.variables?.stage : undefined;
+  // The job's own stage is always listed, even before the stage list has loaded.
+  const options = stages.data?.some((s) => s.id === j.stage.id)
+    ? stages.data
+    : [j.stage, ...(stages.data ?? [])];
 
   return (
     <Page title={`Job ${j.number}`} subtitle={j.title} back={{ label: 'Jobs', to: '/jobs' }}>
@@ -52,7 +56,7 @@ export function JobScreen() {
         <div
           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
         >
-          <Pill tone={JOB_STATUS[j.status].tone}>{JOB_STATUS[j.status].label}</Pill>
+          <StagePill stage={pending ?? j.stage} />
           {pending && <span className="save-status save-status--pending">Saving…</span>}
         </div>
         <div className="hero__meta">
@@ -60,34 +64,20 @@ export function JobScreen() {
         </div>
       </div>
 
-      <Section header="Status">
+      <Section header="Stage">
         <List className="form-list">
           <SelectField
-            label="Status"
-            value={pending ?? j.status}
+            label="Stage"
+            value={pending?.id ?? j.stage.id}
             disabled={!!pending}
-            onChange={(e) =>
-              setStatus.mutate(
-                { id: j.id, status: e.target.value as JobStatus },
-                {
-                  onSuccess: (r) => {
-                    if (r === 'queued')
-                      toast.show('Saved on this device. It will sync when you’re back online.');
-                  },
-                  onError: (err) =>
-                    toast.show(
-                      err instanceof NeedsAttentionError
-                        ? err.message
-                        : `Status not changed. ${err.message}`,
-                      { tone: 'error' },
-                    ),
-                },
-              )
-            }
+            onChange={(e) => {
+              const to = options.find((s) => s.id === e.target.value);
+              if (to) change(j, to);
+            }}
           >
-            {JOB_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {JOB_STATUS[s].label}
+            {options.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </SelectField>
@@ -159,6 +149,30 @@ export function JobScreen() {
             <li>
               <KeyValueRow label="Quoted total" value={formatPence(j.quotedTotalPence)} strong />
             </li>
+          </List>
+        </Section>
+      )}
+
+      {j.history.length > 0 && (
+        <Section header="History" footer="Every stage change, automatic or by hand.">
+          <List label="Stage history">
+            {[...j.history].reverse().map((h) => (
+              <li key={h.id}>
+                <StaticRow>
+                  <StageDot colour={h.toColour} />
+                  <span className="row__main">
+                    <span className="row__title">
+                      {h.fromName ? `${h.fromName} → ${h.toName}` : h.toName}
+                    </span>
+                    <span className="row__sub">
+                      {[STAGE_CAUSE_LABEL[h.cause], h.userName, formatDateTime(h.createdAt)]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </span>
+                </StaticRow>
+              </li>
+            ))}
           </List>
         </Section>
       )}

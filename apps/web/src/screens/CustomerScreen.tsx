@@ -16,7 +16,8 @@ import {
   Section,
   StaticRow,
 } from '../components/ui';
-import { JOB_STATUS, QUOTE_STATUS } from '../lib/status';
+import { QUOTE_STATUS } from '../lib/status';
+import { StagePill } from '../components/Stage';
 import { NewJobSheet } from './sheets/NewJobSheet';
 import { NewQuoteSheet } from './sheets/NewQuoteSheet';
 import { AddContactSheet, AddSiteSheet } from './sheets/SiteContactSheets';
@@ -171,7 +172,7 @@ export function CustomerScreen() {
                   to={`/jobs/${j.id}`}
                   title={j.title}
                   sub={`Job ${j.number}`}
-                  meta={<Pill tone={JOB_STATUS[j.status].tone}>{JOB_STATUS[j.status].label}</Pill>}
+                  meta={<StagePill stage={j.stage} />}
                 />
               </li>
             ))}

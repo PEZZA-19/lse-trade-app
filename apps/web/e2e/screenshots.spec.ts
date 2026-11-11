@@ -34,6 +34,14 @@ for (const vp of VIEWPORTS) {
       await page.getByText('Barn rewire and LED lighting').click();
       await expect(page.getByRole('heading', { name: 'Job 122' })).toBeVisible();
       await shot(page, '02-job-detail', vp.name, scheme);
+      await page.getByRole('list', { name: 'Stage history' }).scrollIntoViewIfNeeded();
+      await shot(page, '11-job-history', vp.name, scheme);
+
+      await page.goto('/jobs');
+      await page.getByRole('button', { name: 'Stage…' }).click();
+      await expect(page.getByRole('dialog', { name: 'Show stage' })).toBeVisible();
+      await shot(page, '12-stage-picker', vp.name, scheme);
+      await page.keyboard.press('Escape');
 
       await page.goto('/quotes');
       await expect(page.getByRole('heading', { name: 'Quotes', level: 1 })).toBeVisible();
@@ -69,6 +77,8 @@ for (const vp of VIEWPORTS) {
       await page.goto('/settings');
       await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');
       await shot(page, '10-settings', vp.name, scheme);
+      await page.getByRole('list', { name: 'Job stages' }).scrollIntoViewIfNeeded();
+      await shot(page, '13-settings-stages', vp.name, scheme);
       await ctx.close();
     });
   }

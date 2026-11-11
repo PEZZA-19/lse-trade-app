@@ -23,7 +23,7 @@ export function editableFields(entity: Entity, record: unknown): Fields {
     return {
       title: j.title,
       description: j.description,
-      status: j.status,
+      stageId: j.stage.id,
       placeOfWork: j.placeOfWork,
       siteId: j.siteId,
     };

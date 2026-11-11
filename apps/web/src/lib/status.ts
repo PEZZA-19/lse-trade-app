@@ -1,4 +1,4 @@
-import type { JobStatus, QuoteStatus } from '@lse/shared';
+import type { QuoteStatus } from '@lse/shared';
 import type { Tone } from '../components/ui';
 
 export const QUOTE_STATUS: Record<QuoteStatus, { label: string; tone: Tone }> = {
@@ -8,14 +8,6 @@ export const QUOTE_STATUS: Record<QuoteStatus, { label: string; tone: Tone }> = 
   converted: { label: 'Job created', tone: 'purple' },
   declined: { label: 'Declined', tone: 'red' },
   expired: { label: 'Expired', tone: 'orange' },
-};
-
-export const JOB_STATUS: Record<JobStatus, { label: string; tone: Tone }> = {
-  open: { label: 'To do', tone: 'blue' },
-  scheduled: { label: 'Booked in', tone: 'purple' },
-  in_progress: { label: 'In progress', tone: 'orange' },
-  completed: { label: 'Done', tone: 'green' },
-  cancelled: { label: 'Cancelled', tone: 'grey' },
 };
 
 export const LINE_KIND_LABEL = {

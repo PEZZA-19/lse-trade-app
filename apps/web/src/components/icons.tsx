@@ -103,3 +103,13 @@ export const IconCheckCircle = (p: SVGProps<SVGSVGElement>) => (
     <path d="m8 12.5 2.5 2.5L16 9.5" />
   </svg>
 );
+export const IconPause = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M9 6v12M15 6v12" />
+  </svg>
+);
+export const IconMore = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ strokeWidth: 3, ...p })}>
+    <path d="M6 12h.01M12 12h.01M18 12h.01" />
+  </svg>
+);

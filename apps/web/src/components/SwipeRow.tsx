@@ -3,7 +3,7 @@ import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
 export interface SwipeAction {
   label: string;
   icon: ReactNode;
-  tone: 'blue' | 'green' | 'orange' | 'grey';
+  tone: 'blue' | 'green' | 'orange' | 'grey' | 'purple' | 'yellow';
   onAction: () => void;
 }
 
