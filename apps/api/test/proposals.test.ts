@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
 import { AiGateway } from '../src/ai/gateway';
