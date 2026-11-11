@@ -33,7 +33,23 @@ test('change a job’s stage from the list and the job screen; history and Activ
   const history = page.getByRole('list', { name: 'Stage history' });
   await expect(history.getByText('Unassigned → On Hold')).toBeVisible();
   await expect(history.getByText(/Changed by hand · Joe/)).toBeVisible();
-  await page.getByRole('combobox', { name: 'Stage' }).selectOption({ label: 'Cancelled' });
+  // The stage picker: a listbox with a colour dot per stage, usable from the keyboard.
+  const picker = page.getByRole('button', { name: 'Stage: On Hold' });
+  await picker.focus();
+  await page.keyboard.press('ArrowDown');
+  const list = page.getByRole('listbox', { name: 'Stage' });
+  expect(await list.getByRole('option').count()).toBeGreaterThanOrEqual(8);
+  await expect(list.getByRole('option', { name: 'On Hold' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(list.getByRole('option', { name: 'Cancelled' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(list).toBeHidden();
+  await expect(picker).toBeFocused();
+  await picker.click();
+  await list.getByRole('option', { name: 'Cancelled', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Stage: Cancelled' })).toBeVisible();
   await expect(history.getByText('On Hold → Cancelled')).toBeVisible();
 
   // Cancelled drops off the Active list but is still under All.

@@ -23,19 +23,34 @@ async function newJob(page: Page, title: string) {
   return { api, job, stage, serverStage };
 }
 
-const stageSelect = (page: Page) => page.getByRole('combobox', { name: 'Stage' });
+const STAGE_NAME: Record<string, string> = {
+  unassigned: 'Unassigned',
+  scheduled: 'Booked in',
+  in_progress: 'In Progress',
+  complete: 'Complete',
+};
+const stageButton = (page: Page) => page.getByRole('button', { name: /^Stage: / });
+const expectStage = (page: Page, key: string) =>
+  expect(stageButton(page)).toHaveAccessibleName(`Stage: ${STAGE_NAME[key]}`);
+async function pickStage(page: Page, key: string) {
+  await stageButton(page).click();
+  await page
+    .getByRole('listbox', { name: 'Stage' })
+    .getByRole('option', { name: STAGE_NAME[key], exact: true })
+    .click();
+}
 
 test('offline: a stage change is kept on the device and syncs when signal returns', async ({
   page,
   context,
 }) => {
-  const { job, stage, serverStage } = await newJob(page, `Offline test ${Date.now()}`);
+  const { job, serverStage } = await newJob(page, `Offline test ${Date.now()}`);
   await page.goto(`/jobs/${job.id}`);
-  await expect(stageSelect(page)).toHaveValue(stage('unassigned'));
+  await expectStage(page, 'unassigned');
 
   await context.setOffline(true);
   await expect(page.getByText('You’re offline.')).toBeVisible();
-  await stageSelect(page).selectOption(stage('scheduled'));
+  await pickStage(page, 'scheduled');
   await expect(page.getByText(/on this device\. It will sync/)).toBeVisible();
   await expect(
     page
@@ -49,19 +64,19 @@ test('offline: a stage change is kept on the device and syncs when signal return
   await expect(page.getByRole('link', { name: /waiting/ })).toHaveCount(0);
   await expect.poll(serverStage).toBe('scheduled');
   await page.reload();
-  await expect(stageSelect(page)).toHaveValue(stage('scheduled'));
+  await expectStage(page, 'scheduled');
 });
 
 test('offline conflict: same field changed elsewhere → asks, and "Keep mine" wins', async ({
   page,
   context,
 }) => {
-  const { api, job, stage, serverStage } = await newJob(page, `Conflict test ${Date.now()}`);
+  const { api, job, serverStage } = await newJob(page, `Conflict test ${Date.now()}`);
   await page.goto(`/jobs/${job.id}`);
-  await expect(stageSelect(page)).toHaveValue(stage('unassigned'));
+  await expectStage(page, 'unassigned');
 
   await context.setOffline(true);
-  await stageSelect(page).selectOption(stage('complete'));
+  await pickStage(page, 'complete');
   await expect(page.getByText(/on this device\. It will sync/)).toBeVisible();
   // Meanwhile, someone else cancels the job from another device.
   await api.patch(`/jobs/${job.id}`, { stageKey: 'cancelled' });
@@ -81,11 +96,11 @@ test('offline: different fields changed elsewhere merge without asking', async (
   page,
   context,
 }) => {
-  const { api, job, stage, serverStage } = await newJob(page, `Merge test ${Date.now()}`);
+  const { api, job, serverStage } = await newJob(page, `Merge test ${Date.now()}`);
   await page.goto(`/jobs/${job.id}`);
-  await expect(stageSelect(page)).toHaveValue(stage('unassigned'));
+  await expectStage(page, 'unassigned');
   await context.setOffline(true);
-  await stageSelect(page).selectOption(stage('in_progress'));
+  await pickStage(page, 'in_progress');
   await api.patch(`/jobs/${job.id}`, { title: 'Renamed on the laptop' });
   await context.setOffline(false);
   await expect.poll(serverStage).toBe('in_progress');

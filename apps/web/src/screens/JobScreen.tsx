@@ -19,7 +19,7 @@ import { PhotosSection } from './job/PhotosSection';
 import { useParams } from 'react-router';
 import { canSee } from '@lse/shared';
 import { useAccess, useJob, useJobStages, useMembers, usePricesVisible } from '../api/hooks';
-import { StageDot, StagePill, useChangeStage } from '../components/Stage';
+import { StageDot, StagePicker, StagePill, useChangeStage } from '../components/Stage';
 import { formatDateTime } from './syncFormat';
 import { IconCalendar, IconJobs, IconQuotes } from '../components/icons';
 import {
@@ -32,7 +32,6 @@ import {
   ListSkeleton,
   Page,
   Section,
-  SelectField,
   StaticRow,
 } from '../components/ui';
 import { initials, LINE_KIND_LABEL } from '../lib/status';
@@ -92,21 +91,14 @@ export function JobScreen() {
 
       <Section header="Stage">
         <List className="form-list">
-          <SelectField
-            label="Stage"
-            value={pending?.id ?? j.stage.id}
-            disabled={!!pending}
-            onChange={(e) => {
-              const to = options.find((s) => s.id === e.target.value);
-              if (to) change(j, to);
-            }}
-          >
-            {options.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </SelectField>
+          <li>
+            <StagePicker
+              value={pending?.id ?? j.stage.id}
+              options={options}
+              disabled={!!pending}
+              onChange={(to) => change(j, to)}
+            />
+          </li>
         </List>
       </Section>
 
