@@ -16,8 +16,13 @@ See [PROGRESS.md](PROGRESS.md) for status and how to run it, [DESIGN.md](DESIGN.
 ```bash
 pnpm install
 pnpm db:start        # local Postgres 17 on :54329 (no system install needed)
-pnpm db:seed         # migrate + fictional demo data; writes apps/api/.dev.vars
+pnpm db:seed         # migrate + fictional demo data (owner@lse.example)
 pnpm dev             # API on :8787, web on http://127.0.0.1:5173
 ```
 
-Checks: `pnpm check` (format, lint, typecheck, unit/integration tests, builds) and `pnpm test:e2e`.
+Sign in: open http://127.0.0.1:5173, enter `owner@lse.example`, then run `pnpm sign-in-link` and open the
+link it prints. No email is ever sent in development; the API prints the link and writes it to
+`apps/api/.dev-sign-in-link` (git-ignored).
+
+Checks: `pnpm check` (format, lint, typecheck, unit/integration tests, builds), `pnpm test:e2e`, and
+`pnpm --filter @lse/web test:e2e:pwa` (production build reopens offline).

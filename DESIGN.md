@@ -14,11 +14,14 @@ They follow Apple's Human Interface Guidelines (clarity, deference, depth) and t
    the one action right). Navigation pushes a new page with a back button.
 4. **Honesty (from competitor reviews).** Never show something as saved, sent, viewed or paid unless the
    server confirmed it. Every write has a visible state: _Unsaved changes → Saving… → Saved_, or
-   _Not saved · Retry_. A network failure says "No connection. Nothing was saved." "Mark as sent" records
+   _Not saved · Retry_. Edits that work offline say _Saved on this device · will sync_ until the server
+   has them, and a sync badge counts what is waiting. A network failure on anything that needs a
+   connection says "No connection. Nothing was saved." "Mark as sent" records
    a fact; it does not pretend an email went out. A £0 or empty quote cannot be marked as sent.
 5. **Instant feedback, honest outcome.** Optimistic UI is used for display only (e.g. a job's status
-   changes immediately), but the row shows _Saving…_ until confirmed and rolls back with an error toast
-   and Retry if it fails. Buttons respond on press (scale + colour) and show a spinner while working.
+   changes immediately). The change is stored on the device first; it rolls back with an error toast
+   only if even that fails. Conflicts with another device are never resolved silently when the same
+   field changed on both: the Sync screen asks _Keep mine_ or _Use theirs_. Buttons respond on press (scale + colour) and show a spinner while working.
 6. **Sensible defaults, minimal typing.** Labour lines default to the business rate (£45/h), materials to
    cost × the usual markup (1.3, or the customer's own), the first site is pre-selected, quantity is 1,
    validity is 30 days. Only the essentials are required (a customer's name; a quote's title).
