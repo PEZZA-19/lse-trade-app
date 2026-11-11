@@ -337,6 +337,61 @@ Tests now: shared 129 (+1 local-only skipped), API 188, web 52, e2e 31 mobile + 
 setup; new `access.spec`: Sam as Field worker sees no accounts/quotes/settings and gets "No access" on
 a link, then sees them once switched on), all passing.
 
+### Done (session 3, 11 Nov late evening: calendar subscription feed)
+
+- **One-way calendar feed (iCal)**: More › Calendar (everyone can open it, whatever their access) makes a
+  private link of the person's booked jobs (booked with them, or unbooked-person appointments on jobs
+  they're assigned to). Owner and admins can also have an "All jobs" link. Buttons: Copy Link, Add to
+  Google Calendar (`calendar.google.com/calendar/r?cid=webcal://…`), Add to Outlook
+  (`outlook.live.com/calendar/0/addfromweb?url=…`), Open in Calendar App (`webcal://`), Regenerate
+  Link (asks first; the old link 404s at once) and Switch Off. Note on screen: changes show up in
+  Google or Outlook within a few hours.
+- **Feed** `GET /api/public/calendar/<43-char token>.ics`: RFC 5545 (CRLF, 75-octet folding that never
+  splits a character, TEXT escaping, `UID:<appointment id>@lse-trade` stable across fetches, `DTSTAMP`,
+  timed events in UTC, whole-day bookings (local midnight to midnight, Europe/London) as all-day
+  `VALUE=DATE` events, `X-WR-TIMEZONE`, 1-hour refresh hint). Cancelled jobs and deleted bookings drop
+  out; window 60 days back to 400 days ahead. Event text: job number and title, customer name and
+  phone, site address, who it's with, a link to the job. Never prices or money. Admin-only feeds stop
+  (404) if admin is taken away; a removed member's links stop too. Rate-limited per IP and per link.
+  Checked with an independent parser (Python `icalendar`) as well as the tests.
+- **Data**: migration 0020 `calendar_feeds` (one row per person and scope, each person sees only their
+  own; token lookup through one narrow definer function). Tokens are stored as-is so the link can be
+  shown again (like Google's "secret address"); anyone with database access could read them. Hashing
+  would mean showing the link only once.
+- **Demo**: the file:// demo can't serve a feed, so More › Calendar says "Works once the app is online"
+  and offers a one-off **.ics download** of the demo bookings.
+- **Fix found on the way** (migration 0021): `held_due_tenants()` (the cron that releases held emails)
+  couldn't read `proposals` on a non-superuser database (FORCE RLS binds the owner), so once deployed it
+  would never have released anything. Added a read-only owner policy, the same pattern as 0003.
+- Screenshot `61-calendar` (mobile light/dark, taken from the real stack: `CAPTURE=1` on
+  `e2e/calendar.spec.ts`).
+
+Tests now: shared 135 (+1 local-only skipped), API 194, web 52, e2e 32 mobile + 1 skipped, all passing.
+
+### Design note: two-way calendar sync (Google and Microsoft), not built
+
+- **Connect**: per person, Settings › Calendar › "Connect Google" / "Connect Microsoft 365" via OAuth
+  (Google: `calendar.events` scope on a dedicated "LSE jobs" calendar the app creates, not the whole
+  account; Microsoft Graph: `Calendars.ReadWrite` + `offline_access`). Refresh tokens encrypted at rest
+  (Worker secret key), revocable from the app; disconnect deletes them.
+- **App → calendar**: on appointment create/move/delete, enqueue an outbox job (same pattern as held
+  emails) that upserts the event by our id (Google `extendedProperties.private.lseId`, Graph
+  `singleValueExtendedProperties`) and stores the provider event id and etag. Retries with backoff;
+  never blocks the booking.
+- **Calendar → app**: only for events in the LSE calendar. Google push notifications (`events.watch`,
+  renewed before expiry) or Graph subscriptions (renewed every ~3 days), each followed by an
+  incremental sync (Google `syncToken`, Graph delta query). A moved or deleted event becomes a
+  **proposal** in Approvals ("Sam moved Job 122 to Thursday 9:00: apply?") rather than a silent
+  change, in keeping with "AI drafts, Joe decides". Optional per business: apply moves automatically.
+- **Conflicts**: last writer wins by `updated` timestamp; if both changed since the last sync, keep the
+  app's version and raise a proposal. Events created in the calendar by hand are ignored (or offered
+  as "make a job?").
+- **Busy time** (later): read free/busy from the person's main calendar to warn about clashes when
+  booking, without copying private event details.
+- **Needs**: Google Cloud project with OAuth consent (verification for the sensitive scope), Azure app
+  registration, a public HTTPS webhook endpoint, and Joe's go-ahead for both accounts. Nothing was
+  created tonight.
+
 ### Review lessons applied
 
 From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
@@ -571,6 +626,11 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 31. Access: a job's quoted work and materials still show prices to everyone who can open the job
     (a customer's quotes are already hidden without quote access). Should field workers and
     subcontractors see jobs without any prices?
+32. Calendar: the one-way link is live now (More › Calendar). For two-way sync (design note above),
+    which first, Google or Microsoft 365? And should a move made in Google/Outlook apply straight
+    away, or wait in Approvals for you?
+33. Calendar events show the customer's phone number and site address so whoever is booked can get
+    there. OK, or leave the phone out?
 
 ## Next session, top priority (Joe, 11 Nov 2026)
 
