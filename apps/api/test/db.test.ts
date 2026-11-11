@@ -132,10 +132,12 @@ describe('single conversion guarantee', () => {
         >`INSERT INTO customers (tenant_id, name) VALUES (${t.tenantId}, 'C') RETURNING id`;
         const [q] = await tx<{ id: string }[]>`
           INSERT INTO quotes (tenant_id, number, customer_id) VALUES (${t.tenantId}, 'Q-0001', ${c!.id}) RETURNING id`;
-        await tx`INSERT INTO jobs (tenant_id, number, customer_id, title, source_quote_id, source_quote_revision)
-                 VALUES (${t.tenantId}, '122', ${c!.id}, 'One', ${q!.id}, 1)`;
-        await tx`INSERT INTO jobs (tenant_id, number, customer_id, title, source_quote_id, source_quote_revision)
-                 VALUES (${t.tenantId}, '123', ${c!.id}, 'Two', ${q!.id}, 1)`;
+        await tx`INSERT INTO jobs (tenant_id, number, customer_id, title, source_quote_id, source_quote_revision, stage_id)
+                 VALUES (${t.tenantId}, '122', ${c!.id}, 'One', ${q!.id}, 1,
+                         (SELECT id FROM job_stages WHERE system_key = 'unassigned'))`;
+        await tx`INSERT INTO jobs (tenant_id, number, customer_id, title, source_quote_id, source_quote_revision, stage_id)
+                 VALUES (${t.tenantId}, '123', ${c!.id}, 'Two', ${q!.id}, 1,
+                         (SELECT id FROM job_stages WHERE system_key = 'unassigned'))`;
       }),
     ).rejects.toThrow(/jobs_source_quote_id_key/);
   });

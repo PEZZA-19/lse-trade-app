@@ -42,6 +42,7 @@ export async function seedTenant(sql: Sql, input: SeedTenantInput): Promise<Seed
     const [user] = await tx<{ id: string }[]>`
       INSERT INTO users (email, name) VALUES (${input.owner.email.toLowerCase()}, ${input.owner.name})
       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING id`;
+    await tx`SELECT create_system_stages(${tenant!.id})`;
     await tx`INSERT INTO memberships (tenant_id, user_id, role) VALUES (${tenant!.id}, ${user!.id}, 'owner')`;
     await tx`
       INSERT INTO number_sequences (tenant_id, kind, prefix, padding, next_value, gaps_allowed) VALUES

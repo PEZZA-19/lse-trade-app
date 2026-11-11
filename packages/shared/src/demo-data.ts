@@ -7,6 +7,14 @@
 type Post = (path: string, body?: unknown) => Promise<any>;
 type Patch = (path: string, body: unknown) => Promise<any>;
 
+/** ISO time `days` from today at `hour`:00 local time (demo appointments stay current). */
+const at = (days: number, hour: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(hour, 0, 0, 0);
+  return d.toISOString();
+};
+
 export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
   const farm = await post('/customers', {
     name: 'Demo Farm Ltd',
@@ -111,7 +119,9 @@ export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
   await post(`/quotes/${q1.id}/send`);
   await post(`/quotes/${q1.id}/accept`, { acceptedOptions: ['Yard floodlight'] });
   const job122 = await post(`/quotes/${q1.id}/convert`);
-  await patch(`/jobs/${job122.id}`, { status: 'in_progress' });
+  // Booked in for this morning (automatic), then the timer started on site (automatic: In Progress).
+  await post(`/jobs/${job122.id}/appointments`, { startsAt: at(0, 8), endsAt: at(0, 17) });
+  await post(`/jobs/${job122.id}/timer/start`);
 
   // Q-0002: sent, waiting on the customer.
   const q2 = await post('/quotes', {
@@ -218,17 +228,23 @@ export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
     siteId: cafe.sites[0].id,
     title: 'Replace faulty extractor fan',
   });
-  await patch(`/jobs/${j.id}`, { status: 'scheduled' });
+  await post(`/jobs/${j.id}/appointments`, { startsAt: at(2, 9), endsAt: at(2, 12) });
   const done = await post('/jobs', {
     customerId: hotel.id,
     siteId: hotel.sites[1].id,
     title: 'Annual PAT testing',
     placeOfWork: 'sark',
   });
-  await patch(`/jobs/${done.id}`, { status: 'completed' });
-  await post('/jobs', {
+  await post(`/jobs/${done.id}/timer/start`);
+  await post(`/jobs/${done.id}/timer/stop`);
+  await patch(`/jobs/${done.id}`, { stageKey: 'to_invoice' });
+  await patch(`/jobs/${done.id}`, { stageKey: 'complete' });
+  // A custom stage, as a business might add in Settings.
+  const waiting = await post('/job-stages', { name: 'Waiting on parts', colour: 'teal' });
+  const fault = await post('/jobs', {
     customerId: farm.id,
     title: 'Fault find: barn lights flickering',
     placeOfWork: 'sark',
   });
+  await patch(`/jobs/${fault.id}`, { stageId: waiting.id });
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SYSTEM_STAGE_KEYS } from './stages';
 
 /* ----------------------------- primitives ----------------------------- */
 
@@ -142,10 +143,6 @@ export const quoteAccept = z.object({
 
 /* -------------------------------- jobs -------------------------------- */
 
-export const JOB_STATUSES = ['open', 'scheduled', 'in_progress', 'completed', 'cancelled'] as const;
-export const jobStatus = z.enum(JOB_STATUSES);
-export type JobStatus = z.infer<typeof jobStatus>;
-
 export const PLACES_OF_WORK = ['sark', 'guernsey', 'other'] as const;
 
 export const jobCreate = z.object({
@@ -160,7 +157,9 @@ export type JobCreate = z.input<typeof jobCreate>;
 export const jobUpdate = z.object({
   title: trimmed(200).min(1).optional(),
   description: optionalText(4000).optional(),
-  status: jobStatus.optional(),
+  /** Manual stage change: by id (any stage, incl. custom) or by system key. */
+  stageId: id.optional(),
+  stageKey: z.enum(SYSTEM_STAGE_KEYS).optional(),
   siteId: id.nullish(),
   placeOfWork: z.enum(PLACES_OF_WORK).optional(),
 });

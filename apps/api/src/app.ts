@@ -3,7 +3,9 @@ import {
   customerCreate,
   customerUpdate,
   jobCreate,
-  jobStatus,
+  appointmentCreate,
+  jobStageCreate,
+  jobStageUpdate,
   jobUpdate,
   listQuery,
   quoteAccept,
@@ -27,6 +29,7 @@ import * as customers from './services/customers';
 import * as jobs from './services/jobs';
 import * as quotes from './services/quotes';
 import * as settings from './services/settings';
+import * as stages from './services/stages';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
@@ -236,7 +239,7 @@ export function createApp(deps: AppDeps) {
 
   /* ------------------------------- jobs ----------------------------- */
   const jobListQuery = listQuery.extend({
-    status: jobStatus.optional(),
+    stageId: z.uuid().optional(),
     active: z
       .enum(['true', 'false'])
       .transform((v) => v === 'true')
@@ -260,6 +263,51 @@ export function createApp(deps: AppDeps) {
     const input = parse(jobUpdate, await jsonBody(c.req));
     const v = ifMatch(c);
     return c.json(await c.var.tx((tx) => jobs.updateJob(tx, c.var.auth, id, input, v)));
+  });
+
+  app.post('/api/jobs/:id/assignees', async (c) => {
+    const id = uuidParam(c);
+    const { userId } = parse(z.object({ userId: z.uuid() }), await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => jobs.assign(tx, c.var.auth, id, userId)));
+  });
+  app.delete('/api/jobs/:id/assignees/:userId', async (c) => {
+    const id = uuidParam(c);
+    const userId = uuidParam(c, 'userId');
+    return c.json(await c.var.tx((tx) => jobs.unassign(tx, c.var.auth, id, userId)));
+  });
+  app.post('/api/jobs/:id/appointments', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(appointmentCreate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => jobs.createAppointment(tx, c.var.auth, id, input)), 201);
+  });
+  app.delete('/api/appointments/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobs.deleteAppointment(tx, c.var.auth, id)));
+  });
+  app.post('/api/jobs/:id/timer/start', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobs.startTimer(tx, c.var.auth, id)));
+  });
+  app.post('/api/jobs/:id/timer/stop', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => jobs.stopTimer(tx, c.var.auth, id)));
+  });
+
+  /* ---------------------------- job stages --------------------------- */
+  app.get('/api/job-stages', async (c) => c.json(await c.var.tx((tx) => stages.listStages(tx))));
+  app.post('/api/job-stages', async (c) => {
+    const input = parse(jobStageCreate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => stages.createStage(tx, c.var.auth, input)), 201);
+  });
+  app.patch('/api/job-stages/:id', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(jobStageUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => stages.updateStage(tx, c.var.auth, id, input)));
+  });
+  app.delete('/api/job-stages/:id', async (c) => {
+    const id = uuidParam(c);
+    await c.var.tx((tx) => stages.deleteStage(tx, c.var.auth, id));
+    return c.body(null, 204);
   });
 
   return app;

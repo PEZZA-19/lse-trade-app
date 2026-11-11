@@ -21,6 +21,7 @@ import { assertVersion, conflict, invalid, notFound } from '../lib/errors';
 import { iso, isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { assertReadyToSendQuote } from './settings';
+import { recordCreated, stageByKey } from './stages';
 import { assertSiteOfCustomer, toSite } from './customers';
 
 type LineIn = z.output<typeof quoteLineInput>;
@@ -453,12 +454,14 @@ export async function convertToJob(
   const [num] = await tx<
     { value: number; formatted: string }[]
   >`SELECT * FROM allocate_number('job')`;
+  const unassigned = await stageByKey(tx, 'unassigned');
   const [job] = await tx<{ id: string }[]>`
     INSERT INTO jobs (tenant_id, number, seq_value, customer_id, site_id, title, description,
-                      source_quote_id, source_quote_revision, created_by)
+                      source_quote_id, source_quote_revision, created_by, stage_id)
     VALUES (${auth.tenantId}, ${num!.formatted}, ${num!.value}, ${q.customerId}, ${q.siteId}, ${rev.title}, ${rev.notes},
-            ${id}, ${q.acceptedRevision}, ${auth.userId})
+            ${id}, ${q.acceptedRevision}, ${auth.userId}, ${unassigned.id})
     RETURNING id`;
+  await recordCreated(tx, auth, job!.id, unassigned.id, 'created_from_quote');
   if (chosen.length) {
     const defaults = { markupBp: rev.defaultMarkupBp };
     const rows = chosen.map((l, i) => {

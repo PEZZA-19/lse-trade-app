@@ -1,5 +1,6 @@
 /** Shapes returned by the API. Kept in one place so the web app and API agree. */
-import type { ContactRole, JobStatus, QuoteStatus } from './schemas';
+import type { ContactRole, QuoteStatus } from './schemas';
+import type { AppointmentDto, JobHistoryDto, JobStageRef } from './stages';
 import type { LineKind } from './quote-calc';
 
 export interface SiteDto {
@@ -110,7 +111,7 @@ export interface QuoteDetailDto extends QuoteSummaryDto {
 export interface JobSummaryDto {
   id: string;
   number: string;
-  status: JobStatus;
+  stage: JobStageRef;
   customerId: string;
   customerName: string;
   siteId: string | null;
@@ -143,6 +144,11 @@ export interface JobDetailDto extends JobSummaryDto {
   site: SiteDto | null;
   sourceQuoteRevision: number | null;
   lines: JobLineDto[];
+  /** Every stage change, oldest first. */
+  history: JobHistoryDto[];
+  assignees: { userId: string; name: string }[];
+  appointments: AppointmentDto[];
+  timerRunning: boolean;
 }
 
 export interface ApiErrorBody {

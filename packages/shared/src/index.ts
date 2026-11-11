@@ -5,3 +5,4 @@ export * from './schemas';
 export * from './dto';
 export * from './demo-data';
 export * from './settings';
+export * from './stages';

@@ -17,7 +17,7 @@ describe('row versions and If-Match (offline sync)', () => {
   it('every change bumps the version', async () => {
     const { c, job } = await setup();
     expect(job.version).toBe(1);
-    const r = await c.req('PATCH', `/api/jobs/${job.id}`, { status: 'scheduled' });
+    const r = await c.req('PATCH', `/api/jobs/${job.id}`, { stageKey: 'on_hold' });
     expect(r.body.version).toBe(2);
   });
 
@@ -26,11 +26,11 @@ describe('row versions and If-Match (offline sync)', () => {
     const r = await c.req(
       'PATCH',
       `/api/jobs/${job.id}`,
-      { status: 'in_progress' },
+      { stageKey: 'in_progress' },
       { 'if-match': '"1"' },
     );
     expect(r.status).toBe(200);
-    expect(r.body.status).toBe('in_progress');
+    expect(r.body.stage.systemKey).toBe('in_progress');
   });
 
   it('refuses a stale edit with 409 and returns the current record, changing nothing', async () => {
@@ -39,17 +39,16 @@ describe('row versions and If-Match (offline sync)', () => {
     const stale = await c.req(
       'PATCH',
       `/api/jobs/${job.id}`,
-      { status: 'completed' },
+      { stageKey: 'complete' },
       { 'if-match': '1' },
     );
     expect(stale.status).toBe(409);
     expect(stale.body.error.code).toBe('version_conflict');
     expect(stale.body.error.details.current).toMatchObject({
       title: 'Changed on the laptop',
-      status: 'open',
       version: 2,
     });
-    expect((await c.req('GET', `/api/jobs/${job.id}`)).body.status).toBe('open');
+    expect((await c.req('GET', `/api/jobs/${job.id}`)).body.stage.systemKey).toBe('unassigned');
   });
 
   it('quotes: stale draft edits are refused too', async () => {
@@ -75,8 +74,14 @@ describe('row versions and If-Match (offline sync)', () => {
   it('rejects a malformed If-Match', async () => {
     const { c, job } = await setup();
     expect(
-      (await c.req('PATCH', `/api/jobs/${job.id}`, { status: 'open' }, { 'if-match': 'abc' }))
-        .status,
+      (
+        await c.req(
+          'PATCH',
+          `/api/jobs/${job.id}`,
+          { stageKey: 'unassigned' },
+          { 'if-match': 'abc' },
+        )
+      ).status,
     ).toBe(400);
   });
 });

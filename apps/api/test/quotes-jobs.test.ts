@@ -245,7 +245,11 @@ describe('jobs', () => {
     });
     expect(a.status).toBe(201);
     expect(a.body.number).toBe('122');
-    expect(a.body.status).toBe('open');
+    expect(a.body.stage).toMatchObject({
+      systemKey: 'unassigned',
+      name: 'Unassigned',
+      colour: 'grey',
+    });
     expect(a.body.placeOfWork).toBe('sark');
     expect(a.body.sourceQuoteId).toBeNull();
     const { quote } = await acceptedQuote(c);
@@ -253,18 +257,18 @@ describe('jobs', () => {
     expect(b.body.number).toBe('123'); // quotes and jobs have separate sequences
   });
 
-  it('updates status and lists active jobs newest first', async () => {
+  it('changes stage by hand and lists active jobs newest first', async () => {
     const c = await client();
     const cust = await seedCustomer(c);
     const one = (await c.req('POST', '/api/jobs', { customerId: cust.id, title: 'One' })).body;
     await c.req('POST', '/api/jobs', { customerId: cust.id, title: 'Two' });
-    const u = await c.req('PATCH', `/api/jobs/${one.id}`, { status: 'completed' });
-    expect(u.body.status).toBe('completed');
+    const u = await c.req('PATCH', `/api/jobs/${one.id}`, { stageKey: 'complete' });
+    expect(u.body.stage.systemKey).toBe('complete');
     const active = await c.req('GET', '/api/jobs?active=true');
     expect(active.body.items.map((j: { title: string }) => j.title)).toEqual(['Two']);
     const all = await c.req('GET', '/api/jobs');
     expect(all.body.items.map((j: { title: string }) => j.title)).toEqual(['Two', 'One']);
-    expect((await c.req('PATCH', `/api/jobs/${one.id}`, { status: 'bogus' })).status).toBe(422);
+    expect((await c.req('PATCH', `/api/jobs/${one.id}`, { stageKey: 'bogus' })).status).toBe(422);
   });
 
   it('shows jobs and quotes on the customer', async () => {
