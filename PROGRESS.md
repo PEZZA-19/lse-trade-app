@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: Wednesday 11 November 2026, ~13:20 Europe/Guernsey (session 2, scheduler + timer)._
+_Last updated: Wednesday 11 November 2026, ~14:50 Europe/Guernsey (session 2, chunk 5: PDFs, supplier bills, suppliers, credit notes)._
 
 Every session: read this file, [DESIGN.md](DESIGN.md) and
 [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md) (lessons from competitor reviews:
@@ -186,6 +186,56 @@ fast pages). Apply them to whatever milestone you are on. Do not widen scope bey
   cable cost has since risen, job 122 with a paid 30% deposit invoice and a remainder draft, and a
   part-paid time-and-materials invoice.
 
+### Done (session 2, chunk 5: PDFs, supplier bills, suppliers, credit notes)
+
+- **Quote, invoice and credit note PDFs in the LSE layout** (from the LSE layout notes on the box and
+  the spec): logo square (business initials until a logo can be uploaded), business name, address,
+  email and mobile; who it's for and the job/site; labour itemised (hours), then materials, allowances
+  and other; carriage only when it isn't zero; no VAT wording unless a tax rate is set; total, paid,
+  credit notes and balance due; a "How to pay" box with the bank details and reference `INV n`; terms
+  (quotes: valid for N days). Text wraps properly, tables repeat their headings across pages, "Page n of
+  m" only when there is more than one page, no vendor footer. Drafts carry a DRAFT watermark.
+  - One layout model (`packages/shared/src/documents.ts`) drives both the **in-app preview** (HTML paper
+    that scales to the screen) and the **PDF** (`pdf-lib`, pure JS: runs in the Cloudflare Worker and on
+    the device). Server routes: `GET /api/{invoices|quotes|credit-notes}/:id/document` and `/pdf`
+    (inline, `private, no-store`). Offline, or in the preview, the phone renders the same PDF itself.
+  - **Preview PDF** row on quotes, invoices and credit notes opens a large sheet with **Share** (the
+    iOS/Android share sheet with the PDF file, else a download). Sharing never changes a status: draft
+    invoices and credit notes can be previewed but not shared; quotes can't be shared while edits are
+    unsynced or settings are incomplete; after sharing an approved invoice the app reminds you to tap
+    Mark as Sent.
+  - The business address, bank details and terms all come from **Settings**; nothing is hardcoded. The
+    demo uses "Demo Workshop, Little Sark (fictional)" and bank 11-22-33 / 12345678.
+- **Supplier Bills** (More → Money → Supplier Bills; sidebar on desktop):
+  - Enter a bill or a **supplier credit note**: supplier (picked or typed; new ones are added), reference,
+    date, optional job. Lines **by hand**, from a **CSV** (forgiving headers; Total ÷ Qty works out the
+    unit cost; bad rows are listed with their row numbers) or **alongside a PDF** (the file name is kept;
+    lines are typed while reading it; automatic reading comes later).
+  - Lines are **matched to the price list** (code, then supplier + description); each shows On list
+    (with list cost → bill cost) or Not on list; tap to change the match, switch off "Update list cost",
+    or choose where it goes (Job / Stock / Home).
+  - **Review and Apply…** (owner only) shows every price change, every kit that recalculates (old → new
+    cost and sell) and the job materials at sell price **before anything changes**; Apply then runs the
+    existing price-update service (history source "supplier bill" with the reference) and locks the bill.
+    Credit notes never change list prices and reduce job costs instead.
+  - Lines on a job become **job materials** (cost × the item's markup, else the default markup) and are
+    picked up by the next **time-and-materials invoice**. The job screen now shows "Quoted work" and
+    "Materials and extras" separately.
+  - Duplicate bill references per supplier are refused; a job allocation without a job is refused.
+- **Suppliers** (More → Pricing → Suppliers): list with price-list item count, bills and net spend
+  (applied bills less credit notes; a supplier only in credit reads "£48.00 credit"); detail with email,
+  phone, account number and notes (owner edits; renaming also renames it on price-list items) and all
+  their bills.
+- **Customer credit notes** (on a sent or part-paid invoice: "New credit note…"): amount (never more than
+  is owed, counting other drafts) and a reason. Saved as a **draft that changes nothing**; the owner taps
+  **Approve Credit Note…** (confirm sheet: "It becomes credit note CN-0001 and £x comes off invoice 125…
+  Nothing is sent"). Approval takes the next **CN-** number (gap-free, in the same transaction), reduces
+  the invoice balance, shows on the invoice and its PDF, and, if that settles the job, moves it to
+  Complete. Only drafts can be deleted. Payments respect credits (no overpaying).
+- Demo data (fictional): Island Electrical (demo) contact details; an applied stock bill; a Sarnia
+  Wholesale credit note; today's draft bill for job 122 with a cable price rise (£1.12 → £1.24) and an
+  unmatched line; credit note CN-0001 on the PAT invoice.
+
 ### Review lessons applied
 
 From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
@@ -208,6 +258,10 @@ From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
 | **M7** Approval-first (money)                   | Approve, Mark as Sent and Record Payment each need an owner tap and a confirm sheet; server enforces owner-only; nothing is emailed; job only completes when fully invoiced and paid             |
 | **A4** Honest prices                            | Kit price changes show old → new and never alter a sent quote; CSV import previews every change first and never blanks columns missing from the file; price history keeps every cost change      |
 | **A4** No double billing                        | Time-and-materials invoices reserve the timesheets they bill; remainder invoices subtract what's already invoiced; overpayment refused                                                           |
+| **M7** Approval-first (bills, credit notes)     | Supplier bills change nothing until the owner reviews every price, kit and job change and taps Apply; credit notes are drafts until the owner approves; nothing is emailed or shared by the app  |
+| **A4** Honest documents                         | The PDF is built from the same model as the on-screen preview; drafts are watermarked and can't be shared; no VAT wording when no tax is charged; carriage hidden at £0                          |
+| **M3** Credit note numbering                    | CN-0001… allocated only on approval inside the transaction (no gaps); approved credit notes can't be deleted                                                                                     |
+| **A4** No double billing (materials)            | Bill lines go onto the job once (the bill locks on apply); T&M invoices reserve the job lines they bill; a credit can never exceed what is owed                                                  |
 | **A1/A2** Simple, fair                          | Multi-tenant from day one with per-business isolation (RLS) and per-session business switching                                                                                                   |
 
 **Bugs found in my own review this chunk (and fixed, with tests):**
@@ -220,19 +274,31 @@ From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
 | e2e                        | Payment sheet kept the previous amount after a part payment                                   | Sheet is mounted only while open                                                          |
 | e2e (strict selectors)     | Ambiguous labels (CSV text box vs file input; sidebar vs More link)                           | Role-based selectors scoped to the main area                                              |
 
-Still to do from the list: logo on documents (M8, with the PDF milestone), protecting settings from an
+**Bugs found in my own review this chunk (and fixed):**
+
+| Found by             | Bug                                                                                                               | Fix                                                                                                                  |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Box restore (~14:03) | The box was restored mid-chunk: uncommitted API files, a test and node_modules were lost; Postgres data dir broke | Rebuilt the lost files, reinstalled, re-created the dev DB. **Lesson: commit after every working step** (done since) |
+| API test             | A new business had no supplier rows, so bills from a price-list supplier created a second spelling                | New suppliers reuse the price-list spelling                                                                          |
+| Code review (bills)  | A line allocated to "Job" on a bill with no job silently became stock                                             | Refused at save with "Pick the job first…" (API + mock)                                                              |
+| Screenshot review    | Picker values were right-to-left, so long job names showed their end ("…lighting · 122")                          | Selects keep the start of the value with an ellipsis (all screens)                                                   |
+| Screenshot review    | A supplier you only had credit from showed "-£48.00"                                                              | Reads "£48.00 credit"                                                                                                |
+| Screenshot review    | Editing an existing bill line focused the description, scrolling long text to its end                             | Only a new line gets focus                                                                                           |
+| e2e                  | Credit notes needed the invoice balance everywhere (list, payments, PDF)                                          | `balance = total − paid − credited` in one place (API, mock, shared status rule)                                     |
+
+Still to do from the list: uploaded logo on documents (M8; initials for now), protecting settings from an
 accounts sync (M8/A8, with Xero), creating records offline (M1, next).
 
 ### Tests (all passing)
 
-| Suite                                        | Count           | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| -------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/shared` (Vitest)                   | 65              | **price list (markup, sell, CSV parsing, import matching and column rules, kit totals, kits on quotes), invoice maths (numbers, totals, deposit/percent, due dates, overdue, status after payment)**, money, numbering, quote totals, readiness rules, settings validation, **automatic stage rules**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `apps/api` (Vitest + real Postgres)          | 121             | **price list, history, CSV import preview/apply, partial updates, supplier-bill service, kits recalculating with old/new cost, invoices (T&M, quote whole/deposit/percent/remainder, numbering 122-2, approval blockers, owner-only decisions, payments, overpay refused, job → Complete via markFullyInvoicedAndPaid)**; **scheduler and timer (9): members, appointment ranges (overlap, limits), move keeps stage and checks the person and business, timer → timesheet with device time limits, switch records the first job's time, idempotent replay, per-person timers**; job stages (19): defaults match the migration, every automatic move, history entries, manual moves, cross-tenant stage refused, history append-only, custom stage rules, Active and stage filters, staff can't manage stages, invoiced-and-paid hook**; session 1 suite, plus **sign-in** (cookie flags, single use, expiry, hashes only, unknown email, logout, expired session, app role can't read auth tables), **CSRF** (missing/foreign token, foreign Origin), **rate limits** (per email, per IP), **tenant-scoped authorisation** (cross-tenant read/write, switching needs membership, data follows active business, removed membership revoked, staff can't change settings), **settings** (defaults, update + audit, validation, numbering never reuses), **pre-send check**, **versions / If-Match** |
-| `apps/web` (Vitest + jsdom + fake-indexeddb) | 34              | **calendar maths (Monday weeks, month grid, clocks changing, inputs), overlap layout, outbox actions (order, never merged, survive app-kill, refusal kept)**, serial save, save states incl. queued, API client (CSRF header, stale-token retry, 401 sign-out, offline message), settings form conversion, **outbox** (survives app-kill, merging, ordering, server errors, business isolation, all five conflict rules)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `apps/web` e2e (Playwright, real stack)      | 34 (+1 skipped) | **billing (4): quoted job draft → owner approves → marks sent → payments → job Complete; deposit by percentage listed under More → Invoices; price change recalculates kits (old/new) + CSV import preview; kit added to a quote as one block then expanded** (owner-only refusal covered in API tests); sign-in setup; **timer start/stop offline then synced with a timesheet; assign → book from the job → move on the Schedule → delete (stages follow); mouse drag moves an appointment 2 h (desktop); Home timer card + today, five tabs with Customers under More**; **stage change from the list swipe action and the job screen, history shown, Cancelled drops off Active**; signed-out redirect, link reuse refused, sign-out; settings save survives reload; quote → job flow; jobs filter; **offline stage change syncs on reconnect; same-field conflict → Keep mine; different-field auto-merge; offline quote edit blocks Mark as sent until synced** (mobile + desktop)                                                                                                                                                                                                                                                                                                                                                                                                           |
-| PWA (Playwright, production build)           | 1               | app reopens offline from the service worker with cached jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Screenshots (preview build)                  | 136 images      | 34 screens (new: `20-invoices` … `33-kit-line-sheet`, incl. `31b-kit-cost-changes`) × mobile/desktop × light/dark in `screenshots/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Suite                                        | Count            | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared` (Vitest)                   | 90               | **documents (LSE layout: sections, carriage/tax hidden at zero, draft numbering, quote extras and validity, wrapping, multi-page PDFs), supplier bills (CSV parsing, totals), credit notes (validation, who can be credited, settling, layout, PDF)**, price list, kits, invoice maths, scheduling, stages, numbering, pricing, settings readiness                                                                                                                                             |
+| `apps/api` (Vitest + real Postgres)          | 137              | **documents and PDFs (address from settings, draft → numbered, no status change, tenant isolation), suppliers and bills (matching, preview changes nothing, owner-only apply, prices + kits + job materials, credit notes, duplicates, job required), customer credit notes (draft changes nothing, owner approves CN-0001, gap-free, never more than owed incl. other drafts, payments respect credits, settling completes the job, delete drafts only, isolation)**, plus all earlier suites |
+| `apps/web` (Vitest + jsdom + fake-indexeddb) | 37               | **demo mock: seeded bills/suppliers, preview-then-apply with prices, kits and job materials; seeded CN-0001 and a new credit note**, plus calendar maths, outbox, sync, settings                                                                                                                                                                                                                                                                                                               |
+| `apps/web` e2e (Playwright, real stack)      | 40 (incl. setup) | **new: invoice PDF (draft preview can’t be shared; approved invoice shares the LSE layout; `/pdf` is a real PDF, no-store); supplier bill from CSV → matched → review shows price and kit changes with nothing changed → owner applies → list cost updated, materials on the job, bill under the supplier; credit note drafted → owner approves → balance drops** · billing, flow, stages, schedule, offline, auth                                                                             |
+| PWA (Playwright, production build)           | 1                | app reopens offline from the service worker with cached jobs                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Screenshots (preview build)                  | 180 images       | 45 screens (new: `34-quote-pdf`, `35-invoice-pdf`, `36-bills`, `37-bill-detail`, `38-bill-review`, `39-bill-line-sheet`, `40-new-bill-sheet`, `41-suppliers`, `42-supplier-detail`, `43-credit-note`, `44-credit-note-pdf`) × mobile/desktop × light/dark in `screenshots/`                                                                                                                                                                                                                    |
 
 ## How to run
 
@@ -256,6 +322,18 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 (`/* /index.html 200`, Cloudflare Pages / Netlify format). Nothing has been deployed.
 
 ## Decisions made (session 2)
+
+- **PDFs: pdf-lib, one layout model.** Pure JS (no headless browser), so the same code renders in the
+  Worker (bundle 2.0 MB / 450 KB gzip, inside the Workers limit) and on the phone (lazy-loaded, for
+  offline and the preview). The spec's "HTML templates rendered to PDF" is met by rendering the HTML
+  preview and the PDF from the same model rather than converting HTML, which Workers can't do cheaply.
+- **Sharing is the phone's share sheet**, never an automatic send; it never changes a status. Emailing
+  documents waits for the email-sender decision and the 2-minute hold.
+- **Supplier bills:** matched when saved (a hand-picked match always wins); applied only by the owner
+  after a preview; applied bills are read-only. The PDF file itself isn't stored yet (needs R2), only
+  its name. Supplier credit notes never change list prices.
+- **Customer credit notes** reduce an issued invoice's balance (sent or part paid only); a draft or
+  unsent invoice is edited instead. Refunds of money already paid are not covered yet.
 
 - **Scheduler:** built in-house (no calendar library) to keep the bundle small and the look native;
   local device time, weeks start Monday. Touch drag needs press-and-hold so scrolling the day still
@@ -315,10 +393,11 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
    Neon database and Hyperdrive config, make sure migrations run as a role that owns the tables (the
    `owner_access` policies in 0003 rely on it), add passkeys + owner 2FA.
 4. Job detail: timesheets, materials, notes and photos; quote vs actual.
-5. Quote and **invoice PDF** in the LSE layout (logo, legal name: completes M8), then email sending
-   with the 2-minute hold after approval; credit notes and payment corrections; overdue reminders
-   (drafted, approved by Joe); supplier-bill reading UI that feeds the tested price-update service;
-   manual job lines/materials for T&M invoices; on-hold flag UI.
+5. Documents and money, next steps: **uploaded logo** on PDFs; **store PDFs and bill files in R2**;
+   email sending with the 2-minute hold after approval (needs the sender decision); **refunds and
+   payment corrections**; overdue reminders (drafted, approved by Joe); **AI bill reading** (suggest
+   lines from the supplier PDF, Joe checks them in the same review screen); stock quantities for lines
+   marked Stock; manual job lines; on-hold flag UI.
 6. Polish backlog: edit customer/site/contact sheets, swipe-to-delete with undo on contacts, job editing
    sheet, list virtualisation, `zod/mini` to trim the bundle (≈145 KB gzip now), shorter Settings labels
    on narrow phones.
@@ -345,3 +424,10 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     remainder invoice list the original quote lines (now) or just "Balance for Q-xxxx"?
 12. Price list: which suppliers' CSV formats should import cleanly first (please send a sample export)?
 13. Kits on quotes: show customers the kit as one line (now) or always list its parts?
+14. PDFs: please send your logo (PNG/SVG) and confirm the layout in `screenshots/*-34-quote-pdf.png`
+    and `*-35-invoice-pdf.png` matches your current invoices (anything missing, e.g. a registration
+    number or a signature line?).
+15. Supplier bills: which merchants' bills should import first (a sample CSV or PDF from each helps)?
+    Should bill materials on a job be charged at the item's markup (now) or at cost?
+16. Credit notes: do you ever refund money already paid (needs a refund record), or only reduce what's
+    owed (now)?
