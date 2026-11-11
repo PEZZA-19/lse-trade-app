@@ -25,6 +25,11 @@ import {
   invoiceCreate,
   invoiceUpdate,
   paymentCreate,
+  billApply,
+  billCreate,
+  billUpdate,
+  supplierInput,
+  supplierUpdate,
   type ApiErrorBody,
   type BusinessDocument,
 } from '@lse/shared';
@@ -46,6 +51,7 @@ import * as schedule from './services/schedule';
 import * as pricelist from './services/pricelist';
 import * as invoices from './services/invoices';
 import * as documents from './services/documents';
+import * as bills from './services/bills';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
@@ -524,6 +530,72 @@ export function createApp(deps: AppDeps) {
   app.get('/api/quotes/:id/pdf', async (c) => {
     const id = uuidParam(c);
     return pdfResponse(c, await c.var.tx((tx) => documents.quoteDoc(tx, id)));
+  });
+
+  /* ------------------------ suppliers and bills ------------------------ */
+  app.get('/api/suppliers', async (c) => c.json(await c.var.tx((tx) => bills.listSuppliers(tx))));
+  app.post('/api/suppliers', async (c) => {
+    const input = parse(supplierInput, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => bills.createSupplier(tx, c.var.auth, input)), 201);
+  });
+  app.get('/api/suppliers/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => bills.getSupplier(tx, id)));
+  });
+  app.patch('/api/suppliers/:id', async (c) => {
+    ownerOnly(c, 'edit suppliers');
+    const id = uuidParam(c);
+    const input = parse(supplierUpdate, await jsonBody(c.req));
+    return c.json(
+      await c.var.tx((tx) => bills.updateSupplier(tx, c.var.auth, id, input, ifMatch(c))),
+    );
+  });
+  app.get('/api/supplier-bills', async (c) => {
+    const q = parse(
+      z.object({
+        status: z.enum(['draft', 'applied']).optional(),
+        supplierId: z.uuid().optional(),
+        jobId: z.uuid().optional(),
+      }),
+      {
+        status: c.req.query('status'),
+        supplierId: c.req.query('supplierId'),
+        jobId: c.req.query('jobId'),
+      },
+    );
+    return c.json(await c.var.tx((tx) => bills.listBills(tx, q)));
+  });
+  app.post('/api/supplier-bills', async (c) => {
+    const input = parse(billCreate, await jsonBody(c.req));
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, `bill:${JSON.stringify(input)}`, async () => ({
+        status: 201,
+        body: await bills.createBill(tx, c.var.auth, input),
+      })),
+    );
+    if (result.replayed) c.header('Idempotent-Replayed', 'true');
+    return c.json(result.body, result.status as 201);
+  });
+  app.get('/api/supplier-bills/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => bills.getBill(tx, id)));
+  });
+  app.patch('/api/supplier-bills/:id', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(billUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => bills.updateBill(tx, c.var.auth, id, input, ifMatch(c))));
+  });
+  app.delete('/api/supplier-bills/:id', async (c) => {
+    const id = uuidParam(c);
+    await c.var.tx((tx) => bills.deleteBill(tx, c.var.auth, id));
+    return c.body(null, 204);
+  });
+  // Owner decision with a preview first: dryRun (the default) changes nothing.
+  app.post('/api/supplier-bills/:id/apply', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(billApply, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => bills.applyBill(tx, c.var.auth, id, input.dryRun)));
   });
 
   return app;

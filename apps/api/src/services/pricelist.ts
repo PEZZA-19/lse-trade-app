@@ -29,13 +29,13 @@ import { conflict, invalid, notFound } from '../lib/errors';
 import { isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 
-interface ItemRow extends PriceItem {
+export interface ItemRow extends PriceItem {
   id: string;
   updatedAt: Date;
   kitCount: number;
 }
 
-async function defaultMarkup(tx: Tx): Promise<number> {
+export async function defaultMarkup(tx: Tx): Promise<number> {
   const [t] = await tx<
     { defaultMarkupBp: number }[]
   >`SELECT default_markup_bp FROM tenants WHERE id = app_current_tenant()`;
@@ -43,7 +43,7 @@ async function defaultMarkup(tx: Tx): Promise<number> {
   return t.defaultMarkupBp;
 }
 
-const ITEM_COLS =
+export const ITEM_COLS =
   'i.id, i.code, i.description, i.unit, i.supplier, i.unit_cost_pence, i.markup_bp, i.sell_price_pence, i.is_active, i.updated_at';
 
 function toItemDto(r: ItemRow, markup: number): PriceItemDto {
@@ -338,7 +338,7 @@ export async function deleteItem(tx: Tx, auth: Auth, id: string): Promise<void> 
 /* ---------------------------- supplier bills ----------------------------- */
 
 /** Finds an item by code, else by supplier + description (both keys are indexed). */
-function matcher(items: ItemRow[]) {
+export function matcher(items: ItemRow[]) {
   const byCode = new Map<string, ItemRow>();
   const byDesc = new Map<string, ItemRow>();
   for (const i of items) {
@@ -370,7 +370,9 @@ export async function applySupplierBillPrices(
   const unmatched: SupplierBillResultDto['unmatched'] = [];
   let unchanged = 0;
   for (const line of bill.lines) {
-    const item = find({ code: line.code, supplier: bill.supplier, description: line.description });
+    const item = line.itemId
+      ? items.find((i) => i.id === line.itemId)
+      : find({ code: line.code, supplier: bill.supplier, description: line.description });
     if (!item) {
       unmatched.push({
         code: line.code,

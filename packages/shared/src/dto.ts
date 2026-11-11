@@ -139,7 +139,7 @@ export interface JobLineDto {
   unitCostPence: number | null;
   unitSellPence: number;
   totalPence: number;
-  source: 'quote' | 'manual';
+  source: 'quote' | 'manual' | 'supplier_bill';
 }
 
 export interface JobDetailDto extends JobSummaryDto {

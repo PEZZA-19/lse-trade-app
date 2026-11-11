@@ -292,7 +292,7 @@ async function unbilled(tx: Tx, jobId: string): Promise<Unbilled> {
     })[]
   >`
     SELECT id, kind, description, qty_milli, unit_sell_pence, total_pence FROM job_lines
-     WHERE job_id = ${jobId} AND source = 'manual' AND invoice_id IS NULL ORDER BY position`;
+     WHERE job_id = ${jobId} AND source IN ('manual', 'supplier_bill') AND invoice_id IS NULL ORDER BY position`;
   return {
     timesheets: [...timesheets],
     lines: lines.map((l) => ({

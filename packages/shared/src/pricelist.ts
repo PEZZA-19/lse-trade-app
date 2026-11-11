@@ -76,6 +76,8 @@ export const supplierBillInput = z.object({
         code: optional(60),
         description: text(300).min(1),
         unitCostPence: money,
+        /** Set when a person has matched the line to an item; otherwise matched automatically. */
+        itemId: z.uuid().nullish(),
       }),
     )
     .min(1)
