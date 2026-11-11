@@ -65,6 +65,7 @@ const SIDEBAR = [
   { to: '/price-list', label: 'Price List', Icon: IconTag },
   { to: '/kits', label: 'Kits', Icon: IconBox },
   { to: '/suppliers', label: 'Suppliers', Icon: IconTruck },
+  { to: '/calendar', label: 'Calendar Link', Icon: IconCalendar },
   { to: '/settings', label: 'Settings', Icon: IconSettings },
 ];
 

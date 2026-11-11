@@ -167,12 +167,20 @@ function DemoCalendar() {
   const me = useMe().data;
   const toast = useToast();
   const download = async () => {
-    const from = new Date(Date.now() - 60 * 86_400_000);
-    const to = new Date(Date.now() + 400 * 86_400_000);
-    const appts = await api<AppointmentListItemDto[]>(
-      'GET',
-      `/appointments?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
-    );
+    // The schedule API answers up to about two months at a time: ask in 8-week steps.
+    const day = 86_400_000;
+    const start = Date.now() - 56 * day;
+    const seen = new Map<string, AppointmentListItemDto>();
+    for (let t = start; t < start + 448 * day; t += 56 * day) {
+      const from = new Date(t).toISOString();
+      const to = new Date(t + 56 * day).toISOString();
+      const page = await api<AppointmentListItemDto[]>(
+        'GET',
+        `/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      for (const a of page) seen.set(a.id, a);
+    }
+    const appts = [...seen.values()];
     const rows = appts
       .filter((a) => a.stage.systemKey !== 'cancelled' && a.userId === me?.user.id)
       .map((a) => ({
@@ -211,7 +219,12 @@ function DemoCalendar() {
         see how they look.
       </p>
       <div className="button-stack">
-        <Button block onClick={() => void download()}>
+        <Button
+          block
+          onClick={() =>
+            void download().catch((e: Error) => toast.show(e.message, { tone: 'error' }))
+          }
+        >
           Download Calendar File (.ics)
         </Button>
       </div>
