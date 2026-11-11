@@ -152,8 +152,8 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
                     value={mode}
                     onChange={setMode}
                     options={[
-                      { value: 'percent', label: '% of base' },
-                      { value: 'fixed', label: '£ per hour' },
+                      { value: 'percent', label: '%' },
+                      { value: 'fixed', label: '£/h' },
                     ]}
                   />
                 </span>

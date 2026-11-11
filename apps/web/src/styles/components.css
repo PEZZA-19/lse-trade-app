@@ -1973,5 +1973,5 @@ select.field__input {
 .field__seg .segmented {
   margin: 0;
   width: 100%;
-  max-width: 240px;
+  max-width: 160px;
 }
