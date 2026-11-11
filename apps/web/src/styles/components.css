@@ -1858,3 +1858,14 @@ select.field__input {
   word-break: break-all;
   user-select: all;
 }
+
+/* Reports: profit figure with its margin, right-aligned in the row. */
+.report-profit {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.report-profit small {
+  font-weight: 400;
+  color: var(--label-2);
+}

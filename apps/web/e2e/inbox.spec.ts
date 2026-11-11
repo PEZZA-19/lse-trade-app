@@ -11,7 +11,7 @@ async function addEnquiry(page: Page, f: { name: string; email?: string; message
   await sheet.getByLabel('What they need').fill(f.message);
   await sheet.getByRole('button', { name: 'Add' }).click();
   await expect(page).toHaveURL(/\/enquiries\/[0-9a-f-]+$/);
-  await expect(page.getByText(f.message)).toBeVisible();
+  await expect(page.getByText(f.message).first()).toBeVisible();
 }
 
 test('an AI reply draft waits for approval, holds two minutes, and Stop sends nothing', async ({

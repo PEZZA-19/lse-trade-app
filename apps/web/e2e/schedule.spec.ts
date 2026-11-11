@@ -152,7 +152,7 @@ test('Home shows the running timer and today; five tabs with Customers and Setti
   if (isMobile) {
     const tabs = page.locator('nav.tabbar').getByRole('link');
     await expect(tabs).toHaveText([
-      /^Home(, \d+ to check)?$/,
+      /^\d*Home(, \d+ to check)?$/,
       'Jobs',
       'Schedule',
       'Quotes',

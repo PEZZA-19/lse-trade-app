@@ -10,7 +10,9 @@ import {
   IconTruck,
   IconTray,
   IconSeal,
+  IconChart,
 } from '../components/icons';
+import { useMe } from '../api/hooks';
 import { useBills } from '../api/bills';
 import { useEnquiryCounts, useProposalCounts } from '../api/inbox';
 import { useSync } from '../offline';
@@ -28,6 +30,7 @@ export function MoreScreen() {
   const toCheck = useBills('draft').data?.length ?? 0;
   const pending = useProposalCounts().data?.pending ?? 0;
   const todo = useEnquiryCounts().data?.todo ?? 0;
+  const owner = useMe().data?.role === 'owner';
   return (
     <Page title="More">
       <Section header="Inbox">
@@ -76,6 +79,16 @@ export function MoreScreen() {
               }
             />
           </li>
+          {owner && (
+            <li>
+              <LinkRow
+                to="/reports"
+                lead={icon(IconChart)}
+                title="Reports"
+                sub="Money in and owed, profit per job, time"
+              />
+            </li>
+          )}
         </List>
       </Section>
       <Section header="Pricing">

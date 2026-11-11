@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const sample = (name: string) =>
+  fileURLToPath(new URL(`../public/samples/${name}`, import.meta.url));
 
 const OUT = path.resolve(import.meta.dirname, '../../../screenshots');
 const VIEWPORTS = [
@@ -17,7 +21,7 @@ async function shot(page: Page, name: string, vp: string, scheme: string) {
 for (const vp of VIEWPORTS) {
   for (const scheme of SCHEMES) {
     test(`${vp.name} ${scheme}`, async ({ browser }) => {
-      test.setTimeout(360_000); // 44 screens per pass
+      test.setTimeout(480_000); // 52 screens per pass
       const ctx = await browser.newContext({
         viewport: { width: vp.width, height: vp.height },
         deviceScaleFactor: vp.scale,
@@ -226,6 +230,43 @@ for (const vp of VIEWPORTS) {
       await page.getByRole('link', { name: /Island Electrical/ }).click();
       await expect(page.getByRole('link', { name: /IE-40112/ })).toBeVisible();
       await shot(page, '42-supplier-detail', vp.name, scheme);
+
+      // Inbox: enquiries and AI drafts waiting for the owner (all fictional, fake model).
+      await page.goto('/home');
+      await expect(page.getByRole('navigation', { name: 'Inbox' })).toBeVisible();
+      await shot(page, '45-home-inbox', vp.name, scheme);
+      await page.goto('/approvals');
+      await expect(page.getByRole('heading', { name: 'Approvals', level: 1 })).toBeVisible();
+      await expect(page.getByText('Will do:').first()).toBeVisible();
+      await shot(page, '46-approvals', vp.name, scheme);
+      await page.getByRole('link', { name: 'Reply to Robin Demo' }).click();
+      await expect(page.getByRole('list', { name: 'Log' })).toBeVisible();
+      await shot(page, '47-approval-detail', vp.name, scheme);
+      await page.goto('/enquiries');
+      await expect(page.getByRole('link', { name: /Harbour Café/ })).toBeVisible();
+      await shot(page, '48-enquiries', vp.name, scheme);
+      await page.getByRole('link', { name: /Harbour Café/ }).click();
+      await expect(page.getByRole('button', { name: 'Draft a Quote' })).toBeVisible();
+      await shot(page, '49-enquiry-detail', vp.name, scheme);
+      await page.goto('/reports');
+      await page.getByRole('button', { name: 'This Year' }).click();
+      await expect(page.getByRole('list', { name: 'Profit per job' })).toBeVisible();
+      await shot(page, '50-reports', vp.name, scheme);
+      // Supplier PDFs read on the device (synthetic samples with the real layouts).
+      await page.goto('/bills');
+      await page.getByRole('button', { name: 'New bill' }).click();
+      const pdf = page.getByRole('dialog', { name: 'New Bill' });
+      await pdf.getByRole('button', { name: 'PDF' }).click();
+      await pdf.getByLabel('Bill PDF').setInputFiles(sample('sample-cef-invoices.pdf'));
+      await expect(pdf.getByText('Adds up')).toHaveCount(4);
+      await shot(page, '51-bill-pdf-import', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/bills');
+      await page
+        .getByLabel('Statement PDF')
+        .setInputFiles(sample('sample-cilighting-statement.pdf'));
+      await expect(page.getByText('Balance checks')).toBeVisible();
+      await shot(page, '52-statement-check', vp.name, scheme);
 
       await page.goto('/settings');
       await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');
