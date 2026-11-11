@@ -20,7 +20,7 @@ test('change a job’s stage from the list and the job screen; history and Activ
   const row = page.getByRole('listitem').filter({ hasText: title });
   await expect(row.getByText('Unassigned')).toBeVisible();
 
-  // Swipe actions stay reachable by keyboard: "Stage" opens the stage sheet.
+  // The swipe actions are real buttons under the row: "Stage" opens the stage sheet.
   await row.getByRole('button', { name: 'Stage' }).focus();
   await page.keyboard.press('Enter');
   const sheet = page.getByRole('dialog', { name: `Move job ${job.number}` });

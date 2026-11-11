@@ -433,7 +433,8 @@ button.row:active {
 }
 .swipe__actions {
   position: absolute;
-  inset: 0 0 0 auto;
+  /* 1px in from the row edges so the colours never peek out under the row (sub-pixel rounding). */
+  inset: 1px 0 1px auto;
   display: flex;
 }
 .swipe__action {

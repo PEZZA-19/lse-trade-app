@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: Wednesday 11 November 2026, ~12:50 Europe/Guernsey (session 2)._
+_Last updated: Wednesday 11 November 2026, ~13:05 Europe/Guernsey (session 2, stages)._
 
 Every session: read this file, [DESIGN.md](DESIGN.md) and
 [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md) (lessons from competitor reviews:
@@ -86,6 +86,38 @@ fast pages). Apply them to whatever milestone you are on. Do not widen scope bey
      reopens offline with jobs and quotes (verified against the production build + service worker).
    - Sign-out deletes cached data and the outbox, warning first if edits haven't synced.
 
+10. **Tradify-style job stages** (Joe's priority change), replacing To do / Booked in / In progress /
+    Done / Cancelled.
+    - **8 system stages per business** (migration `0005_job_stages.sql`, `create_system_stages()` runs for
+      every new business; defaults shared in `packages/shared/src/stages.ts` and tested against the DB):
+      Unassigned (grey), Assigned (indigo), Scheduled shown as **Booked in** (blue), In Progress
+      (orange), To Invoice (purple), Complete (green, off the active list), On Hold (yellow), Cancelled
+      (red, off the active list). Old statuses were mapped (open → Unassigned, completed → Complete, …).
+    - **Automatic moves** (one shared rule, `autoStage()`, used by the API and the preview): assigning
+      someone → Unassigned to Assigned; creating an appointment → Unassigned/Assigned to Booked in;
+      starting the timer → In Progress (from anything except Complete/Cancelled, custom stages included);
+      deleting the last appointment → Booked in back to Assigned (if anyone is assigned) or Unassigned;
+      fully invoiced and paid → Complete.
+    - **Manual moves** from the job screen (Stage picker) and the list (swipe: _To Invoice_ or
+      _Complete_, _On Hold_, and _Stage_ for every stage). Manual moves go through `PATCH /jobs/:id`
+      (`stageId` or `stageKey`), so they work offline via the outbox with `If-Match` like other edits.
+    - **History:** every change, automatic or manual, writes `job_history` (from, to, cause, user, time;
+      stage names snapshotted so history survives renames/deletes). Append-only for the app role (no
+      UPDATE/DELETE grant). The job screen shows it newest first with a plain-English cause.
+    - **Custom stages** (Settings → Job stages, owner only): name, colour (10), active flag, order. System
+      stages can't be renamed or deleted except To Invoice and On Hold; their active flag is fixed, colour
+      and order can change. Names unique per business; a stage with jobs in it can't be deleted.
+    - **Lists:** coloured chips; filter **Active / All / Stage…** (Active = jobs whose stage has the
+      active flag).
+    - **Stubs, so the transitions are wired before those features exist** (tested, no UI yet):
+      `job_assignees`, `appointments`, `job_timers` tables with `POST/DELETE /api/jobs/:id/assignees`,
+      `POST /api/jobs/:id/appointments`, `DELETE /api/appointments/:id`,
+      `POST /api/jobs/:id/timer/start|stop` (one running timer per person). **Invoices don't exist yet:**
+      `markFullyInvoicedAndPaid()` in `apps/api/src/services/jobs.ts` is the hook the invoice/payment
+      milestone must call; it is tested at the service level and not exposed over HTTP.
+    - Demo data: job 122 booked in today then timer started (In Progress), extractor fan booked in, PAT
+      testing Complete via To Invoice, a custom "Waiting on parts" stage, an Unassigned call-out.
+
 ### Review lessons applied
 
 From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
@@ -100,6 +132,7 @@ From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
 | **M3** Separate numbering                       | Quotes Q-0001…, jobs from 122; numbering editable in Settings but never reuses a number                                                                                                          |
 | **M7** Approval-first                           | "Mark as sent" records a fact only; no email is sent by the app; sign-in mailer refuses to run unconfigured                                                                                      |
 | **S5** Fast pages                               | Lists ordered by indexed columns; app shell cached by the service worker; cached data shows instantly                                                                                            |
+| **A4** Honest states (stages)                   | Every stage change is recorded with who, when and why; automatic moves are labelled as such (e.g. "Timer started"); deleted stages keep their name in history                                    |
 | **A1/A2** Simple, fair                          | Multi-tenant from day one with per-business isolation (RLS) and per-session business switching                                                                                                   |
 
 Still to do from the list: logo on documents (M8, with the PDF milestone), protecting settings from an
@@ -107,14 +140,14 @@ accounts sync (M8/A8, with Xero), creating records offline (M1, next).
 
 ### Tests (all passing)
 
-| Suite                                        | Count     | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| -------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/shared` (Vitest)                   | 35        | money, numbering, quote totals, **readiness rules, settings validation**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `apps/api` (Vitest + real Postgres)          | 69        | session 1 suite, plus **sign-in** (cookie flags, single use, expiry, hashes only, unknown email, logout, expired session, app role can't read auth tables), **CSRF** (missing/foreign token, foreign Origin), **rate limits** (per email, per IP), **tenant-scoped authorisation** (cross-tenant read/write, switching needs membership, data follows active business, removed membership revoked, staff can't change settings), **settings** (defaults, update + audit, validation, numbering never reuses), **pre-send check**, **versions / If-Match** |
-| `apps/web` (Vitest + jsdom + fake-indexeddb) | 24        | serial save, save states incl. queued, API client (CSRF header, stale-token retry, 401 sign-out, offline message), settings form conversion, **outbox** (survives app-kill, merging, ordering, server errors, business isolation, all five conflict rules)                                                                                                                                                                                                                                                                                                |
-| `apps/web` e2e (Playwright, real stack)      | 17        | sign-in setup; signed-out redirect, link reuse refused, sign-out; settings save survives reload; quote → job flow; jobs filter; **offline status change syncs on reconnect; same-field conflict → Keep mine; different-field auto-merge; offline quote edit blocks Mark as sent until synced** (mobile + desktop)                                                                                                                                                                                                                                         |
-| PWA (Playwright, production build)           | 1         | app reopens offline from the service worker with cached jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Screenshots (preview build)                  | 40 images | 10 screens (now incl. Settings) × mobile/desktop × light/dark in `screenshots/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Suite                                        | Count     | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared` (Vitest)                   | 42        | money, numbering, quote totals, readiness rules, settings validation, **automatic stage rules**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `apps/api` (Vitest + real Postgres)          | 88        | **job stages (19): defaults match the migration, every automatic move, history entries, manual moves, cross-tenant stage refused, history append-only, custom stage rules, Active and stage filters, staff can't manage stages, invoiced-and-paid hook**; session 1 suite, plus **sign-in** (cookie flags, single use, expiry, hashes only, unknown email, logout, expired session, app role can't read auth tables), **CSRF** (missing/foreign token, foreign Origin), **rate limits** (per email, per IP), **tenant-scoped authorisation** (cross-tenant read/write, switching needs membership, data follows active business, removed membership revoked, staff can't change settings), **settings** (defaults, update + audit, validation, numbering never reuses), **pre-send check**, **versions / If-Match** |
+| `apps/web` (Vitest + jsdom + fake-indexeddb) | 24        | serial save, save states incl. queued, API client (CSRF header, stale-token retry, 401 sign-out, offline message), settings form conversion, **outbox** (survives app-kill, merging, ordering, server errors, business isolation, all five conflict rules)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `apps/web` e2e (Playwright, real stack)      | 19        | sign-in setup; **stage change from the list swipe action and the job screen, history shown, Cancelled drops off Active**; signed-out redirect, link reuse refused, sign-out; settings save survives reload; quote → job flow; jobs filter; **offline stage change syncs on reconnect; same-field conflict → Keep mine; different-field auto-merge; offline quote edit blocks Mark as sent until synced** (mobile + desktop)                                                                                                                                                                                                                                                                                                                                                                                         |
+| PWA (Playwright, production build)           | 1         | app reopens offline from the service worker with cached jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Screenshots (preview build)                  | 52 images | 13 screens (now incl. job history `11`, stage picker `12`, Settings → Job stages `13`) × mobile/desktop × light/dark in `screenshots/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## How to run
 
@@ -138,6 +171,13 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 (`/* /index.html 200`, Cloudflare Pages / Netlify format). Nothing has been deployed.
 
 ## Decisions made (session 2)
+
+- **Stages (interpretations to confirm with Joe):** a stage's "active" flag means its jobs show on the
+  Active list; system stages keep a fixed active flag (Complete and Cancelled off, others on). The timer
+  moves a job to In Progress from any stage except Complete and Cancelled. Assigning a job that is
+  already further along (e.g. On Hold) doesn't move it. Setting the stage a job is already in writes no
+  history. Stage changes bump the job's `version`, so an offline edit made before an automatic move
+  re-sends on the new version (rule 2) rather than conflicting, unless it changed the stage too.
 
 - **Magic link first, passkeys later.** Works on any device with no extra hardware and fits Workers (Web
   Crypto only). Passkeys (WebAuthn) and owner 2FA are a follow-up once a real domain exists (they need a
@@ -171,25 +211,30 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 
 ## Next (in plan order)
 
-1. **Offline, part 2:** create customers, quotes and jobs offline (client-generated UUIDs accepted by the
+1. **Stages follow-ups:** UI for assigning staff, appointments (calendar) and the timer (the API hooks
+   exist); call `markFullyInvoicedAndPaid()` from the invoice/payment milestone; drag-to-reorder stages.
+   Known edge: a hard reload within ~1 s of a change can show the previous chip from the device cache
+   until the 30 s refresh (in-app navigation is fine).
+2. **Offline, part 2:** create customers, quotes and jobs offline (client-generated UUIDs accepted by the
    API, "Draft" numbers shown until the server allocates Q-/job numbers on sync), offline line add on
    jobs, airplane-mode tests on a real iPhone/Android once Capacitor is in. Show pending local values on
    lists after a reload (overlay the outbox on cached data).
-2. **Before any deployment:** choose the email sender for sign-in links, set `APP_ORIGIN`, create the
+3. **Before any deployment:** choose the email sender for sign-in links, set `APP_ORIGIN`, create the
    Neon database and Hyperdrive config, make sure migrations run as a role that owns the tables (the
    `owner_access` policies in 0003 rely on it), add passkeys + owner 2FA.
-3. Job detail: timesheets, materials, notes and photos; quote vs actual.
-4. Quote PDF in the LSE layout (logo, legal name: completes M8); then supplier bills, invoices
+4. Job detail: timesheets, materials, notes and photos; quote vs actual.
+5. Quote PDF in the LSE layout (logo, legal name: completes M8); then supplier bills, invoices
    (progress/part invoices, M3; invoice readiness is already computed), payments.
-5. Polish backlog: edit customer/site/contact sheets, swipe-to-delete with undo on contacts, job editing
+6. Polish backlog: edit customer/site/contact sheets, swipe-to-delete with undo on contacts, job editing
    sheet, list virtualisation, `zod/mini` to trim the bundle (≈145 KB gzip now), shorter Settings labels
    on narrow phones.
 
 ## Open questions for Joe
 
 1. Do the screens feel right? (See `screenshots/` or open the static preview.) Anything to rename?
-2. Statuses: jobs use **To do / Booked in / In progress / Done / Cancelled**; quotes use **Draft / Sent /
-   Accepted / Job created / Declined / Expired**. Happy with those words?
+2. Job stages now follow Tradify (Unassigned, Assigned, Booked in, In Progress, To Invoice, Complete, On
+   Hold, Cancelled, plus your own). Happy with the colours and the swipe actions (To Invoice / Complete,
+   On Hold, Stage)? Quotes still use **Draft / Sent / Accepted / Job created / Declined / Expired**.
 3. Old quotes: number them Q-0001 to Q-0014 on import (current plan), or start fresh?
 4. Should "Customer said yes" be allowed straight from a draft (e.g. verbal yes before sending)? Currently
    it must be marked as sent first.
