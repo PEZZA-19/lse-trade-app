@@ -1293,11 +1293,12 @@ async function ready() {
 
 /** Private local demo: replays the business's own records (see `calls` in the seed). */
 async function replaySeedCalls(call: (m: string) => (p: string, b?: unknown) => Promise<unknown>) {
-  const refs: Record<string, string> = {};
+  const refs: Record<string, Record<string, unknown>> = {};
   const fill = (v: unknown): unknown => {
     if (typeof v === 'string') {
-      const m = /^\$ref:([\w-]+)$/.exec(v);
-      return m ? (refs[m[1]!] ?? null) : v;
+      // "$ref:name" is the saved record's id; "$ref:name.field" one of its fields.
+      const m = /^\$ref:([\w-]+)(?:\.(\w+))?$/.exec(v);
+      return m ? (refs[m[1]!]?.[m[2] ?? 'id'] ?? null) : v;
     }
     if (Array.isArray(v)) return v.map(fill);
     if (v && typeof v === 'object')
@@ -1306,9 +1307,9 @@ async function replaySeedCalls(call: (m: string) => (p: string, b?: unknown) => 
   };
   for (const c of demoSeed.calls ?? []) {
     try {
-      const path = c.path.replace(/\{([\w-]+)\}/g, (_, n: string) => refs[n] ?? n);
-      const out = (await call(c.method)(path, fill(c.body))) as { id?: string } | undefined;
-      if (c.save && out?.id) refs[c.save] = out.id;
+      const path = c.path.replace(/\{([\w-]+)\}/g, (_, n: string) => String(refs[n]?.id ?? n));
+      const out = (await call(c.method)(path, fill(c.body))) as Record<string, unknown> | undefined;
+      if (c.save && out && typeof out === 'object') refs[c.save] = out;
     } catch (e) {
       console.warn('Demo record not added', c.method, c.path, e);
     }
