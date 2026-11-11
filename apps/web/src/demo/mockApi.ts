@@ -655,6 +655,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       return t ? costRate(t.base, t.on) : null;
     },
     labourRatePence: S().labourRatePence,
+    markupBp: S().defaultMarkupBp,
     today: billingToday(),
   });
   if (method === 'GET' && a === 'reports' && !id) {

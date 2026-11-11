@@ -111,9 +111,7 @@ describe('demo reports', () => {
     expect(r.money.owedPence).toBeGreaterThanOrEqual(r.money.overduePence);
     expect(r.jobs.length).toBeGreaterThan(0);
     for (const j of r.jobs)
-      expect(j.profitPence).toBe(
-        (j.quotedPence ?? j.lineValuePence) - j.labourPence - j.materialsCostPence,
-      );
+      expect(j.profitPence).toBe(j.invoicedPence - j.labourPence - j.materialsCostPence);
     expect(r.time.totalMinutes).toBe(r.time.byJob.reduce((s, j) => s + j.minutes, 0));
     await expect(get('/reports?from=2026-02-01&to=2026-01-01')).rejects.toThrow();
   });
@@ -147,9 +145,15 @@ describe('demo team cost rates', () => {
     const t = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(new Date());
     const r = await get<ReportsDto>(`/reports?from=2000-01-01&to=${t}`);
     for (const j of r.jobs) {
-      expect(j.revenuePence).toBe(j.quotedPence ?? j.lineValuePence);
-      expect(j.profitPence).toBe(j.revenuePence - j.labourPence - j.materialsCostPence);
+      expect(j.revenuePence).toBe(j.quotedPence ?? j.lineValuePence + j.chargeOutPence);
+      expect(j.profitPence).toBe(j.invoicedPence - j.labourPence - j.materialsCostPence);
+      expect(j.expectedProfitPence).toBe(j.revenuePence - j.expectedCostPence);
+      expect(j.expectedCostPence).toBeGreaterThanOrEqual(j.labourPence + j.materialsCostPence);
     }
+    // The in-progress demo job 122 no longer claims its whole quote as profit.
+    const barn = r.jobs.find((j) => j.number === '122')!;
+    expect(barn.profitPence).toBeLessThan(barn.invoicedPence);
+    expect(barn.expectedProfitPence).toBeLessThan(barn.revenuePence - barn.labourPence);
     const job = r.jobs[0]!;
     const costing = await get<JobCostingDto>(`/jobs/${job.jobId}/costing`);
     expect(costing.profit.profitPence).toBe(job.profitPence);

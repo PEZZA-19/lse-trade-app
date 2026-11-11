@@ -17,11 +17,12 @@ export function QuoteVsActual({ jobId }: { jobId: string }) {
   const c = useJobCosting(jobId, owner);
   if (!owner || !c.data) return null;
   const { profit: p, quoted: q, labour } = c.data;
-  const bp = marginBp(p);
+  const bp = marginBp(p.expectedProfitPence, p.revenuePence);
+  const soFarBp = marginBp(p.profitPence, p.invoicedPence);
   return (
     <Section
       header="Quote vs Actual"
-      footer={`Labour is costed at each person’s cost rate (Settings › Team); charge-out is the same time at your labour rate. Materials are what you paid. Only you see this.`}
+      footer={`Profit so far = invoiced − labour at each person’s cost rate (Settings › Team) − materials at what you paid. Expected = the quote − expected cost, where each cost is the quoted amount at cost or what has been spent already, whichever is higher. Only you see this.`}
     >
       {!c.data.allRatesSet && (
         <p className="readiness" role="note">
@@ -60,18 +61,25 @@ export function QuoteVsActual({ jobId }: { jobId: string }) {
         <KeyValueRow label="Labour at cost" value={formatPence(p.labourPence)} />
         <KeyValueRow label="Materials quoted (sell)" value={formatPence(q.materialsPence)} />
         <KeyValueRow label="Materials actual (cost)" value={formatPence(p.materialsCostPence)} />
+        <KeyValueRow label="Invoiced so far (ex VAT)" value={formatPence(p.invoicedPence)} />
         <KeyValueRow
-          label={`Profit${bp !== null ? ` · ${Math.round(bp / 100)}%` : ''}`}
+          label={`Profit so far${soFarBp !== null ? ` · ${Math.round(soFarBp / 100)}%` : ''}`}
           value={
             <span style={{ color: p.profitPence < 0 ? 'var(--red)' : 'var(--green)' }}>
               {signed(p.profitPence)}
             </span>
           }
+        />
+        <KeyValueRow label="Expected cost" value={formatPence(p.expectedCostPence)} />
+        <KeyValueRow
+          label={`Expected profit${bp !== null ? ` · ${Math.round(bp / 100)}%` : ''}`}
+          value={
+            <span style={{ color: p.expectedProfitPence < 0 ? 'var(--red)' : 'var(--green)' }}>
+              {signed(p.expectedProfitPence)}
+            </span>
+          }
           strong
         />
-        {p.invoicedPence > 0 && (
-          <KeyValueRow label="Invoiced so far (ex VAT)" value={formatPence(p.invoicedPence)} />
-        )}
       </List>
     </Section>
   );

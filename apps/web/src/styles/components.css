@@ -1869,6 +1869,15 @@ select.field__input {
   font-weight: 400;
   color: var(--label-2);
 }
+.report-profit {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.report-profit small.report-profit__label {
+  font: var(--text-caption, 12px/1.2 system-ui);
+  text-transform: none;
+}
 /* Profit and time rows carry several figures: let the detail line wrap rather than truncate. */
 .report-list .row__sub {
   white-space: normal;

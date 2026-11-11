@@ -43,16 +43,26 @@ export interface JobProfitDto {
   labourPence: number;
   /** Actual materials at cost: supplier-bill lines and hand-added material lines. */
   materialsCostPence: number;
-  /** Net invoiced so far (issued invoices, ex VAT, less credit notes). */
+  /** Net invoiced so far (issued invoices, ex VAT, less approved credit notes). */
   invoicedPence: number;
-  /** Revenue: the quote (ex VAT), or the job lines when it wasn't quoted. */
+  /**
+   * Expected revenue: the quote (ex VAT); for a job without a quote, its lines plus the time at
+   * the charge-out rate (what a time-and-materials invoice would bill).
+   */
   revenuePence: number;
   /** The same time at the charge-out rate: what it would bill at. */
   chargeOutPence: number;
   /** People with time here who have no cost rate (their time is costed at the labour rate). */
   missingCostRates: number;
-  /** Revenue minus labour at cost minus materials at cost. */
+  /**
+   * Profit so far: invoiced (ex VAT) − labour at cost − materials at cost. Only money actually
+   * billed counts as revenue, so an unfinished job is never shown as earning its whole quote.
+   */
   profitPence: number;
+  /** Quoted labour and materials at cost; never less than what has already been spent. */
+  expectedCostPence: number;
+  /** Expected revenue − expected cost: what the job should make when finished and fully billed. */
+  expectedProfitPence: number;
 }
 
 export interface TimeRowDto {
@@ -78,20 +88,55 @@ export interface ReportsDto {
   time: TimeReportDto;
 }
 
-/** Profit as a share of the price, in basis points; null when there is no price to compare. */
-export function marginBp(j: Pick<JobProfitDto, 'quotedPence' | 'lineValuePence' | 'profitPence'>) {
-  const price = j.quotedPence ?? j.lineValuePence;
-  return price > 0 ? Math.round((j.profitPence * 10000) / price) : null;
+/** Profit as a share of a price, in basis points; null when there is no price to compare. */
+export function marginBp(profitPence: number, pricePence: number | null) {
+  return pricePence !== null && pricePence > 0
+    ? Math.round((profitPence * 10000) / pricePence)
+    : null;
 }
 
-/** Profit from the parts: the quote is the price when there is one, else the job lines. */
-export function jobProfit(p: {
+/**
+ * Quoted labour at cost: the quoted time at the job's own average cost per hour so far, or (before
+ * anyone has logged time) the team's average cost rate.
+ */
+export function quotedLabourCost(p: {
+  quotedMinutes: number;
+  minutes: number;
+  labourPence: number;
+  fallbackRatePence: number;
+}) {
+  if (p.quotedMinutes <= 0) return 0;
+  return p.minutes > 0
+    ? Math.round((p.quotedMinutes * p.labourPence) / p.minutes)
+    : labourValue(p.quotedMinutes, p.fallbackRatePence);
+}
+
+/**
+ * The honest job profit figures (how Xero Projects and Tradify do it):
+ * - so far = invoiced − costs so far (a job in progress shows what it has really made);
+ * - expected = expected revenue − expected cost, where each cost (labour, materials) is the
+ *   quoted cost or what has already been spent, whichever is higher.
+ */
+export function profitFigures(p: {
   quotedPence: number | null;
   lineValuePence: number;
+  chargeOutPence: number;
+  invoicedPence: number;
   labourPence: number;
   materialsCostPence: number;
+  quotedLabourCostPence: number;
+  quotedMaterialsCostPence: number;
 }) {
-  return (p.quotedPence ?? p.lineValuePence) - p.labourPence - p.materialsCostPence;
+  const revenuePence = p.quotedPence ?? p.lineValuePence + p.chargeOutPence;
+  const expectedCostPence =
+    Math.max(p.quotedLabourCostPence, p.labourPence) +
+    Math.max(p.quotedMaterialsCostPence, p.materialsCostPence);
+  return {
+    revenuePence,
+    profitPence: p.invoicedPence - p.labourPence - p.materialsCostPence,
+    expectedCostPence,
+    expectedProfitPence: revenuePence - expectedCostPence,
+  };
 }
 
 /** Labour value of minutes at a pence-per-hour rate, rounded half up. */
@@ -127,7 +172,7 @@ export function reportsCsv(r: ReportsDto): string {
       'Title',
       'Customer',
       'Stage',
-      'Revenue (£)',
+      'Expected revenue (£)',
       'Quoted (£)',
       'Job lines (£)',
       'Hours',
@@ -135,11 +180,13 @@ export function reportsCsv(r: ReportsDto): string {
       'Labour at cost (£)',
       'Materials cost (£)',
       'Invoiced (£)',
-      'Profit (£)',
-      'Margin %',
+      'Profit so far (£)',
+      'Expected cost (£)',
+      'Expected profit (£)',
+      'Expected margin %',
     ),
     ...r.jobs.map((j) => {
-      const bp = marginBp(j);
+      const bp = marginBp(j.expectedProfitPence, j.revenuePence);
       return row(
         j.number,
         j.title,
@@ -154,6 +201,8 @@ export function reportsCsv(r: ReportsDto): string {
         pounds(j.materialsCostPence),
         pounds(j.invoicedPence),
         pounds(j.profitPence),
+        pounds(j.expectedCostPence),
+        pounds(j.expectedProfitPence),
         bp === null ? null : (bp / 100).toFixed(1),
       );
     }),

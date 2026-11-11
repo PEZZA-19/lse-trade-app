@@ -41,15 +41,19 @@ const PERIOD_LABEL: Record<ReportPeriod, string> = {
 };
 const signed = (p: number) => `${p < 0 ? '−' : ''}${formatPence(Math.abs(p))}`;
 
+/** Expected profit for the whole job (the honest headline), with its margin. */
 function Profit({ j }: { j: JobProfitDto }) {
-  const bp = marginBp(j);
+  const bp = marginBp(j.expectedProfitPence, j.revenuePence);
   return (
     <span
       className="report-profit"
-      style={{ color: j.profitPence < 0 ? 'var(--red)' : 'var(--green)' }}
+      style={{ color: j.expectedProfitPence < 0 ? 'var(--red)' : 'var(--green)' }}
     >
-      {signed(j.profitPence)}
-      {bp !== null && <small> {Math.round(bp / 100)}%</small>}
+      <span>
+        {signed(j.expectedProfitPence)}
+        {bp !== null && <small> {Math.round(bp / 100)}%</small>}
+      </span>
+      <small className="report-profit__label">expected</small>
     </span>
   );
 }
@@ -174,7 +178,7 @@ export function ReportsScreen() {
 
           <Section
             header="Profit per Job"
-            footer={`Profit = revenue − labour at each person’s cost rate − materials at cost. Revenue is the accepted quote (ex VAT), or the job’s lines when it wasn’t quoted. Charge-out is the same time at ${rate}/h. Whole jobs, not just this period.`}
+            footer={`Expected profit = the quote (ex VAT) − expected costs: quoted labour and materials at cost, or what has already been spent if that is more. So far = invoiced (ex VAT, less credit notes) − labour at each person’s cost rate − materials at cost, so a job in progress never counts its whole quote. A job without a quote expects its lines plus time at ${rate}/h. Whole jobs, not just this period.`}
           >
             {missing > 0 && (
               <p className="readiness" role="note">
@@ -190,7 +194,7 @@ export function ReportsScreen() {
                     <LinkRow
                       to={`/jobs/${j.jobId}`}
                       title={`${j.number} · ${j.title}`}
-                      sub={`Revenue ${formatPence(j.revenuePence)}${j.quotedPence === null ? ' (not quoted)' : ''} · ${formatMinutes(j.minutes)}: ${formatPence(j.labourPence)} at cost, ${formatPence(j.chargeOutPence)} charge-out · materials ${formatPence(j.materialsCostPence)}`}
+                      sub={`${j.quotedPence === null ? 'Not quoted, expected' : 'Quote'} ${formatPence(j.revenuePence)} · invoiced ${formatPence(j.invoicedPence)} · so far ${signed(j.profitPence)} · ${formatMinutes(j.minutes)}: ${formatPence(j.labourPence)} at cost, ${formatPence(j.chargeOutPence)} charge-out · materials ${formatPence(j.materialsCostPence)}`}
                       meta={<Profit j={j} />}
                     />
                   </li>

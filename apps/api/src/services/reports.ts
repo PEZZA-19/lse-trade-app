@@ -1,5 +1,6 @@
 import {
-  jobProfit,
+  profitFigures,
+  quotedLabourCost,
   labourValue,
   personLabourCost,
   type LabourCostRow,
@@ -124,7 +125,8 @@ async function costRateCoverage(tx: Tx) {
 
 /**
  * Profit for whole jobs (every job not cancelled with a price, time or costs, or just one job):
- * revenue (quote ex VAT, else job lines) − labour at each person's cost rate − materials at cost.
+ * profit so far (invoiced − labour at each person's cost rate − materials at cost) and expected
+ * profit (expected revenue − the higher of quoted and actual cost, for labour and materials).
  * A person with no cost rate is costed at the labour rate and counted in missingCostRates.
  */
 export async function jobProfits(
@@ -144,6 +146,8 @@ export async function jobProfits(
       lineValue: string;
       materials: string;
       invoiced: string;
+      quotedLabourMilli: string;
+      quotedMaterialsCost: string;
     }[]
   >`
     SELECT j.id AS job_id, j.number, j.title, c.name AS customer_name, st.name AS stage,
@@ -154,8 +158,21 @@ export async function jobProfits(
               FROM job_lines l
              WHERE l.job_id = j.id AND l.kind = 'material' AND l.source <> 'quote') AS materials,
            (SELECT COALESCE(SUM(v.subtotal_pence), 0) FROM invoices v
-             WHERE v.job_id = j.id AND v.status <> 'draft') AS invoiced
+             WHERE v.job_id = j.id AND v.status <> 'draft')
+           - (SELECT COALESCE(SUM(ROUND(cn.amount_pence * v.subtotal_pence::numeric
+                                        / NULLIF(v.total_pence, 0))), 0)
+                FROM credit_notes cn JOIN invoices v ON v.id = cn.invoice_id
+               WHERE v.job_id = j.id AND cn.status = 'approved') AS invoiced,
+           (SELECT COALESCE(SUM(qty_milli), 0) FROM job_lines l
+             WHERE l.job_id = j.id AND l.source = 'quote' AND l.kind = 'labour') AS quoted_labour_milli,
+           -- Quoted materials and extras at cost: the line's cost where known, else price ÷ markup.
+           (SELECT COALESCE(SUM(CASE WHEN l.unit_cost_pence IS NOT NULL
+                                     THEN ROUND(l.unit_cost_pence * l.qty_milli / 1000.0)
+                                     ELSE ROUND(l.total_pence * 10000.0 / t.default_markup_bp) END), 0)
+              FROM job_lines l
+             WHERE l.job_id = j.id AND l.source = 'quote' AND l.kind <> 'labour') AS quoted_materials_cost
       FROM jobs j
+      JOIN tenants t ON t.id = j.tenant_id
       JOIN customers c ON c.id = j.customer_id
       JOIN job_stages st ON st.id = j.stage_id
      WHERE (${one}::uuid IS NULL OR j.id = ${one}::uuid)
@@ -180,6 +197,10 @@ export async function jobProfits(
      WHERE (${one}::uuid IS NULL OR s.job_id = ${one}::uuid)
      GROUP BY s.job_id, s.user_id, u.name, mc.base_cost_pence, mc.on_cost_pence
      ORDER BY u.name`;
+  // Before anyone logs time, quoted labour is costed at the team's average cost rate.
+  const [avg] = await tx<{ avg: string | null }[]>`
+    SELECT ROUND(AVG(base_cost_pence + on_cost_pence)) AS avg FROM member_costs`;
+  const fallbackRatePence = avg?.avg == null ? rate : n(avg.avg);
   const labour = new Map<string, LabourCostRow[]>();
   for (const p of people) {
     const minutes = n(p.minutes);
@@ -198,12 +219,15 @@ export async function jobProfits(
     .map((r): JobProfitDto => {
       const rows = labour.get(r.jobId) ?? [];
       const minutes = rows.reduce((t, x) => t + x.minutes, 0);
+      const labourPence = rows.reduce((t, x) => t + x.costPence, 0);
       const parts = {
         quotedPence: r.quoted === null ? null : n(r.quoted),
         lineValuePence: n(r.lineValue),
-        labourPence: rows.reduce((t, x) => t + x.costPence, 0),
+        labourPence,
         materialsCostPence: n(r.materials),
       };
+      const chargeOutPence = labourValue(minutes, rate);
+      const invoicedPence = n(r.invoiced);
       return {
         jobId: r.jobId,
         number: r.number,
@@ -212,11 +236,21 @@ export async function jobProfits(
         stage: r.stage,
         ...parts,
         minutes,
-        revenuePence: parts.quotedPence ?? parts.lineValuePence,
-        chargeOutPence: labourValue(minutes, rate),
+        chargeOutPence,
         missingCostRates: rows.filter((x) => x.rateIsDefault).length,
-        invoicedPence: n(r.invoiced),
-        profitPence: jobProfit(parts),
+        invoicedPence,
+        ...profitFigures({
+          ...parts,
+          chargeOutPence,
+          invoicedPence,
+          quotedLabourCostPence: quotedLabourCost({
+            quotedMinutes: Math.round((n(r.quotedLabourMilli) * 60) / 1000),
+            minutes,
+            labourPence,
+            fallbackRatePence,
+          }),
+          quotedMaterialsCostPence: n(r.quotedMaterialsCost),
+        }),
       };
     })
     .filter(

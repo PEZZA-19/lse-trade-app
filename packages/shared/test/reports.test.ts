@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   costRate,
   csvCell,
-  jobProfit,
+  marginBp,
+  profitFigures,
+  quotedLabourCost,
   labourValue,
   personLabourCost,
   reportPeriodRange,
@@ -79,23 +81,79 @@ describe('cost-rate profit', () => {
   it('profit = revenue − labour at cost − materials at cost', () => {
     const labour = personLabourCost(90, 2455, 4500) + personLabourCost(30, null, 4500);
     expect(labour).toBe(5933);
+    const base = {
+      quotedPence: 20000,
+      lineValuePence: 99999,
+      chargeOutPence: 9000,
+      labourPence: labour,
+      materialsCostPence: 2000,
+      quotedLabourCostPence: 0,
+      quotedMaterialsCostPence: 0,
+    };
+    // Profit so far counts only what has been invoiced; nothing invoiced = the costs so far.
+    expect(profitFigures({ ...base, invoicedPence: 0 }).profitPence).toBe(-5933 - 2000);
+    expect(profitFigures({ ...base, invoicedPence: 20000 }).profitPence).toBe(20000 - 5933 - 2000);
+    // Not quoted: lines plus the time at charge-out is the expected revenue.
     expect(
-      jobProfit({
-        quotedPence: 20000,
-        lineValuePence: 99999,
-        labourPence: labour,
-        materialsCostPence: 2000,
-      }),
-    ).toBe(20000 - 5933 - 2000);
-    // Not quoted: the job lines are the revenue.
+      profitFigures({ ...base, quotedPence: null, lineValuePence: 8000, invoicedPence: 0 })
+        .revenuePence,
+    ).toBe(8000 + 9000);
+  });
+});
+
+describe('honest job profit (in progress vs finished)', () => {
+  // The demo job 122: quoted £1,877.20, £563.16 invoiced, 2 h 15 min of a quoted 25 h 30 min done.
+  const inProgress = {
+    quotedPence: 187720,
+    lineValuePence: 187720,
+    chargeOutPence: 10125,
+    invoicedPence: 56316,
+    labourPence: 5400,
+    materialsCostPence: 0,
+    quotedLabourCostPence: quotedLabourCost({
+      quotedMinutes: 25 * 60 + 30,
+      minutes: 135,
+      labourPence: 5400,
+      fallbackRatePence: 4500,
+    }),
+    quotedMaterialsCostPence: 53446,
+  };
+
+  it('quoted labour at cost uses the job’s own cost per hour, else the team average', () => {
+    expect(inProgress.quotedLabourCostPence).toBe(61200); // 25.5 h × £24.00
     expect(
-      jobProfit({
-        quotedPence: null,
-        lineValuePence: 8000,
-        labourPence: labour,
-        materialsCostPence: 0,
-      }),
-    ).toBe(8000 - 5933);
+      quotedLabourCost({ quotedMinutes: 90, minutes: 0, labourPence: 0, fallbackRatePence: 2455 }),
+    ).toBe(3683);
+    expect(
+      quotedLabourCost({ quotedMinutes: 0, minutes: 60, labourPence: 2400, fallbackRatePence: 1 }),
+    ).toBe(0);
+  });
+
+  it('an unfinished job is not shown as earning its whole quote', () => {
+    const f = profitFigures(inProgress);
+    // The old figure was £1,877.20 − £54.00 = £1,823.20 (97%): misleading.
+    expect(f.profitPence).toBe(56316 - 5400);
+    expect(f.expectedCostPence).toBe(61200 + 53446);
+    expect(f.expectedProfitPence).toBe(187720 - 61200 - 53446);
+    expect(marginBp(f.expectedProfitPence, f.revenuePence)).toBe(3893);
+  });
+
+  it('costs already over the quote count in full (expected never assumes less than spent)', () => {
+    const f = profitFigures({ ...inProgress, labourPence: 70000, materialsCostPence: 60000 });
+    expect(f.expectedCostPence).toBe(70000 + 60000);
+    expect(f.expectedProfitPence).toBe(187720 - 130000);
+  });
+
+  it('finished and fully invoiced: so far and expected agree when costs match the quote', () => {
+    const f = profitFigures({
+      ...inProgress,
+      invoicedPence: 187720,
+      labourPence: 61200,
+      materialsCostPence: 53446,
+    });
+    expect(f.profitPence).toBe(f.expectedProfitPence);
+    expect(marginBp(0, null)).toBeNull();
+    expect(marginBp(-500, 10000)).toBe(-500);
   });
 });
 
@@ -132,6 +190,8 @@ describe('reports CSV', () => {
         chargeOutPence: 9000,
         missingCostRates: 1,
         profitPence: -1500,
+        expectedCostPence: 7933,
+        expectedProfitPence: 12067,
       },
     ],
     time: { totalMinutes: 120, byPerson: [{ id: 'u', name: 'Joe', minutes: 120 }], byJob: [] },
@@ -141,7 +201,9 @@ describe('reports CSV', () => {
     const csv = reportsCsv(r);
     expect(csv).toContain('"Barn, ""big"" rewire"');
     expect(csv).toContain(`"'=HYPERLINK(""x"")"`);
-    expect(csv).toContain(',200.00,200.00,200.00,2.00,90.00,59.33,20.00,0.00,-15.00,-7.5');
+    expect(csv).toContain(
+      ',200.00,200.00,200.00,2.00,90.00,59.33,20.00,0.00,-15.00,79.33,120.67,60.3',
+    );
     expect(csv).toContain('Money in,123.45,2');
     expect(csv.endsWith('\r\n')).toBe(true);
     expect(csvCell('-5.00')).toBe('-5.00');

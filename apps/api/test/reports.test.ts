@@ -148,7 +148,13 @@ describe('cost rates and true profit', () => {
       labourPence: 3683 + 2250, // 90 × 24.55/60 = 36.825 → 36.83; 30 × 45/60 = 22.50
       materialsCostPence: 0,
       missingCostRates: 1,
-      profitPence: 12000 - 5933,
+      invoicedPence: 0,
+      // Nothing invoiced yet: so far it has only cost money (not "£120 − costs").
+      profitPence: -5933,
+      // Expected: quoted 2 h at this job's own cost/h (£59.33 for 2 h) and the £30 of quoted
+      // sockets at cost (no cost on the line, so £30 ÷ the 130% markup = £23.08).
+      expectedCostPence: 5933 + 2308,
+      expectedProfitPence: 12000 - 5933 - 2308,
     });
     expect(costing.body.quoted).toMatchObject({
       labourMinutes: 120,
@@ -170,7 +176,32 @@ describe('cost rates and true profit', () => {
     const t = todayIso();
     const r = (await c.req('GET', `/api/reports?from=${t}&to=${t}`)).body;
     expect(r.costRates).toEqual({ set: 1, people: 2 });
-    expect(r.jobs.find((j: { jobId: string }) => j.jobId === job.id).profitPence).toBe(6067);
+    expect(r.jobs.find((j: { jobId: string }) => j.jobId === job.id)).toMatchObject({
+      profitPence: -5933,
+      expectedProfitPence: 3759,
+    });
+
+    // Invoiced in full: profit so far = £120 − £59.33. A £20 credit note comes off the revenue.
+    await c.req('PATCH', '/api/settings', {
+      bankAccountName: 'Test Electrical',
+      bankSortCode: '400000',
+      bankAccountNumber: '12345678',
+    });
+    const inv = (
+      await c.req('POST', `/api/jobs/${job.id}/invoices`, { source: 'quote', mode: 'whole' })
+    ).body;
+    expect((await c.req('POST', `/api/invoices/${inv.id}/approve`)).status).toBe(200);
+    expect((await c.req('POST', `/api/invoices/${inv.id}/mark-sent`)).status).toBe(200);
+    let p = (await c.req('GET', `/api/jobs/${job.id}/costing`)).body.profit;
+    expect(p).toMatchObject({ invoicedPence: 12000, profitPence: 6067 });
+    const cn = await c.req('POST', `/api/invoices/${inv.id}/credit-notes`, {
+      amountPence: 2000,
+      reason: 'Goodwill',
+    });
+    expect(cn.status, JSON.stringify(cn.body)).toBe(201);
+    expect((await c.req('POST', `/api/credit-notes/${cn.body.id}/approve`)).status).toBe(200);
+    p = (await c.req('GET', `/api/jobs/${job.id}/costing`)).body.profit;
+    expect(p).toMatchObject({ invoicedPence: 10000, profitPence: 4067 });
 
     // Clearing the rate falls back to the labour rate.
     expect((await c.req('PUT', `/api/team/${c.userId}/cost`, null)).body.costRatePence).toBeNull();

@@ -1,5 +1,6 @@
 import {
-  jobProfit,
+  profitFigures,
+  quotedLabourCost,
   labourValue,
   personLabourCost,
   type JobCostingDto,
@@ -22,6 +23,8 @@ export interface ReportsCtx {
   /** Base + on-cost per hour, or null when not set. */
   costRate: (userId: string) => number | null;
   labourRatePence: number;
+  /** Default markup, to estimate the cost of quoted lines with no cost. */
+  markupBp?: number;
   today: string;
 }
 
@@ -149,6 +152,19 @@ function jobProfitFor(c: ReportsCtx, j: JobDetailDto, details: InvoiceDetailDto[
       (l) => Math.round(((l.unitCostPence ?? 0) * l.qtyMilli) / 1000),
     ),
   };
+  const chargeOutPence = labourValue(minutes, c.labourRatePence);
+  // Net of approved credit notes (scaled to ex VAT like the server).
+  const invoicedPence = sumOf(
+    details.filter((d) => d.jobId === j.id),
+    (d) =>
+      d.subtotalPence -
+      (d.totalPence > 0 ? Math.round((d.creditedPence * d.subtotalPence) / d.totalPence) : 0),
+  );
+  const rates = c.members.map((m) => c.costRate(m.userId)).filter((r): r is number => r !== null);
+  const fallbackRatePence = rates.length
+    ? Math.round(sumOf(rates, (r) => r) / rates.length)
+    : c.labourRatePence;
+  const markup = c.markupBp ?? 13000;
   return {
     jobId: j.id,
     number: j.number,
@@ -157,14 +173,34 @@ function jobProfitFor(c: ReportsCtx, j: JobDetailDto, details: InvoiceDetailDto[
     stage: j.stage.name,
     ...parts,
     minutes,
-    revenuePence: parts.quotedPence ?? parts.lineValuePence,
-    chargeOutPence: labourValue(minutes, c.labourRatePence),
+    chargeOutPence,
     missingCostRates: rows.filter((r) => r.rateIsDefault).length,
-    invoicedPence: sumOf(
-      details.filter((d) => d.jobId === j.id),
-      (d) => d.subtotalPence,
-    ),
-    profitPence: jobProfit(parts),
+    invoicedPence,
+    ...profitFigures({
+      ...parts,
+      chargeOutPence,
+      invoicedPence,
+      quotedLabourCostPence: quotedLabourCost({
+        quotedMinutes: Math.round(
+          (sumOf(
+            quoteLines.filter((l) => l.kind === 'labour'),
+            (l) => l.qtyMilli,
+          ) *
+            60) /
+            1000,
+        ),
+        minutes,
+        labourPence: parts.labourPence,
+        fallbackRatePence,
+      }),
+      quotedMaterialsCostPence: sumOf(
+        quoteLines.filter((l) => l.kind !== 'labour'),
+        (l) =>
+          l.unitCostPence !== null
+            ? Math.round((l.unitCostPence * l.qtyMilli) / 1000)
+            : Math.round((l.totalPence * 10000) / markup),
+      ),
+    }),
   };
 }
 
