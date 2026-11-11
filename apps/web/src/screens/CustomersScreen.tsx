@@ -35,6 +35,7 @@ export function CustomersScreen() {
       }
     >
       <SearchField value={search} onChange={setSearch} placeholder="Search name, phone or email" />
+      <PendingCreates kind="customer" />
       {customers.isPending ? (
         <ListSkeleton />
       ) : customers.isError ? (
@@ -101,7 +102,6 @@ export function CustomersScreen() {
           </List>
         </Section>
       )}
-      <PendingCreates kind="customer" />
       <NewCustomerSheet open={adding} onClose={() => setAdding(false)} />
     </Page>
   );

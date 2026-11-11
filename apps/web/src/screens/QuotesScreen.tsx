@@ -47,6 +47,7 @@ export function QuotesScreen() {
     >
       <SearchField value={search} onChange={setSearch} placeholder="Search quotes" />
       <Segmented label="Filter quotes" value={filter} onChange={setFilter} options={FILTERS} />
+      <PendingCreates kind="quote" />
       {quotes.isPending ? (
         <ListSkeleton />
       ) : quotes.isError ? (
@@ -98,7 +99,6 @@ export function QuotesScreen() {
           </List>
         </Section>
       )}
-      <PendingCreates kind="quote" />
       <NewQuoteSheet open={adding} onClose={() => setAdding(false)} />
     </Page>
   );

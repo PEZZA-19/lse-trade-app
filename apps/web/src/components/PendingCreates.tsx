@@ -40,7 +40,7 @@ export function PendingCreates({ kind }: { kind: Kind }) {
                 <span className="row__title">{op.label}</span>
                 <span className="row__sub">
                   {op.status === 'pending'
-                    ? `Added ${formatDateTime(op.createdAt)} · not on the server yet`
+                    ? `Saved ${formatDateTime(op.createdAt)}`
                     : `Couldn’t add: ${op.error ?? 'the server refused it'}`}
                 </span>
               </span>

@@ -110,6 +110,7 @@ export function JobsScreen() {
           { value: 'stage', label: filterStage ? filterStage.name : 'Stage…' },
         ]}
       />
+      <PendingCreates kind="job" />
       {jobs.isPending ? (
         <ListSkeleton />
       ) : jobs.isError ? (
@@ -186,7 +187,6 @@ export function JobsScreen() {
           </List>
         </Section>
       )}
-      <PendingCreates kind="job" />
       <NewJobSheet open={adding} onClose={() => setAdding(false)} />
       <StageSheet
         open={pickingFilter}
