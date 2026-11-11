@@ -6,6 +6,7 @@ import {
   lineTotal,
   type Page,
   type PricedLineInput,
+  type QuoteKitSnapshot,
   type QuoteDetailDto,
   type QuoteLineDto,
   type QuoteRevisionDto,
@@ -55,6 +56,7 @@ interface LineRow {
   unitPricePence: number | null;
   optionLabel: string | null;
   taxRateBp: number;
+  kit: QuoteKitSnapshot | null;
 }
 
 interface RevisionRow {
@@ -144,7 +146,7 @@ async function loadRevision(tx: Tx, quoteId: string, revision: number) {
       FROM quote_revisions WHERE quote_id = ${quoteId} AND revision = ${revision}`;
   if (!rev) throw notFound('Quote revision');
   const lines = await tx<LineRow[]>`
-    SELECT id, position, kind, description, qty_milli, unit_cost_pence, markup_bp, unit_price_pence, option_label, tax_rate_bp
+    SELECT id, position, kind, description, qty_milli, unit_cost_pence, markup_bp, unit_price_pence, option_label, tax_rate_bp, kit
       FROM quote_lines WHERE revision_id = ${rev.id} ORDER BY position`;
   return { rev, lines };
 }
@@ -254,6 +256,7 @@ async function writeLines(tx: Tx, auth: Auth, revisionId: string, lines: LineIn[
     unit_price_pence: l.unitPricePence,
     option_label: l.optionLabel,
     tax_rate_bp: l.taxRateBp,
+    kit: l.kit ? tx.json(l.kit as never) : null,
   }));
   await tx`INSERT INTO quote_lines ${tx(rows)}`;
 }

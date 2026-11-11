@@ -17,6 +17,14 @@ import {
   quoteStatus,
   siteInput,
   settingsUpdate,
+  priceItemInput,
+  priceItemUpdate,
+  priceImportInput,
+  kitInput,
+  kitUpdate,
+  invoiceCreate,
+  invoiceUpdate,
+  paymentCreate,
   type ApiErrorBody,
 } from '@lse/shared';
 import { Hono, type Context } from 'hono';
@@ -34,6 +42,8 @@ import * as quotes from './services/quotes';
 import * as settings from './services/settings';
 import * as stages from './services/stages';
 import * as schedule from './services/schedule';
+import * as pricelist from './services/pricelist';
+import * as invoices from './services/invoices';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
@@ -346,6 +356,145 @@ export function createApp(deps: AppDeps) {
     const id = uuidParam(c);
     await c.var.tx((tx) => stages.deleteStage(tx, c.var.auth, id));
     return c.body(null, 204);
+  });
+
+  /* ---------------------------- price list --------------------------- */
+  const ownerOnly = (c: Context<AppEnv>, what: string) => {
+    if (c.var.auth.role !== 'owner')
+      throw new AppError(403, 'owner_only', `Only the business owner can ${what}.`);
+  };
+  app.get('/api/price-list', async (c) => {
+    const q = parse(
+      z.object({
+        q: z.string().max(100).optional(),
+        inactive: z.enum(['true', 'false']).optional(),
+      }),
+      { q: c.req.query('q'), inactive: c.req.query('inactive') },
+    );
+    return c.json(
+      await c.var.tx((tx) =>
+        pricelist.listItems(tx, { search: q.q, includeInactive: q.inactive === 'true' }),
+      ),
+    );
+  });
+  app.post('/api/price-list', async (c) => {
+    ownerOnly(c, 'change the price list');
+    const input = parse(priceItemInput, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => pricelist.createItem(tx, c.var.auth, input)), 201);
+  });
+  app.post('/api/price-list/import', async (c) => {
+    ownerOnly(c, 'import a price list');
+    const input = parse(priceImportInput, await jsonBody(c.req));
+    return c.json(
+      await c.var.tx((tx) => pricelist.importCsv(tx, c.var.auth, input.csv, input.apply)),
+    );
+  });
+  app.get('/api/price-list/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => pricelist.getItem(tx, id)));
+  });
+  app.patch('/api/price-list/:id', async (c) => {
+    ownerOnly(c, 'change the price list');
+    const id = uuidParam(c);
+    const input = parse(priceItemUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => pricelist.updateItem(tx, c.var.auth, id, input)));
+  });
+  app.delete('/api/price-list/:id', async (c) => {
+    ownerOnly(c, 'change the price list');
+    const id = uuidParam(c);
+    await c.var.tx((tx) => pricelist.deleteItem(tx, c.var.auth, id));
+    return c.body(null, 204);
+  });
+
+  /* ------------------------------- kits ------------------------------ */
+  app.get('/api/kits', async (c) => c.json(await c.var.tx((tx) => pricelist.listKits(tx))));
+  app.post('/api/kits', async (c) => {
+    ownerOnly(c, 'change kits');
+    const input = parse(kitInput, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => pricelist.createKit(tx, c.var.auth, input)), 201);
+  });
+  app.get('/api/kits/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => pricelist.getKit(tx, id)));
+  });
+  app.patch('/api/kits/:id', async (c) => {
+    ownerOnly(c, 'change kits');
+    const id = uuidParam(c);
+    const input = parse(kitUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => pricelist.updateKit(tx, c.var.auth, id, input)));
+  });
+  app.delete('/api/kits/:id', async (c) => {
+    ownerOnly(c, 'change kits');
+    const id = uuidParam(c);
+    await c.var.tx((tx) => pricelist.deleteKit(tx, c.var.auth, id));
+    return c.body(null, 204);
+  });
+
+  /* ----------------------------- invoices ---------------------------- */
+  app.get('/api/invoices', async (c) => {
+    const q = parse(
+      z.object({
+        filter: z.enum(['all', 'draft', 'outstanding', 'overdue', 'paid']).optional(),
+        jobId: z.uuid().optional(),
+      }),
+      { filter: c.req.query('filter'), jobId: c.req.query('jobId') },
+    );
+    return c.json(await c.var.tx((tx) => invoices.listInvoices(tx, q)));
+  });
+  app.get('/api/jobs/:id/invoicing', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => invoices.jobInvoicing(tx, id)));
+  });
+  app.post('/api/jobs/:id/invoices', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(invoiceCreate, await jsonBody(c.req));
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, `invoice:${id}:${JSON.stringify(input)}`, async () => ({
+        status: 201,
+        body: await invoices.createInvoice(tx, c.var.auth, id, input),
+      })),
+    );
+    if (result.replayed) c.header('Idempotent-Replayed', 'true');
+    return c.json(result.body, result.status as 201);
+  });
+  app.get('/api/invoices/:id', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => invoices.getInvoice(tx, id)));
+  });
+  app.patch('/api/invoices/:id', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(invoiceUpdate, await jsonBody(c.req));
+    return c.json(
+      await c.var.tx((tx) => invoices.updateDraft(tx, c.var.auth, id, input, ifMatch(c))),
+    );
+  });
+  app.delete('/api/invoices/:id', async (c) => {
+    const id = uuidParam(c);
+    await c.var.tx((tx) => invoices.deleteDraft(tx, c.var.auth, id));
+    return c.body(null, 204);
+  });
+  // Owner decisions. Each is a separate explicit tap in the app; none is ever automatic.
+  app.post('/api/invoices/:id/approve', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => invoices.approve(tx, c.var.auth, id, ifMatch(c))));
+  });
+  app.post('/api/invoices/:id/mark-sent', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => invoices.markSent(tx, c.var.auth, id)));
+  });
+  app.post('/api/invoices/:id/payments', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(paymentCreate, await jsonBody(c.req));
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, `payment:${id}:${JSON.stringify(input)}`, async () => ({
+        status: 201,
+        body: await invoices.recordPayment(tx, c.var.auth, id, input),
+      })),
+    );
+    if (result.replayed) c.header('Idempotent-Replayed', 'true');
+    return c.json(result.body, result.status as 201);
   });
 
   return app;
