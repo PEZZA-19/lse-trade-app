@@ -53,6 +53,18 @@ describe('access: admin chooses who sees what (enforced by the API)', () => {
     // Writes in an area are blocked too, and jobs stay open to everyone.
     expect((await staff.s.req('POST', '/api/quotes', { customerId: c.userId })).status).toBe(403);
     expect((await staff.s.req('GET', '/api/jobs')).status).toBe(200);
+    // A customer's page leaves their quotes out without quote access.
+    const cust = await c.req('POST', '/api/customers', { name: 'Access Test Ltd' });
+    const q = await c.req('POST', '/api/quotes', {
+      customerId: cust.body.id,
+      title: 'Access test',
+      lines: [{ kind: 'labour', description: 'Test', qtyMilli: 1000 }],
+    });
+    expect(q.status, JSON.stringify(q.body)).toBe(201);
+    expect((await c.req('GET', `/api/customers/${cust.body.id}`)).body.quotes).toHaveLength(1);
+    const seen = await staff.s.req('GET', `/api/customers/${cust.body.id}`);
+    expect(seen.status).toBe(200);
+    expect(seen.body.quotes).toEqual([]);
   });
 
   it('only admins change access or rates; owners stay admins; admins can be added and removed', async () => {

@@ -568,6 +568,9 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     them too?
 30. Access presets: Office = accounts, quotes and settings (view); Field worker and Subcontractor see
     jobs, schedule, customers and their own time only. Is that right for Sam and any subcontractors?
+31. Access: a job's quoted work and materials still show prices to everyone who can open the job
+    (a customer's quotes are already hidden without quote access). Should field workers and
+    subcontractors see jobs without any prices?
 
 ## Next session, top priority (Joe, 11 Nov 2026)
 

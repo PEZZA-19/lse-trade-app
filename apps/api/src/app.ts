@@ -298,7 +298,7 @@ export function createApp(deps: AppDeps) {
   });
   app.get('/api/customers/:id', async (c) => {
     const id = uuidParam(c);
-    return c.json(await c.var.tx((tx) => customers.getCustomer(tx, id)));
+    return c.json(await c.var.tx((tx) => customers.getCustomer(tx, id, c.var.auth)));
   });
   app.patch('/api/customers/:id', async (c) => {
     const id = uuidParam(c);

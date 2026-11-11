@@ -10,6 +10,8 @@ import type { z } from 'zod';
 import type { Tx } from '../db/client';
 import { invalid, notFound } from '../lib/errors';
 import { isoNN, type Auth } from '../lib/types';
+import { canSee } from '@lse/shared';
+import { accessOf } from './access';
 import { audit } from './audit';
 import { listJobs } from './jobs';
 import { listQuotes } from './quotes';
@@ -74,15 +76,17 @@ export async function listCustomers(
   return { items: rows.map(toCustomer), total: rows[0]?.total ?? 0 };
 }
 
-export async function getCustomer(tx: Tx, id: string): Promise<CustomerDetailDto> {
+/** Quotes are left out for people without Quotes and pricing access. */
+export async function getCustomer(tx: Tx, id: string, auth?: Auth): Promise<CustomerDetailDto> {
   const [row] = await tx<CustomerRow[]>`SELECT ${tx.unsafe(COLS)} FROM customers WHERE id = ${id}`;
   if (!row) throw notFound('Customer');
   const sites = await tx<SiteDto[]>`
     SELECT id, customer_id, label, address, notes FROM sites WHERE customer_id = ${id} ORDER BY created_at, id`;
   const contacts = await tx<ContactDto[]>`
     SELECT ${tx.unsafe(CONTACT_COLS)} FROM contacts WHERE customer_id = ${id} ORDER BY created_at, id`;
+  const seeQuotes = !auth || canSee(accessOf(auth), 'quotes');
   const [quotes, jobs] = [
-    await listQuotes(tx, { limit: 200, offset: 0, customerId: id }),
+    seeQuotes ? await listQuotes(tx, { limit: 200, offset: 0, customerId: id }) : { items: [] },
     await listJobs(tx, { limit: 200, offset: 0, customerId: id }),
   ];
   return {
@@ -121,7 +125,7 @@ export async function createCustomer(
              VALUES (${auth.tenantId}, ${row!.id}, ${siteId}, ${c.name}, ${c.role}, ${c.email}, ${c.phone}, ${c.notes})`;
   }
   await audit(tx, auth, 'create', 'customer', row!.id, { name: input.name });
-  return getCustomer(tx, row!.id);
+  return getCustomer(tx, row!.id, auth);
 }
 
 export async function updateCustomer(
@@ -142,7 +146,7 @@ export async function updateCustomer(
     if (r.count === 0) throw notFound('Customer');
     await audit(tx, auth, 'update', 'customer', id, { fields: Object.keys(patch) });
   }
-  return getCustomer(tx, id);
+  return getCustomer(tx, id, auth);
 }
 
 export async function addSite(
