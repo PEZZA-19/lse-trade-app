@@ -182,7 +182,7 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 4. Quote PDF in the LSE layout (logo, legal name: completes M8); then supplier bills, invoices
    (progress/part invoices, M3; invoice readiness is already computed), payments.
 5. Polish backlog: edit customer/site/contact sheets, swipe-to-delete with undo on contacts, job editing
-   sheet, list virtualisation, `zod/mini` to trim the bundle (≈139 KB gzip now), shorter Settings labels
+   sheet, list virtualisation, `zod/mini` to trim the bundle (≈145 KB gzip now), shorter Settings labels
    on narrow phones.
 
 ## Open questions for Joe
