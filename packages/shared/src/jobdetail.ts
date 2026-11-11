@@ -126,13 +126,24 @@ export function resolveOnCost(input: NonNullable<z.output<typeof memberCostUpdat
     : { mode: 'fixed', bp: null, pence: input.onCostPence! };
 }
 
+/** Owner sets a person's own charge-out rate (£/h, in pence); null goes back to the business rate. */
+export const chargeOutUpdate = z.object({
+  chargeOutPence: z.number().int().min(0).max(100_000).nullable(),
+});
+
+/** A person's charge-out rate: their own if set, else the business labour rate. */
+export const chargeOutFor = (own: number | null | undefined, labourRatePence: number) =>
+  own ?? labourRatePence;
+
 /** One person in Settings › Team, as the owner sees it. */
 export interface TeamMemberDto {
   userId: string;
   name: string;
   role: string;
-  /** What the customer is charged per hour (the business labour rate). */
+  /** What the customer is charged per hour of this person's time (their own rate, else the business labour rate). */
   chargeOutPence: number;
+  /** True when no own rate is set (the business labour rate is used). */
+  chargeOutIsDefault: boolean;
   baseCostPence: number | null;
   /** Always the £/h amount (in percent mode, what the percentage comes to). */
   onCostPence: number | null;
@@ -173,6 +184,9 @@ export interface LabourCostRow {
   ratePence: number;
   rateIsDefault: boolean;
   costPence: number;
+  /** This person's charge-out rate and what their minutes here are worth at it. */
+  chargeOutRatePence: number;
+  chargeOutPence: number;
 }
 
 /** Quote against actual for one job. */

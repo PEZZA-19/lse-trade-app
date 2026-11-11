@@ -12,6 +12,7 @@ import {
   type JobProfitDto,
   type ReportsDto,
   type TimeReportDto,
+  chargeOutFor,
 } from '@lse/shared';
 
 export interface ReportsCtx {
@@ -23,6 +24,8 @@ export interface ReportsCtx {
   /** Base + on-cost per hour, or null when not set. */
   costRate: (userId: string) => number | null;
   labourRatePence: number;
+  /** A person's own charge-out rate, or null for the labour rate. */
+  chargeOut?: (userId: string) => number | null;
   /** Default markup, to estimate the cost of quoted lines with no cost. */
   markupBp?: number;
   today: string;
@@ -127,13 +130,16 @@ function labourRows(c: ReportsCtx, jobId: string): LabourCostRow[] {
   return [...by.entries()]
     .map(([userId, minutes]) => {
       const rate = c.costRate(userId);
+      const chargeOutRatePence = chargeOutFor(c.chargeOut?.(userId), c.labourRatePence);
       return {
         userId,
         name: c.members.find((m) => m.userId === userId)?.name ?? c.user.name,
         minutes,
-        ratePence: rate ?? c.labourRatePence,
+        ratePence: rate ?? chargeOutRatePence,
         rateIsDefault: rate === null,
-        costPence: personLabourCost(minutes, rate, c.labourRatePence),
+        costPence: personLabourCost(minutes, rate, chargeOutRatePence),
+        chargeOutRatePence,
+        chargeOutPence: labourValue(minutes, chargeOutRatePence),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -152,7 +158,7 @@ function jobProfitFor(c: ReportsCtx, j: JobDetailDto, details: InvoiceDetailDto[
       (l) => Math.round(((l.unitCostPence ?? 0) * l.qtyMilli) / 1000),
     ),
   };
-  const chargeOutPence = labourValue(minutes, c.labourRatePence);
+  const chargeOutPence = sumOf(rows, (r) => r.chargeOutPence);
   // Net of approved credit notes (scaled to ex VAT like the server).
   const invoicedPence = sumOf(
     details.filter((d) => d.jobId === j.id),

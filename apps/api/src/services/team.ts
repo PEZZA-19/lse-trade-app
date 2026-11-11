@@ -34,14 +34,16 @@ export async function listTeam(tx: Tx, auth: Auth): Promise<TeamMemberDto[]> {
       onCostPence: string | null;
       onCostMode: 'fixed' | 'percent' | null;
       onCostBp: number | null;
+      chargeOut: string | null;
       isPlaceholder: boolean | null;
     }[]
   >`
     SELECT m.user_id, u.name, m.role, mc.base_cost_pence, mc.on_cost_pence, mc.on_cost_mode,
-           mc.on_cost_bp, mc.is_placeholder
+           mc.on_cost_bp, mc.is_placeholder, co.charge_out_pence AS charge_out
       FROM memberships m
       JOIN users u ON u.id = m.user_id
       LEFT JOIN member_costs mc ON mc.user_id = m.user_id AND mc.tenant_id = m.tenant_id
+      LEFT JOIN member_charge_out co ON co.user_id = m.user_id AND co.tenant_id = m.tenant_id
      WHERE m.tenant_id = app_current_tenant()
      ORDER BY (m.role = 'owner') DESC, u.name`;
   return rows.map((r) => {
@@ -50,7 +52,8 @@ export async function listTeam(tx: Tx, auth: Auth): Promise<TeamMemberDto[]> {
       userId: r.userId,
       name: r.name,
       role: r.role,
-      chargeOutPence: rate,
+      chargeOutPence: r.chargeOut === null ? rate : n(r.chargeOut),
+      chargeOutIsDefault: r.chargeOut === null,
       baseCostPence: set ? n(r.baseCostPence) : null,
       onCostPence: set ? n(r.onCostPence) : null,
       onCostMode: set ? r.onCostMode : null,
@@ -92,6 +95,29 @@ export async function setMemberCost(
   await audit(tx, auth, 'member_cost_set', 'user', userId, { cost: input });
   const team = await listTeam(tx, auth);
   return team.find((t) => t.userId === userId)!;
+}
+
+/** Owner sets (or clears, with null) a person's own charge-out rate. */
+export async function setChargeOut(
+  tx: Tx,
+  auth: Auth,
+  userId: string,
+  chargeOutPence: number | null,
+): Promise<TeamMemberDto> {
+  assertOwnerDecision(auth, 'set charge-out rates');
+  const [m] =
+    await tx`SELECT 1 FROM memberships WHERE user_id = ${userId} AND tenant_id = ${auth.tenantId}`;
+  if (!m) throw invalid('That person is not part of this business');
+  if (chargeOutPence === null) await tx`DELETE FROM member_charge_out WHERE user_id = ${userId}`;
+  else
+    await tx`
+      INSERT INTO member_charge_out (tenant_id, user_id, charge_out_pence, updated_by)
+      VALUES (${auth.tenantId}, ${userId}, ${chargeOutPence}, ${auth.userId})
+      ON CONFLICT (tenant_id, user_id) DO UPDATE
+        SET charge_out_pence = EXCLUDED.charge_out_pence, updated_by = EXCLUDED.updated_by,
+            updated_at = now()`;
+  await audit(tx, auth, 'member_charge_out_set', 'user', userId, { chargeOutPence });
+  return (await listTeam(tx, auth)).find((t) => t.userId === userId)!;
 }
 
 /** Quote against actual for one job: owner only (it shows what people cost). */

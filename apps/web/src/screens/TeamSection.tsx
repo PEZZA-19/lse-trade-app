@@ -10,7 +10,8 @@ import {
 } from '@lse/shared';
 import { useState } from 'react';
 import { ApiError } from '../api/client';
-import { useSetMemberCost, useTeam } from '../api/team';
+import { useMe } from '../api/hooks';
+import { useSetChargeOut, useSetMemberCost, useTeam } from '../api/team';
 import { Sheet } from '../components/Sheet';
 import { useToast } from '../components/Toast';
 import {
@@ -84,7 +85,18 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
   const [onFixed, setOnFixed] = useState(pounds(m.onCostPence));
   const [onPct, setOnPct] = useState(m.onCostBp === null ? '' : formatPercentBp(m.onCostBp));
   const save = useSetMemberCost(m.userId);
+  const saveRate = useSetChargeOut(m.userId);
   const toast = useToast();
+  // Charge-out: their own rate, or empty for the business labour rate.
+  const [chargeOut, setChargeOut] = useState(m.chargeOutIsDefault ? '' : pounds(m.chargeOutPence));
+  const me = useMe();
+  const businessRate =
+    me.data?.tenant.labourRatePence ?? (m.chargeOutIsDefault ? m.chargeOutPence : null);
+  const ownRate = chargeOut.trim() === '' ? null : parsePounds(chargeOut);
+  const rateOk = chargeOut.trim() === '' || (ownRate !== null && ownRate >= 0);
+  const effectiveRate = ownRate ?? businessRate ?? m.chargeOutPence;
+  const rateChanged = (m.chargeOutIsDefault ? null : m.chargeOutPence) !== ownRate;
+  const costEntered = base.trim() !== '';
   const b = parsePounds(base);
   const pct = onPct.trim() === '' ? 0 : parsePercentBp(onPct);
   const fixed = onFixed.trim() === '' ? 0 : parsePounds(onFixed);
@@ -93,7 +105,23 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
     mode === 'percent' ? (b !== null && pct !== null ? onCostFromPercent(b, pct) : null) : fixed;
   const ok = b !== null && b >= 0 && o !== null && o >= 0 && (mode === 'fixed' || pct !== null);
   const total = ok ? costRate(b, o) : null;
-  const margin = total !== null ? m.chargeOutPence - total : null;
+  const margin = total !== null ? effectiveRate - total : null;
+  const canSave = rateOk && (ok || (!costEntered && rateChanged));
+  const onSave = async () => {
+    try {
+      if (rateChanged) await saveRate.mutateAsync(ownRate);
+      if (ok)
+        await save.mutateAsync(
+          mode === 'percent'
+            ? { baseCostPence: b!, onCostMode: 'percent', onCostBp: pct! }
+            : { baseCostPence: b!, onCostMode: 'fixed', onCostPence: o! },
+        );
+      toast.show('Rates saved');
+      onClose();
+    } catch {
+      /* the error is shown in the sheet */
+    }
+  };
   const fields = save.error instanceof ApiError ? save.error.fields : {};
   return (
     <Sheet
@@ -103,22 +131,10 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
       action={
         <Button
           variant="plain"
-          disabled={!ok}
-          loading={save.isPending}
+          disabled={!canSave}
+          loading={save.isPending || saveRate.isPending}
           style={{ fontWeight: 600 }}
-          onClick={() =>
-            save.mutate(
-              mode === 'percent'
-                ? { baseCostPence: b!, onCostMode: 'percent', onCostBp: pct! }
-                : { baseCostPence: b!, onCostMode: 'fixed', onCostPence: o! },
-              {
-                onSuccess: () => {
-                  toast.show('Cost rate saved');
-                  onClose();
-                },
-              },
-            )
-          }
+          onClick={() => void onSave()}
         >
           Save
         </Button>
@@ -133,7 +149,20 @@ function CostSheet({ m, onClose }: { m: TeamMemberDto; onClose: () => void }) {
         }
       >
         <List className="form-list form-list--wide-labels">
-          <KeyValueRow label="Charge-out rate" value={`${formatPence(m.chargeOutPence)}/h`} />
+          <TextField
+            label="Charge-out rate"
+            inputMode="decimal"
+            value={chargeOut}
+            onChange={(e) => setChargeOut(e.target.value)}
+            placeholder={`${pounds(businessRate ?? m.chargeOutPence)} (default)`}
+            error={
+              !rateOk
+                ? 'Enter an amount, e.g. 45.00'
+                : saveRate.error instanceof ApiError
+                  ? saveRate.error.message
+                  : undefined
+            }
+          />
           <TextField
             label="Base cost"
             inputMode="decimal"

@@ -155,7 +155,14 @@ export interface BillingCtx {
   quote: (id: string) => { number: string; totalPence: number } | null;
   customer: (id: string) => { name: string; email: string | null; billingAddress: string | null };
   billPayer: (customerId: string) => { name: string; email: string | null } | null;
-  timesheets: (jobId: string) => { id: string; startedAt: string; endedAt: string }[];
+  timesheets: (jobId: string) => {
+    id: string;
+    startedAt: string;
+    endedAt: string;
+    userId?: string;
+  }[];
+  /** A person's charge-out rate (their own, else the labour rate). */
+  chargeOutRate?: (userId?: string) => number;
   completeJob: (jobId: string) => void;
   /** The next credit note number; `take` uses it up (gap-free, on approval only). */
   creditNumber: (take: boolean) => string;
@@ -508,7 +515,7 @@ function createInvoice(c: BillingCtx, jobId: string, input: z.output<typeof invo
         kind: 'labour',
         description: `Labour ${dayLabel(t.startedAt)} – ${c.userName} (${Math.floor(m / 60) ? `${Math.floor(m / 60)} h ` : ''}${m % 60} min)`,
         qtyMilli: Math.round((m * 1000) / 60),
-        unitPricePence: s.labourRatePence,
+        unitPricePence: c.chargeOutRate?.(t.userId) ?? s.labourRatePence,
         taxRateBp: tax,
       });
       reserve.push(t.id);
@@ -721,7 +728,7 @@ export function billingRoute(
       unbilledLabourPence: invoiceTotals(
         ts.map((t) => ({
           qtyMilli: Math.round((minutesOf(t) * 1000) / 60),
-          unitPricePence: c.settings().labourRatePence,
+          unitPricePence: c.chargeOutRate?.(t.userId) ?? c.settings().labourRatePence,
           taxRateBp: 0,
         })),
       ).subtotalPence,

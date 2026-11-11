@@ -1,4 +1,5 @@
 import {
+  chargeOutFor,
   profitFigures,
   quotedLabourCost,
   labourValue,
@@ -186,16 +187,18 @@ export async function jobProfits(
       name: string;
       minutes: string;
       costRate: string | null;
+      chargeOut: string | null;
     }[]
   >`
     SELECT s.job_id, s.user_id, u.name,
            SUM(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60)::bigint AS minutes,
-           mc.base_cost_pence + mc.on_cost_pence AS cost_rate
+           mc.base_cost_pence + mc.on_cost_pence AS cost_rate, co.charge_out_pence AS charge_out
       FROM timesheets s
       JOIN users u ON u.id = s.user_id
       LEFT JOIN member_costs mc ON mc.user_id = s.user_id
+      LEFT JOIN member_charge_out co ON co.user_id = s.user_id
      WHERE (${one}::uuid IS NULL OR s.job_id = ${one}::uuid)
-     GROUP BY s.job_id, s.user_id, u.name, mc.base_cost_pence, mc.on_cost_pence
+     GROUP BY s.job_id, s.user_id, u.name, mc.base_cost_pence, mc.on_cost_pence, co.charge_out_pence
      ORDER BY u.name`;
   // Before anyone logs time, quoted labour is costed at the team's average cost rate.
   const [avg] = await tx<{ avg: string | null }[]>`
@@ -205,13 +208,18 @@ export async function jobProfits(
   for (const p of people) {
     const minutes = n(p.minutes);
     const costRate = p.costRate === null ? null : n(p.costRate);
+    // Each person's own charge-out rate (else the business rate); with no cost rate set, their time
+    // is costed at it, as before.
+    const chargeOutRatePence = chargeOutFor(p.chargeOut === null ? null : n(p.chargeOut), rate);
     const row: LabourCostRow = {
       userId: p.userId,
       name: p.name,
       minutes,
-      ratePence: costRate ?? rate,
+      ratePence: costRate ?? chargeOutRatePence,
       rateIsDefault: costRate === null,
-      costPence: personLabourCost(minutes, costRate, rate),
+      costPence: personLabourCost(minutes, costRate, chargeOutRatePence),
+      chargeOutRatePence,
+      chargeOutPence: labourValue(minutes, chargeOutRatePence),
     };
     labour.set(p.jobId, [...(labour.get(p.jobId) ?? []), row]);
   }
@@ -226,7 +234,7 @@ export async function jobProfits(
         labourPence,
         materialsCostPence: n(r.materials),
       };
-      const chargeOutPence = labourValue(minutes, rate);
+      const chargeOutPence = rows.reduce((t, x) => t + x.chargeOutPence, 0);
       const invoicedPence = n(r.invoiced);
       return {
         jobId: r.jobId,

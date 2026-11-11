@@ -541,6 +541,7 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 27. Offline: a new customer created with no signal can't have a quote or job until it syncs. OK for now?
 
 ## Next session, top priority (Joe, 11 Nov 2026)
+
 1. Per-person charge-out rates (default £45/h, editable per person); used in job costing, quotes, Reports and CSV.
 2. Admin-controlled visibility (Tradify-style): a master admin sets, per person, which areas they can see (financials, accounts, reports, costs/profit, etc.). Enforce on the API, not just by hiding things in the UI; add tests per permission.
 3. Two-way calendar sync with Google Calendar and Outlook (Joe asked 11 Nov 2026); after 1 and 2.

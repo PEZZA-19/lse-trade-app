@@ -178,12 +178,12 @@ export function ReportsScreen() {
 
           <Section
             header="Profit per Job"
-            footer={`Expected profit = the quote (ex VAT) − expected costs: quoted labour and materials at cost, or what has already been spent if that is more. So far = invoiced (ex VAT, less credit notes) − labour at each person’s cost rate − materials at cost, so a job in progress never counts its whole quote. A job without a quote expects its lines plus time at ${rate}/h. Whole jobs, not just this period.`}
+            footer={`Expected profit = the quote (ex VAT) − expected costs: quoted labour and materials at cost, or what has already been spent if that is more. So far = invoiced (ex VAT, less credit notes) − labour at each person’s cost rate − materials at cost, so a job in progress never counts its whole quote. A job without a quote expects its lines plus time at each person’s charge-out rate (${rate}/h unless set in Settings › Team). Whole jobs, not just this period.`}
           >
             {missing > 0 && (
               <p className="readiness" role="note">
                 {missing === 1 ? '1 person has' : `${missing} people have`} no cost rate, so their
-                time is costed at the {rate}/h charge-out rate.{' '}
+                time is costed at their charge-out rate.{' '}
                 <Link to="/settings">Set cost rates in Settings › Team</Link>
               </p>
             )}

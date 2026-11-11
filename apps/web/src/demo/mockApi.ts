@@ -172,6 +172,8 @@ interface Db {
   billing?: BillingDb;
   inbox?: InboxDb;
   team?: TeamDb;
+  /** Own charge-out rates per person (pence/h). */
+  chargeOut?: Record<string, number>;
   jobDetail?: JobDetailDb;
 }
 type DemoSettings = Omit<SettingsDto, 'sequences'> & {
@@ -541,6 +543,7 @@ function billingCtx(): BillingCtx {
     uid,
     now,
     userName: DEMO_USER.name,
+    chargeOutRate: (uid) => db!.chargeOut?.[uid ?? DEMO_USER.id] ?? S().labourRatePence,
     settings: () => S(),
     readiness: () => readiness(settingsDto()),
     job: (id) => {
@@ -657,6 +660,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       return t ? costRate(t.base, t.on) : null;
     },
     labourRatePence: S().labourRatePence,
+    chargeOut: (uid) => db!.chargeOut?.[uid] ?? null,
     markupBp: S().defaultMarkupBp,
     today: billingToday(),
   });
@@ -667,7 +671,14 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
   if (method === 'GET' && a === 'jobs' && sub === 'costing')
     return demoJobCosting(reportsCtx(), id!);
   const teamResult = teamRoute(
-    { team, members: MEMBERS, labourRatePence: S().labourRatePence, parse, fail },
+    {
+      team,
+      chargeOut: (db!.chargeOut ??= {}),
+      members: MEMBERS,
+      labourRatePence: S().labourRatePence,
+      parse,
+      fail,
+    },
     method,
     seg,
     body,

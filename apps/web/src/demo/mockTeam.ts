@@ -1,4 +1,10 @@
-import { costRate, memberCostUpdate, resolveOnCost, type TeamMemberDto } from '@lse/shared';
+import {
+  chargeOutUpdate,
+  costRate,
+  memberCostUpdate,
+  resolveOnCost,
+  type TeamMemberDto,
+} from '@lse/shared';
 import type { z } from 'zod';
 
 /** `on` is always the £/h amount; `bp` is set in percent mode (older saved demos have neither: fixed). */
@@ -13,6 +19,8 @@ export const freshTeam = (ids: string[]): TeamDb =>
 
 export interface TeamCtx {
   team: TeamDb;
+  /** Own charge-out rates (pence/h); missing = the business labour rate. */
+  chargeOut: Record<string, number>;
   members: { userId: string; name: string; role: string }[];
   labourRatePence: number;
   parse: <S extends z.ZodType>(schema: S, data: unknown) => z.output<S>;
@@ -26,7 +34,8 @@ export function teamList(c: TeamCtx): TeamMemberDto[] {
       userId: m.userId,
       name: m.name,
       role: m.role,
-      chargeOutPence: c.labourRatePence,
+      chargeOutPence: c.chargeOut[m.userId] ?? c.labourRatePence,
+      chargeOutIsDefault: c.chargeOut[m.userId] === undefined,
       baseCostPence: t ? t.base : null,
       onCostPence: t ? t.on : null,
       onCostMode: t ? (t.mode ?? 'fixed') : null,
@@ -41,6 +50,15 @@ export function teamList(c: TeamCtx): TeamMemberDto[] {
 export function teamRoute(c: TeamCtx, method: string, seg: string[], body: unknown): unknown {
   if (seg[0] !== 'team') return undefined;
   if (method === 'GET' && seg.length === 1) return teamList(c);
+  if (method === 'PUT' && seg[2] === 'charge-out') {
+    const id = seg[1]!;
+    if (!c.members.some((m) => m.userId === id))
+      c.fail(422, 'validation', 'That person is not part of this business');
+    const { chargeOutPence } = c.parse(chargeOutUpdate, body ?? null);
+    if (chargeOutPence === null) delete c.chargeOut[id];
+    else c.chargeOut[id] = chargeOutPence;
+    return teamList(c).find((t) => t.userId === id);
+  }
   if (method === 'PUT' && seg[2] === 'cost') {
     const id = seg[1]!;
     if (!c.members.some((m) => m.userId === id))

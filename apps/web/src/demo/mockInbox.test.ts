@@ -145,6 +145,25 @@ describe('demo team cost rates', () => {
     expect(fixed).toMatchObject({ onCostMode: 'fixed', onCostBp: null, costRatePence: 2300 });
   });
 
+  it('per-person charge-out: default £45, own rate set and cleared, used for job costing', async () => {
+    const team = await get<TeamMemberDto[]>('/team');
+    const sam = team[1]!;
+    expect(sam).toMatchObject({ chargeOutPence: 4500, chargeOutIsDefault: true });
+    const set = await handle('PUT', `/team/${sam.userId}/charge-out`, { chargeOutPence: 6000 });
+    expect(set).toMatchObject({ chargeOutPence: 6000, chargeOutIsDefault: false });
+    const cleared = await handle('PUT', `/team/${sam.userId}/charge-out`, { chargeOutPence: null });
+    expect(cleared).toMatchObject({ chargeOutPence: 4500, chargeOutIsDefault: true });
+    // The demo owner's own rate changes the charge-out value of their time on job 122.
+    const jobs = await get<{ items: { id: string; number: string }[] }>('/jobs');
+    const j = jobs.items.find((x) => x.number === '122')!;
+    const before = await get<{ profit: { chargeOutPence: number; minutes: number } }>(
+      `/jobs/${j.id}/costing`,
+    );
+    await handle('PUT', `/team/${team[0]!.userId}/charge-out`, { chargeOutPence: 9000 });
+    const after = await get<{ profit: { chargeOutPence: number } }>(`/jobs/${j.id}/costing`);
+    expect(after.profit.chargeOutPence).toBeGreaterThan(before.profit.chargeOutPence);
+  });
+
   it('seeds placeholder cost rates, saves real ones, and profit uses them', async () => {
     const team = await get<TeamMemberDto[]>('/team');
     expect(team.map((t) => [t.name, t.costRatePence, t.isPlaceholder])).toEqual([

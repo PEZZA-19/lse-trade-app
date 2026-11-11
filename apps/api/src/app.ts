@@ -39,6 +39,7 @@ import {
   proposalEdit,
   reportQuery,
   memberCostUpdate,
+  chargeOutUpdate,
   timesheetCreate,
   timesheetUpdate,
   jobLineCreate,
@@ -889,6 +890,14 @@ export function createApp(deps: AppDeps) {
     const userId = parse(z.uuid(), c.req.param('userId'));
     const input = parse(memberCostUpdate, await jsonBody(c.req));
     return c.json(await c.var.tx((tx) => team.setMemberCost(tx, c.var.auth, userId, input)));
+  });
+  app.put('/api/team/:userId/charge-out', async (c) => {
+    const userId = c.req.param('userId');
+    if (!/^[0-9a-f-]{36}$/i.test(userId)) throw notFound('Person');
+    const { chargeOutPence } = parse(chargeOutUpdate, await jsonBody(c.req));
+    return c.json(
+      await c.var.tx((tx) => team.setChargeOut(tx, c.var.auth, userId, chargeOutPence)),
+    );
   });
   app.get('/api/jobs/:id/costing', async (c) => {
     const id = uuidParam(c);

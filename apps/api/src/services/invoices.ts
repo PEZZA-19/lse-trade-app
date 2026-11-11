@@ -1,4 +1,5 @@
 import {
+  chargeOutFor,
   DEFAULT_INVOICE_TERMS,
   addDaysIso,
   displayStatus,
@@ -276,7 +277,13 @@ async function quoteState(tx: Tx, job: JobRow) {
 }
 
 interface Unbilled {
-  timesheets: { id: string; startedAt: Date; minutes: number; userName: string }[];
+  timesheets: {
+    id: string;
+    startedAt: Date;
+    minutes: number;
+    userName: string;
+    chargeOutPence: number | null;
+  }[];
   lines: {
     id: string;
     kind: InvoiceLineKind;
@@ -289,9 +296,10 @@ interface Unbilled {
 
 async function unbilled(tx: Tx, jobId: string): Promise<Unbilled> {
   const timesheets = await tx<Unbilled['timesheets']>`
-    SELECT t.id, t.started_at, u.name AS user_name,
+    SELECT t.id, t.started_at, u.name AS user_name, co.charge_out_pence::int AS charge_out_pence,
            greatest(1, round(extract(epoch FROM (t.ended_at - t.started_at)) / 60))::int AS minutes
       FROM timesheets t JOIN users u ON u.id = t.user_id
+      LEFT JOIN member_charge_out co ON co.user_id = t.user_id
      WHERE t.job_id = ${jobId} AND t.invoice_id IS NULL AND t.ended_at IS NOT NULL
      ORDER BY t.started_at`;
   const lines = await tx<
@@ -379,7 +387,8 @@ export async function createInvoice(
         kind: 'labour',
         description: `Labour ${dayLabel(ts.startedAt, settings.timezone)} – ${ts.userName} (${h ? `${h} h ` : ''}${m} min)`,
         qtyMilli: Math.round((ts.minutes * 1000) / 60),
-        unitPricePence: settings.labourRatePence,
+        // Each person's own charge-out rate, else the business labour rate.
+        unitPricePence: chargeOutFor(ts.chargeOutPence, settings.labourRatePence),
         taxRateBp: tax,
       });
     }
@@ -663,7 +672,7 @@ export async function jobInvoicing(tx: Tx, jobId: string): Promise<JobInvoicingD
   const labour = invoiceTotals(
     u.timesheets.map((t) => ({
       qtyMilli: Math.round((t.minutes * 1000) / 60),
-      unitPricePence: settings.labourRatePence,
+      unitPricePence: chargeOutFor(t.chargeOutPence, settings.labourRatePence),
       taxRateBp: 0,
     })),
   ).subtotalPence;

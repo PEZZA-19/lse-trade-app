@@ -7,7 +7,8 @@ test('owner sets a cost rate (base + on-costs) in Settings › Team; job and rep
   const team = page.getByRole('list', { name: 'Team' });
   await team.getByRole('button', { name: /Joe/ }).click();
   const sheet = page.getByRole('dialog', { name: 'Joe' });
-  await expect(sheet).toContainText('£45.00/h');
+  const rate = sheet.getByLabel('Charge-out rate', { exact: true });
+  await expect(rate).toHaveAttribute('placeholder', '45.00 (default)');
   await sheet.getByLabel('Base cost', { exact: true }).fill('20.00');
   // Fixed £ per hour.
   await sheet.getByRole('button', { name: '£/h', exact: true }).click();
@@ -33,7 +34,16 @@ test('owner sets a cost rate (base + on-costs) in Settings › Team; job and rep
     'true',
   );
   await expect(sheet.getByLabel('Tax and on-costs (%)')).toHaveValue('22.5');
-  await page.keyboard.press('Escape');
+  // Joe's own charge-out rate: £50/h leaves £25.50 over his £24.50 cost.
+  await rate.fill('50.00');
+  await expect(sheet.getByText('£25.50')).toBeVisible();
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(team.getByRole('button', { name: /Joe/ })).toContainText('charge-out £50.00/h');
+  // Back to the business rate.
+  await team.getByRole('button', { name: /Joe/ }).click();
+  await rate.fill('');
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(team.getByRole('button', { name: /Joe/ })).toContainText('charge-out £45.00/h');
 
   await page.goto('/jobs');
   await page.getByText('Barn rewire and LED lighting').click();
