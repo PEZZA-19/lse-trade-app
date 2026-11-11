@@ -5,6 +5,8 @@ import { createApp } from './app';
 import { createSql } from './db/client';
 import { APP_URL } from './env';
 import { ConsoleMailer } from './lib/mailer';
+import { AiGateway } from './ai/gateway';
+import { FakeProvider } from './ai/fake';
 
 // Same file Wrangler reads for local vars.
 if (existsSync('.dev.vars')) {
@@ -42,6 +44,8 @@ const app = createApp({
       : {}),
   },
   corsOrigins: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  // Local development never calls a real model: the deterministic fake drafts instead.
+  ai: new AiGateway(new FakeProvider()),
 });
 
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {

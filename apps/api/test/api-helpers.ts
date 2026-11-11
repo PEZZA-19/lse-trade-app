@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createApp } from '../src/app';
+import { AiGateway } from '../src/ai/gateway';
+import { FakeProvider } from '../src/ai/fake';
 import { DEFAULT_ORIGIN, signIn, type SessionClient } from '../src/dev/session-client';
 import { ConsoleMailer } from '../src/lib/mailer';
 import { appSql, newTenant } from './helpers';
@@ -20,6 +22,8 @@ export interface Client {
 /** Captures sign-in links instead of emailing them. */
 export const mailer = new ConsoleMailer(() => {});
 const generous = { max: 10_000, windowSeconds: 60 };
+/** The deterministic stand-in model; no test ever calls a real one. */
+export const fakeAi = new FakeProvider();
 export const app = createApp({
   getSql: () => appSql,
   auth: {
@@ -27,6 +31,7 @@ export const app = createApp({
     appOrigin: DEFAULT_ORIGIN,
     rateLimits: { linkPerIp: generous, verifyPerIp: generous },
   },
+  ai: new AiGateway(fakeAi),
 });
 
 export async function toResult(res: Response) {

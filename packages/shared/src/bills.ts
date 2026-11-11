@@ -306,3 +306,10 @@ export interface BillApplyResultDto {
   /** Lines with no price-list item: they still count as costs, the list isn't changed. */
   notOnPriceList: number;
 }
+
+/** Text of a PDF no built-in reader knows, sent for the AI helper to draft (never saved as-is). */
+export const billReadRequest = z.object({
+  text: z.string().trim().min(1, 'The PDF has no text to read').max(60_000),
+  fileName: optional(200),
+});
+export type BillReadRequest = z.input<typeof billReadRequest>;

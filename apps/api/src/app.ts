@@ -30,6 +30,7 @@ import {
   billApply,
   billCreate,
   billUpdate,
+  billReadRequest,
   supplierInput,
   supplierUpdate,
   type ApiErrorBody,
@@ -55,6 +56,8 @@ import * as invoices from './services/invoices';
 import * as documents from './services/documents';
 import * as bills from './services/bills';
 import * as creditNotes from './services/creditNotes';
+import * as billRead from './services/billRead';
+import { AiGateway } from './ai/gateway';
 
 export interface AppDeps {
   /** Returns a Postgres client for this request (a shared pool in Node, per-request on Workers). */
@@ -62,6 +65,8 @@ export interface AppDeps {
   /** Magic-link sign-in, sessions and CSRF (see auth.ts). */
   auth: AuthConfig;
   corsOrigins?: string[];
+  /** Model calls (drafts only). Absent: AI helpers are off and say so. */
+  ai?: AiGateway;
 }
 
 /** `If-Match: 7` or `If-Match: "7"` -> 7. Absent means "don't check" (online edits from the latest copy). */
@@ -82,6 +87,7 @@ const uuidParam = (c: Context, name = 'id'): string => {
 
 export function createApp(deps: AppDeps) {
   const app = new Hono<AppEnv>();
+  const ai = deps.ai ?? new AiGateway(null);
 
   app.onError((err, c) => {
     if (err instanceof AppError) {
@@ -642,6 +648,13 @@ export function createApp(deps: AppDeps) {
     const id = uuidParam(c);
     await c.var.tx((tx) => bills.deleteBill(tx, c.var.auth, id));
     return c.body(null, 204);
+  });
+  // AI fallback for PDFs the built-in readers don't know: returns a draft to review, saves nothing.
+  app.post('/api/supplier-bills/read', async (c) => {
+    const input = parse(billReadRequest, await jsonBody(c.req));
+    const result = await c.var.tx((tx) => billRead.readBillWithAi(tx, c.var.auth, ai, input));
+    // 200 either way, so the call log commits; ok: false carries the reason.
+    return c.json(result);
   });
   // Owner decision with a preview first: dryRun (the default) changes nothing.
   app.post('/api/supplier-bills/:id/apply', async (c) => {

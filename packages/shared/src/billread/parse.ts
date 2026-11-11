@@ -169,7 +169,11 @@ export function expectedLineTotal(qtyMilli: number, unitPence: Pence, discountBp
 
 const money = (p: Pence) => `£${(p / 100).toFixed(2)}`;
 
-function finish(bill: Omit<ReadBill, 'linesSumPence' | 'adds' | 'problems'>, extra: string[] = []) {
+/** Checks a bill's arithmetic and fills in its problems. Used by every reader, AI included. */
+export function finishReadBill(
+  bill: Omit<ReadBill, 'linesSumPence' | 'adds' | 'problems'>,
+  extra: string[] = [],
+): ReadBill {
   const problems = [...extra];
   bill.lines.forEach((l, i) => {
     const want = expectedLineTotal(l.qtyMilli, l.unitPricePence, l.discountBp);
@@ -275,7 +279,7 @@ function readCef(pages: PageText[]): ReadBill[] {
     };
     // CEF prints settlement terms ("Settlement thirty days") rather than a due date.
     const thirty = all.some((l) => /Settlement thirty days/i.test(l.text));
-    return finish(
+    return finishReadBill(
       {
         parser: 'cef',
         supplier: 'CEF',
@@ -366,7 +370,7 @@ function readDoci(pages: PageText[]): ReadBill[] {
     const credit = all.some(
       (l) => /C\s?R\s?E\s?D\s?I\s?T/.test(l.text) && /N\s?O\s?T\s?E/.test(l.text),
     );
-    return finish(
+    return finishReadBill(
       {
         parser: 'doci',
         supplier: 'DOCI',
