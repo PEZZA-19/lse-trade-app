@@ -316,6 +316,27 @@ Tests now: shared 127 (+1 local-only skipped), API 182, web 49, e2e 30 mobile + 
 setup), all passing. New screenshots: `53`–`58` (team cost rate, job detail time/material/notes/photos,
 quote vs actual), `59-offline-create` (mobile light/dark, taken from the real stack).
 
+### Done (session 3, 11 Nov evening: charge-out per person, admin access)
+
+- **Charge-out rate per person** (Q22): Settings › Team › person has an editable charge-out rate next to
+  the cost rate. Empty = the business labour rate (£45/h), so existing data is unchanged (migration
+  0018, no row = default). Job costing, Quote vs Actual, Reports, the CSV and time-and-materials
+  invoice lines use each person's own rate.
+- **Admin-controlled access (Tradify-style)**: Settings › Access (admins only) lists everyone with a
+  preset (Admin, Office, Field worker, Subcontractor, or Custom) and per-area switches: Accounts
+  (invoices, credit notes, supplier bills, statements, payments, suppliers), Reports and profit
+  (incl. Quote vs Actual), Cost rates, Quotes and pricing (quotes, price list, kits), Settings.
+  Enforced by the API for every route in an area (403 `no_access`), not only hidden: menus, Home's
+  "New quote", the job's invoicing and Quote vs Actual sections follow it, and a shared link shows a
+  "No access" screen. The owner is always an admin; there is always at least one admin. Only admins
+  change access and rates (`admin_only`). Defaults keep today's behaviour: staff and accountants =
+  Office (accounts, quotes, settings view), subcontractors = Field worker (jobs, schedule, own time).
+  Migration 0019 (no row = the role's default). Screenshot `60-settings-access` (and `54` refreshed with the charge-out field).
+
+Tests now: shared 129 (+1 local-only skipped), API 188, web 52, e2e 31 mobile + 1 skipped (incl.
+setup; new `access.spec`: Sam as Field worker sees no accounts/quotes/settings and gets "No access" on
+a link, then sees them once switched on), all passing.
+
 ### Review lessons applied
 
 From [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md):
@@ -539,6 +560,14 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 26. The credit-note sheet's placeholder reads "e.g. GUR/334230" (added in chunk 5). Is that a real CEF
     reference? If so we'll change it to an invented one.
 27. Offline: a new customer created with no signal can't have a quote or job until it syncs. OK for now?
+28. Charge-out per person: quote labour lines aren't tied to a person, so quotes still price labour
+    at the business rate (£45/h); the person's own rate is used once their time is logged (costing,
+    Reports, CSV, T&M invoices). Should a quote line be able to name who will do the work?
+29. Access: money and price decisions (approving invoices and bills, applying price updates, changing
+    settings) are still the owner's alone, even for other admins. Should other admins be able to make
+    them too?
+30. Access presets: Office = accounts, quotes and settings (view); Field worker and Subcontractor see
+    jobs, schedule, customers and their own time only. Is that right for Sam and any subcontractors?
 
 ## Next session, top priority (Joe, 11 Nov 2026)
 

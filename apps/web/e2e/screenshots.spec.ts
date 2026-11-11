@@ -291,7 +291,7 @@ for (const vp of VIEWPORTS) {
       const accessSheet = page.getByRole('dialog', { name: 'Sam Spark' });
       await accessSheet.getByRole('button', { name: 'Field worker', exact: true }).click();
       await expect(accessSheet.getByRole('switch', { name: /Accounts/ })).not.toBeChecked();
-      await shot(page, '59-settings-access', vp.name, scheme);
+      await shot(page, '60-settings-access', vp.name, scheme);
       await page.keyboard.press('Escape');
       await page.goto('/jobs');
       await page.getByText('Barn rewire and LED lighting').click();
