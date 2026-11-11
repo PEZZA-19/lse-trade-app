@@ -22,6 +22,7 @@ import {
   priceItemKey,
   priceItemUpdate,
   priceRowsFromCsv,
+  importChanges,
   statusAfterPayment,
   type InvoiceDetailDto,
   type InvoiceLineKind,
@@ -213,7 +214,8 @@ function applyPatches(
       c.fail(422, 'validation_failed', `Code "${next.code}" is already on the price list`, {
         fields: { code: 'Already used' },
       });
-    Object.assign(item, next, { updatedAt: c.now() });
+    const defined = Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined));
+    Object.assign(item, defined, { updatedAt: c.now() });
     if (next.unitCostPence !== undefined && next.unitCostPence !== old)
       history(c, item.id, old, next.unitCostPence, source, reference);
   }
@@ -264,7 +266,7 @@ function matcher(c: BillingCtx) {
 }
 
 function importCsv(c: BillingCtx, csv: string, apply: boolean): PriceImportResultDto {
-  const { rows, errors } = priceRowsFromCsv(csv);
+  const { rows, errors, columns } = priceRowsFromCsv(csv);
   if (apply && errors.length && !rows.length)
     c.fail(422, 'validation_failed', errors[0]!.message, { errors });
   const snapshot = apply ? null : JSON.stringify(c.b);
@@ -278,14 +280,7 @@ function importCsv(c: BillingCtx, csv: string, apply: boolean): PriceImportResul
       created.push(item);
       continue;
     }
-    const next: Partial<PriceItem> = {};
-    if (ex.unitCostPence !== item.unitCostPence) next.unitCostPence = item.unitCostPence;
-    if (ex.markupBp !== item.markupBp) next.markupBp = item.markupBp;
-    if (ex.sellPricePence !== item.sellPricePence) next.sellPricePence = item.sellPricePence;
-    if (ex.unit !== item.unit) next.unit = item.unit;
-    if (item.supplier && ex.supplier !== item.supplier) next.supplier = item.supplier;
-    if (item.code && ex.description !== item.description) next.description = item.description;
-    if (!ex.isActive) next.isActive = true;
+    const next = importChanges(ex, item, columns);
     if (Object.keys(next).length) patches.push({ item: ex, next, row });
     else unchanged += 1;
   }

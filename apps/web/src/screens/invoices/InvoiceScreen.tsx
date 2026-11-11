@@ -388,7 +388,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
       >
         <p>Delete this draft? Any time it included goes back to unbilled. No number is used.</p>
       </ConfirmSheet>
-      {isOwner && <PaymentSheet open={paying} invoice={inv} onClose={() => setPaying(false)} />}
+      {isOwner && paying && <PaymentSheet open invoice={inv} onClose={() => setPaying(false)} />}
       {editing !== null && (
         <InvoiceLineSheet
           open

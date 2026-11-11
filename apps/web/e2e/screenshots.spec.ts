@@ -17,6 +17,7 @@ async function shot(page: Page, name: string, vp: string, scheme: string) {
 for (const vp of VIEWPORTS) {
   for (const scheme of SCHEMES) {
     test(`${vp.name} ${scheme}`, async ({ browser }) => {
+      test.setTimeout(240_000); // 33 screens per pass
       const ctx = await browser.newContext({
         viewport: { width: vp.width, height: vp.height },
         deviceScaleFactor: vp.scale,
@@ -95,6 +96,76 @@ for (const vp of VIEWPORTS) {
       await page.goto('/more');
       await expect(page.getByRole('heading', { name: 'More', level: 1 })).toBeVisible();
       await shot(page, '19-more', vp.name, scheme);
+
+      // Invoices (More → Invoices, and on the job).
+      await page
+        .getByRole('main')
+        .getByRole('link', { name: /Invoices/ })
+        .click();
+      await expect(page.getByRole('heading', { name: 'Invoices', level: 1 })).toBeVisible();
+      await page.getByRole('button', { name: 'All', exact: true }).click();
+      await expect(page.getByRole('link', { name: /Invoice 122\b/ })).toBeVisible();
+      await shot(page, '20-invoices', vp.name, scheme);
+      await page.getByRole('link', { name: /Draft · job 122/ }).click();
+      await expect(page.getByRole('heading', { name: 'Draft Invoice' })).toBeVisible();
+      await shot(page, '21-invoice-draft', vp.name, scheme);
+      await page.getByRole('button', { name: 'Approve Invoice…' }).click();
+      await expect(page.getByRole('dialog', { name: 'Approve Invoice' })).toBeVisible();
+      await shot(page, '22-approve-confirm', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/invoices');
+      await page.getByRole('link', { name: /Coupée View Hotel/ }).click();
+      await expect(page.getByRole('button', { name: 'Record Payment…' })).toBeVisible();
+      await shot(page, '23-invoice-part-paid', vp.name, scheme);
+      await page.getByRole('button', { name: 'Record Payment…' }).click();
+      await expect(page.getByRole('dialog', { name: 'Record Payment' })).toBeVisible();
+      await shot(page, '24-payment-sheet', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/jobs');
+      await page.getByText('Barn rewire and LED lighting').click();
+      await page.getByRole('list', { name: 'Invoices for this job' }).scrollIntoViewIfNeeded();
+      await shot(page, '25-job-invoices', vp.name, scheme);
+      await page.getByRole('button', { name: 'New invoice…' }).click();
+      await expect(page.getByRole('dialog', { name: 'New Invoice' })).toBeVisible();
+      await shot(page, '26-new-invoice-sheet', vp.name, scheme);
+      await page.keyboard.press('Escape');
+
+      // Price list, import and kits.
+      await page.goto('/price-list');
+      await expect(page.getByRole('heading', { name: 'Price List', level: 1 })).toBeVisible();
+      await shot(page, '27-price-list', vp.name, scheme);
+      await page.getByText('2.5mm twin & earth cable').click();
+      await expect(page.getByRole('list', { name: 'Price history' })).toBeVisible();
+      await shot(page, '28-price-item', vp.name, scheme);
+      await page.goto('/price-list');
+      await page.getByRole('button', { name: 'Import' }).click();
+      const imp = page.getByRole('dialog', { name: 'Import Price List' });
+      await imp
+        .getByRole('textbox', { name: 'CSV' })
+        .fill(
+          'Code,Description,Unit,Supplier,Cost\nSKT2,Double switched socket,each,Island Electrical (demo),3.45\nFSP13,Fused spur 13A,each,Island Electrical (demo),4.20\nBAD,Broken row,each,,n/a\n',
+        );
+      await imp.getByRole('button', { name: 'Preview' }).click();
+      await expect(imp.getByText('Nothing is saved yet')).toBeVisible();
+      await shot(page, '29-import-preview', vp.name, scheme);
+      await page.keyboard.press('Escape');
+      await page.goto('/kits');
+      await expect(page.getByRole('heading', { name: 'Kits', level: 1 })).toBeVisible();
+      await shot(page, '30-kits', vp.name, scheme);
+      await page.getByText('Double socket on new radial').click();
+      await expect(page.getByRole('list', { name: 'Kit cost changes' })).toBeVisible();
+      await shot(page, '31-kit-detail', vp.name, scheme);
+      await page.getByRole('list', { name: 'Kit cost changes' }).scrollIntoViewIfNeeded();
+      await shot(page, '31b-kit-cost-changes', vp.name, scheme);
+      await page.goto('/quotes');
+      await page.getByText('Extra kitchen sockets').click();
+      await expect(page.getByText(/Kit price now/)).toBeVisible();
+      await page.getByRole('list', { name: 'Quote lines' }).scrollIntoViewIfNeeded();
+      await shot(page, '32-quote-kit', vp.name, scheme);
+      await page.getByRole('button', { name: /Double socket on new radial/ }).click();
+      await expect(page.getByRole('dialog', { name: 'Double socket on new radial' })).toBeVisible();
+      await shot(page, '33-kit-line-sheet', vp.name, scheme);
+      await page.keyboard.press('Escape');
 
       await page.goto('/settings');
       await expect(page.getByLabel('Labour rate (£/hr)')).toHaveValue('45.00');

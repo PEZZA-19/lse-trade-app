@@ -117,6 +117,43 @@ describe('price list', () => {
   });
 });
 
+describe('partial updates', () => {
+  it('a cost-only edit keeps code, supplier, unit and markup', async () => {
+    const c = await client();
+    const { socket } = await stock(c);
+    const r = await c.req('PATCH', `/api/price-list/${socket.id}`, { unitCostPence: 345 });
+    expect(r.body).toMatchObject({
+      code: 'SKT2',
+      supplier: 'Island Electrical',
+      unit: 'each',
+      markupBp: 15000,
+      unitCostPence: 345,
+    });
+  });
+  it('a CSV without Markup/Unit/Sell columns leaves those alone', async () => {
+    const c = await client();
+    const { socket, box } = await stock(c);
+    await c.req('POST', '/api/price-list/import', {
+      apply: true,
+      csv: 'Code,Description,Cost\nSKT2,Double socket,3.45\n',
+    });
+    expect((await c.req('GET', `/api/price-list/${socket.id}`)).body).toMatchObject({
+      markupBp: 15000,
+      unitCostPence: 345,
+      supplier: 'Island Electrical',
+    });
+    // Matched on supplier + description; sell override kept.
+    await c.req('POST', '/api/price-list/import', {
+      apply: true,
+      csv: 'Supplier,Description,Cost\nSarnia Supplies,Back box 35mm,0.60\n',
+    });
+    expect((await c.req('GET', `/api/price-list/${box.id}`)).body).toMatchObject({
+      unitCostPence: 60,
+      sellPricePence: 125,
+    });
+  });
+});
+
 describe('CSV import', () => {
   const csv = [
     'Code,Description,Unit,Supplier,Cost,Markup,Sell',

@@ -185,3 +185,35 @@ describe('kits on quotes', () => {
     expect(kitPriceChanged({ costPence: 1, sellPence: 2 }, undefined)).toBe(false);
   });
 });
+
+import { importChanges, priceItemUpdate } from '../src/pricelist';
+
+describe('updates never blank what was not sent', () => {
+  it('priceItemUpdate leaves absent fields undefined', () => {
+    expect(priceItemUpdate.parse({ unitCostPence: 112 })).toEqual({ unitCostPence: 112 });
+    expect(priceItemUpdate.parse({ code: '', supplier: null })).toEqual({
+      code: null,
+      supplier: null,
+    });
+  });
+  it('an import only changes the columns the file has', () => {
+    const existing = {
+      code: 'SKT2',
+      description: 'Double socket',
+      unit: 'each',
+      supplier: 'Island',
+      unitCostPence: 310,
+      markupBp: 15000,
+      sellPricePence: null,
+      isActive: true,
+    };
+    const row = { ...existing, unit: 'each', supplier: null, unitCostPence: 345, markupBp: null };
+    expect(importChanges(existing, row, ['code', 'description', 'cost'])).toEqual({
+      unitCostPence: 345,
+    });
+    expect(importChanges(existing, row, ['code', 'description', 'cost', 'markup'])).toEqual({
+      unitCostPence: 345,
+      markupBp: null,
+    });
+  });
+});

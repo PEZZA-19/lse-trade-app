@@ -33,7 +33,25 @@ export const priceItemInput = z.object({
 });
 export type PriceItemInput = z.input<typeof priceItemInput>;
 export type PriceItem = z.output<typeof priceItemInput>;
-export const priceItemUpdate = priceItemInput.partial();
+/** For PATCH: a field that isn't sent is left alone (no defaults, no blanking). */
+const keep = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v || null));
+export const priceItemUpdate = z.object({
+  code: keep(60),
+  description: text(300).min(1, 'Description is required').optional(),
+  unit: text(20).min(1).optional(),
+  supplier: keep(100),
+  unitCostPence: money.optional(),
+  markupBp: z.number().int().min(10000).max(100000).nullable().optional(),
+  sellPricePence: money.nullable().optional(),
+  isActive: z.boolean().optional(),
+});
 export type PriceItemUpdate = z.input<typeof priceItemUpdate>;
 
 export const kitInput = z.object({
@@ -364,7 +382,8 @@ export interface CsvRowError {
   message: string;
 }
 
-type Column = 'code' | 'description' | 'unit' | 'supplier' | 'cost' | 'markup' | 'sell';
+export type CsvColumn = 'code' | 'description' | 'unit' | 'supplier' | 'cost' | 'markup' | 'sell';
+type Column = CsvColumn;
 const HEADERS: Record<Column, string[]> = {
   code: ['code', 'sku', 'item code', 'product code', 'part number', 'part no'],
   description: ['description', 'item', 'name', 'product'],
@@ -390,10 +409,13 @@ export function parseMarkup(input: string): number | null {
 export function priceRowsFromCsv(text: string): {
   rows: { row: number; item: PriceItem }[];
   errors: CsvRowError[];
+  /** Columns the file has: an absent column never changes an existing item. */
+  columns: CsvColumn[];
 } {
   const table = parseCsv(text);
   const errors: CsvRowError[] = [];
-  if (!table.length) return { rows: [], errors: [{ row: 1, message: 'The file is empty' }] };
+  if (!table.length)
+    return { rows: [], errors: [{ row: 1, message: 'The file is empty' }], columns: [] };
   const header = table[0]!.map((h) => h.trim().toLowerCase());
   const col = {} as Record<Column, number>;
   for (const key of Object.keys(HEADERS) as Column[]) {
@@ -403,6 +425,7 @@ export function priceRowsFromCsv(text: string): {
     return {
       rows: [],
       errors: [{ row: 1, message: 'Needs at least "Description" and "Cost" columns' }],
+      columns: [],
     };
   }
   const rows: { row: number; item: PriceItem }[] = [];
@@ -452,7 +475,30 @@ export function priceRowsFromCsv(text: string): {
     seen.add(key);
     rows.push({ row, item: parsed.data });
   });
-  return { rows, errors };
+  const columns = (Object.keys(col) as Column[]).filter((k) => col[k] >= 0);
+  return { rows, errors, columns };
+}
+
+/**
+ * What an import row changes on an existing item. Only columns present in the file count, and
+ * blank supplier/code cells never clear a value.
+ */
+export function importChanges(
+  existing: PriceItem,
+  row: PriceItem,
+  columns: readonly CsvColumn[],
+): Partial<PriceItem> {
+  const has = (c: CsvColumn) => columns.includes(c);
+  const next: Partial<PriceItem> = {};
+  if (existing.unitCostPence !== row.unitCostPence) next.unitCostPence = row.unitCostPence;
+  if (has('markup') && existing.markupBp !== row.markupBp) next.markupBp = row.markupBp;
+  if (has('sell') && existing.sellPricePence !== row.sellPricePence)
+    next.sellPricePence = row.sellPricePence;
+  if (has('unit') && existing.unit !== row.unit) next.unit = row.unit;
+  if (row.supplier && existing.supplier !== row.supplier) next.supplier = row.supplier;
+  if (row.code && existing.description !== row.description) next.description = row.description;
+  if (!existing.isActive) next.isActive = true;
+  return next;
 }
 
 /** Rows match existing items on code, else on supplier + description (case-insensitive). */

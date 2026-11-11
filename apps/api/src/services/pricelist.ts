@@ -3,6 +3,7 @@ import {
   kitTotals,
   priceItemKey,
   priceRowsFromCsv,
+  importChanges,
   type KitChangeSummary,
   type KitCostChangeDto,
   type KitDetailDto,
@@ -419,7 +420,7 @@ export async function importCsv(
   csv: string,
   apply: boolean,
 ): Promise<PriceImportResultDto> {
-  const { rows, errors } = priceRowsFromCsv(csv);
+  const { rows, errors, columns } = priceRowsFromCsv(csv);
   const run = async (t: Tx): Promise<PriceImportResultDto> => {
     const items = await t<ItemRow[]>`
       SELECT ${t.unsafe(ITEM_COLS)}, 0 AS kit_count FROM price_list_items i ORDER BY i.id FOR UPDATE`;
@@ -434,17 +435,15 @@ export async function importCsv(
         created.push(item);
         continue;
       }
-      const next: Partial<PriceItem> = {};
-      if (Number(existing.unitCostPence) !== item.unitCostPence)
-        next.unitCostPence = item.unitCostPence;
-      if (existing.markupBp !== item.markupBp) next.markupBp = item.markupBp;
-      const sell = existing.sellPricePence == null ? null : Number(existing.sellPricePence);
-      if (sell !== item.sellPricePence) next.sellPricePence = item.sellPricePence;
-      if (existing.unit !== item.unit) next.unit = item.unit;
-      if (item.supplier && existing.supplier !== item.supplier) next.supplier = item.supplier;
-      if (item.code && existing.description !== item.description)
-        next.description = item.description;
-      if (!existing.isActive) next.isActive = true;
+      const next = importChanges(
+        {
+          ...existing,
+          unitCostPence: Number(existing.unitCostPence),
+          sellPricePence: existing.sellPricePence == null ? null : Number(existing.sellPricePence),
+        },
+        item,
+        columns,
+      );
       if (!Object.keys(next).length) {
         unchanged += 1;
         continue;
