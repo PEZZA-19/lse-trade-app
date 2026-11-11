@@ -13,9 +13,6 @@ export const SYSTEM_STAGE_KEYS = [
 ] as const;
 export type SystemStageKey = (typeof SYSTEM_STAGE_KEYS)[number];
 
-/** System stages a business may rename or delete. The rest are fixed. */
-export const EDITABLE_SYSTEM_STAGES: readonly SystemStageKey[] = ['to_invoice', 'on_hold'];
-
 export const STAGE_COLOURS = [
   'grey',
   'blue',
@@ -29,6 +26,33 @@ export const STAGE_COLOURS = [
   'pink',
 ] as const;
 export type StageColour = (typeof STAGE_COLOURS)[number];
+
+/** What every new business starts with. Must match create_system_stages() in migration 0005 (tested). */
+export const SYSTEM_STAGE_DEFAULTS: readonly {
+  systemKey: SystemStageKey;
+  name: string;
+  colour: StageColour;
+  isActive: boolean;
+  sortOrder: number;
+}[] = [
+  { systemKey: 'unassigned', name: 'Unassigned', colour: 'grey', isActive: true, sortOrder: 10 },
+  { systemKey: 'assigned', name: 'Assigned', colour: 'indigo', isActive: true, sortOrder: 20 },
+  { systemKey: 'scheduled', name: 'Booked in', colour: 'blue', isActive: true, sortOrder: 30 },
+  {
+    systemKey: 'in_progress',
+    name: 'In Progress',
+    colour: 'orange',
+    isActive: true,
+    sortOrder: 40,
+  },
+  { systemKey: 'to_invoice', name: 'To Invoice', colour: 'purple', isActive: true, sortOrder: 50 },
+  { systemKey: 'complete', name: 'Complete', colour: 'green', isActive: false, sortOrder: 60 },
+  { systemKey: 'on_hold', name: 'On Hold', colour: 'yellow', isActive: true, sortOrder: 70 },
+  { systemKey: 'cancelled', name: 'Cancelled', colour: 'red', isActive: false, sortOrder: 80 },
+];
+
+/** System stages a business may rename or delete. The rest are fixed. */
+export const EDITABLE_SYSTEM_STAGES: readonly SystemStageKey[] = ['to_invoice', 'on_hold'];
 
 export const STAGE_CAUSES = [
   'created',

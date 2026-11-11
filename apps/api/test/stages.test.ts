@@ -3,6 +3,7 @@ import { appSql, addMember, adminSql, newTenant } from './helpers';
 import { client, clientFor, seedCustomer, type Client } from './api-helpers';
 import { withTenant } from '../src/db/client';
 import * as jobs from '../src/services/jobs';
+import { SYSTEM_STAGE_DEFAULTS } from '@lse/shared';
 
 const hourFromNow = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
 
@@ -30,6 +31,15 @@ describe('system stages', () => {
       'Cancelled',
     ]);
     const byKey = Object.fromEntries(r.body.map((s: { systemKey: string }) => [s.systemKey, s]));
+    expect(
+      r.body.map((s: Record<string, unknown>) => ({
+        systemKey: s.systemKey,
+        name: s.name,
+        colour: s.colour,
+        isActive: s.isActive,
+        sortOrder: s.sortOrder,
+      })),
+    ).toEqual(SYSTEM_STAGE_DEFAULTS); // the migration and the shared defaults agree
     expect(byKey.complete.isActive).toBe(false);
     expect(byKey.cancelled.isActive).toBe(false);
     expect(byKey.on_hold).toMatchObject({ canRename: true, canDelete: true });

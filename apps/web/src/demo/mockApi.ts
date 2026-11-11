@@ -10,6 +10,13 @@ import {
   customerUpdate,
   jobCreate,
   jobUpdate,
+  appointmentCreate,
+  autoStage,
+  canRenameStage,
+  jobStageCreate,
+  jobStageUpdate,
+  SYSTEM_STAGE_DEFAULTS,
+  EDITABLE_SYSTEM_STAGES,
   lineTotal,
   quoteAccept,
   quoteCreate,
@@ -30,7 +37,12 @@ import {
   type CustomerDto,
   type JobDetailDto,
   type JobLineDto,
-  type JobStatus,
+  type JobHistoryDto,
+  type JobStageDto,
+  type JobStageRef,
+  type StageCause,
+  type StageEvent,
+  type SystemStageKey,
   type JobSummaryDto,
   type QuoteDetailDto,
   type QuoteLineDto,
@@ -73,7 +85,7 @@ interface Job {
   id: string;
   number: string;
   seq: number;
-  status: JobStatus;
+  stageId: string;
   customerId: string;
   siteId: string | null;
   title: string;
@@ -85,6 +97,14 @@ interface Job {
   createdAt: string;
   updatedAt: string;
 }
+interface StageRow {
+  id: string;
+  systemKey: SystemStageKey | null;
+  name: string;
+  colour: JobStageRef['colour'];
+  isActive: boolean;
+  sortOrder: number;
+}
 interface Db {
   version: 1;
   seq: { quote: number; job: number };
@@ -93,6 +113,17 @@ interface Db {
   contacts: ContactDto[];
   quotes: Quote[];
   jobs: Job[];
+  stages: StageRow[];
+  history: (Omit<JobHistoryDto, 'toColour'> & { jobId: string; toStageId: string | null })[];
+  appointments: {
+    id: string;
+    jobId: string;
+    startsAt: string;
+    endsAt: string;
+    userId: string | null;
+  }[];
+  assignees: { jobId: string; userId: string; name: string }[];
+  timers: { jobId: string; running: boolean }[];
   /** Added after v1 shipped; filled in on load if missing. */
   settings?: DemoSettings;
 }
@@ -130,7 +161,7 @@ const S = () => (db!.settings ??= defaultSettings());
 const fmt = (kind: SequenceDto['kind'], value: number) =>
   formatDocNumber(S().numbering[kind].prefix, S().numbering[kind].padding, value);
 
-const KEY = 'lse-demo-db-v1';
+const KEY = 'lse-demo-db-v2'; // v2: job stages
 let db: Db | null = null;
 let seeding: Promise<void> | null = null;
 
@@ -210,12 +241,68 @@ function quoteDetail(q: Quote): QuoteDetailDto {
     current: { ...r, revisionLetter: revisionLetter(r.revision), lines, totals: revTotals(r) },
   };
 }
+const DEMO_USER = { id: 'demo-user', name: 'Joe' };
+const stageRow = (id: string) => db!.stages.find((s) => s.id === id) ?? notFound('Stage');
+const stageRef = (id: string): JobStageRef => {
+  const { sortOrder: _sortOrder, ...ref } = stageRow(id);
+  return ref;
+};
+const stageByKey = (k: SystemStageKey) =>
+  db!.stages.find((s) => s.systemKey === k) ??
+  fail(409, 'stage_missing', 'That stage has been removed in Settings.');
+const sortedStages = () =>
+  [...db!.stages].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+const stageDto = (s: StageRow): JobStageDto => ({
+  ...s,
+  isSystem: s.systemKey !== null,
+  canRename: canRenameStage(s.systemKey),
+  canDelete: s.systemKey === null || EDITABLE_SYSTEM_STAGES.includes(s.systemKey),
+  jobCount: db!.jobs.filter((j) => j.stageId === s.id).length,
+});
+/** Same as the API's moveJob: no-op if already there, otherwise move and write history. */
+function moveJob(j: Job, toId: string, cause: StageCause) {
+  if (j.stageId === toId) return;
+  const from = stageRow(j.stageId);
+  const to = stageRow(toId);
+  db!.history.push({
+    id: uid(),
+    jobId: j.id,
+    fromName: from.name,
+    toName: to.name,
+    toStageId: to.id,
+    cause,
+    userName: DEMO_USER.name,
+    createdAt: now(),
+  });
+  j.stageId = toId;
+  touch(j);
+}
+function recordCreated(j: Job, cause: 'created' | 'created_from_quote') {
+  const to = stageRow(j.stageId);
+  db!.history.push({
+    id: uid(),
+    jobId: j.id,
+    fromName: null,
+    toName: to.name,
+    toStageId: to.id,
+    cause,
+    userName: DEMO_USER.name,
+    createdAt: now(),
+  });
+}
+function applyEvent(j: Job, event: StageEvent) {
+  const next = autoStage(event, stageRow(j.stageId).systemKey, {
+    hasAssignees: db!.assignees.some((a) => a.jobId === j.id),
+    appointmentsLeft: db!.appointments.filter((a) => a.jobId === j.id).length,
+  });
+  if (next) moveJob(j, stageByKey(next).id, event);
+}
 function jobSummary(j: Job): JobSummaryDto {
   const site = db!.sites.find((s) => s.id === j.siteId);
   return {
     id: j.id,
     number: j.number,
-    status: j.status,
+    stage: stageRef(j.stageId),
     customerId: j.customerId,
     customerName: customerName(j.customerId),
     siteId: j.siteId,
@@ -238,6 +325,20 @@ const jobDetail = (j: Job): JobDetailDto => ({
   site: db!.sites.find((s) => s.id === j.siteId) ?? null,
   sourceQuoteRevision: j.sourceQuoteRevision,
   lines: j.lines,
+  history: db!.history
+    .filter((h) => h.jobId === j.id)
+    .map(({ jobId: _jobId, toStageId, ...h }) => ({
+      ...h,
+      toColour: db!.stages.find((s) => s.id === toStageId)?.colour ?? null,
+    })),
+  assignees: db!.assignees
+    .filter((a) => a.jobId === j.id)
+    .map(({ userId, name }) => ({ userId, name })),
+  appointments: db!.appointments
+    .filter((a) => a.jobId === j.id)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+    .map(({ jobId: _jobId, ...a }) => a),
+  timerRunning: db!.timers.some((t) => t.jobId === j.id && t.running),
 });
 const customerDetail = (c: CustomerDto): CustomerDetailDto => ({
   ...c,
@@ -319,7 +420,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
   const [a, id, sub] = seg;
   const q = query.get('q');
 
-  const user = { id: 'demo-user', name: 'Joe', email: 'owner@lse.example' };
+  const user = { ...DEMO_USER, email: 'owner@lse.example' };
   if (method === 'GET' && a === 'me')
     return {
       user,
@@ -598,7 +699,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
           id: uid(),
           number: fmt('job', seq),
           seq,
-          status: 'open',
+          stageId: stageByKey('unassigned').id,
           customerId: quote.customerId,
           siteId: quote.siteId,
           title: r.title,
@@ -626,6 +727,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
             }),
         };
         db!.jobs.push(job);
+        recordCreated(job, 'created_from_quote');
         quote.status = 'converted';
         quote.convertedJobId = job.id;
         touch(quote);
@@ -638,13 +740,11 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
 
   if (a === 'jobs') {
     if (method === 'GET' && !id) {
-      const status = query.get('status');
+      const stageId = query.get('stageId');
       const active = query.get('active') === 'true';
       const items = db!.jobs
         .filter(
-          (j) =>
-            (!status || j.status === status) &&
-            (!active || !['completed', 'cancelled'].includes(j.status)),
+          (j) => (!stageId || j.stageId === stageId) && (!active || stageRow(j.stageId).isActive),
         )
         .sort((x, y) => y.seq - x.seq)
         .map(jobSummary)
@@ -663,7 +763,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
         id: uid(),
         number: fmt('job', seq),
         seq,
-        status: 'open',
+        stageId: stageByKey('unassigned').id,
         ...input,
         sourceQuoteId: null,
         sourceQuoteRevision: null,
@@ -672,17 +772,110 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
         updatedAt: now(),
       };
       db!.jobs.push(job);
+      recordCreated(job, 'created');
       return jobDetail(job);
     }
     const job = getJob(id!);
-    if (method === 'GET') return jobDetail(job);
-    if (method === 'PATCH') {
+    if (method === 'GET' && !sub) return jobDetail(job);
+    if (method === 'PATCH' && !sub) {
       checkVersion(job, () => jobDetail(job));
-      const p = parse(jobUpdate, body);
+      const { stageId, stageKey, ...p } = parse(jobUpdate, body);
       if (p.siteId !== undefined) checkSite(p.siteId, job.customerId);
+      const target = stageId ? stageRow(stageId).id : stageKey ? stageByKey(stageKey).id : null;
       Object.assign(job, Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)));
       touch(job);
+      if (target) moveJob(job, target, 'manual');
       return jobDetail(job);
+    }
+    if (method === 'POST' && sub === 'assignees') {
+      const { userId } = (body ?? {}) as { userId?: string };
+      if (userId !== DEMO_USER.id)
+        fail(422, 'validation_failed', 'Pick someone from this business', {
+          fields: { userId: 'Not a member' },
+        });
+      if (!db!.assignees.some((a) => a.jobId === job.id && a.userId === userId))
+        db!.assignees.push({ jobId: job.id, userId: DEMO_USER.id, name: DEMO_USER.name });
+      applyEvent(job, 'assigned');
+      return jobDetail(job);
+    }
+    if (method === 'POST' && sub === 'appointments') {
+      const p = parse(appointmentCreate, body);
+      db!.appointments.push({
+        id: uid(),
+        jobId: job.id,
+        startsAt: p.startsAt,
+        endsAt: p.endsAt,
+        userId: p.userId ?? null,
+      });
+      applyEvent(job, 'appointment_created');
+      return jobDetail(job);
+    }
+    if (method === 'POST' && sub === 'timer') {
+      const action = seg[3];
+      const running = db!.timers.find((t) => t.running);
+      if (action === 'start') {
+        if (running && running.jobId !== job.id)
+          fail(409, 'timer_running', 'Your timer is running on another job. Stop it first.');
+        if (!running) db!.timers.push({ jobId: job.id, running: true });
+        applyEvent(job, 'timer_started');
+      } else if (running?.jobId === job.id) running.running = false;
+      return jobDetail(job);
+    }
+  }
+
+  if (a === 'appointments' && method === 'DELETE') {
+    const appt = db!.appointments.find((x) => x.id === id) ?? notFound('Appointment');
+    db!.appointments = db!.appointments.filter((x) => x !== appt);
+    const job = getJob(appt.jobId);
+    applyEvent(job, 'appointment_deleted');
+    return jobDetail(job);
+  }
+
+  if (a === 'job-stages') {
+    if (method === 'GET') return sortedStages().map(stageDto);
+    const nameTaken = (name: string, except?: string) =>
+      db!.stages.some((s) => s.id !== except && s.name.toLowerCase() === name.toLowerCase()) &&
+      fail(422, 'validation_failed', 'There is already a stage with that name', {
+        fields: { name: 'Already used' },
+      });
+    if (method === 'POST') {
+      const p = parse(jobStageCreate, body);
+      nameTaken(p.name);
+      const row: StageRow = {
+        id: uid(),
+        systemKey: null,
+        name: p.name,
+        colour: p.colour,
+        isActive: p.isActive,
+        sortOrder: p.sortOrder ?? Math.max(0, ...db!.stages.map((s) => s.sortOrder)) + 10,
+      };
+      db!.stages.push(row);
+      return stageDto(row);
+    }
+    const row = stageRow(id!);
+    if (method === 'PATCH') {
+      const p = parse(jobStageUpdate, body);
+      if (p.name !== undefined && p.name !== row.name && !canRenameStage(row.systemKey))
+        fail(409, 'stage_locked', `“${row.name}” is a system stage and can’t be renamed.`);
+      if (p.isActive !== undefined && p.isActive !== row.isActive && row.systemKey)
+        fail(409, 'stage_locked', `Whether “${row.name}” counts as active is fixed.`);
+      if (p.name) nameTaken(p.name, row.id);
+      Object.assign(row, Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)));
+      return stageDto(row);
+    }
+    if (method === 'DELETE') {
+      const dto = stageDto(row);
+      if (!dto.canDelete)
+        fail(409, 'stage_locked', `“${row.name}” is a system stage and can’t be deleted.`);
+      if (dto.jobCount > 0)
+        fail(
+          409,
+          'stage_in_use',
+          `${dto.jobCount} ${dto.jobCount === 1 ? 'job is' : 'jobs are'} in "${row.name}". Move them first.`,
+        );
+      db!.stages = db!.stages.filter((s) => s !== row);
+      for (const h of db!.history) if (h.toStageId === row.id) h.toStageId = null;
+      return null;
     }
   }
   return fail(404, 'not_found', 'No such endpoint');
@@ -697,6 +890,11 @@ function fresh(): Db {
     contacts: [],
     quotes: [],
     jobs: [],
+    stages: SYSTEM_STAGE_DEFAULTS.map((s) => ({ ...s, id: uid() })),
+    history: [],
+    appointments: [],
+    assignees: [],
+    timers: [],
   };
 }
 

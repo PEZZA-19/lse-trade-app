@@ -119,9 +119,8 @@ export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
   await post(`/quotes/${q1.id}/send`);
   await post(`/quotes/${q1.id}/accept`, { acceptedOptions: ['Yard floodlight'] });
   const job122 = await post(`/quotes/${q1.id}/convert`);
-  // Booked in for this morning (automatic), then the timer started on site (automatic: In Progress).
+  // Booked in for this morning (automatic). The timer is started at the end (one timer at a time).
   await post(`/jobs/${job122.id}/appointments`, { startsAt: at(0, 8), endsAt: at(0, 17) });
-  await post(`/jobs/${job122.id}/timer/start`);
 
   // Q-0002: sent, waiting on the customer.
   const q2 = await post('/quotes', {
@@ -247,4 +246,6 @@ export async function runDemoScript(post: Post, patch: Patch): Promise<void> {
     placeOfWork: 'sark',
   });
   await patch(`/jobs/${fault.id}`, { stageId: waiting.id });
+  // On site at the barn now: starting the timer moves job 122 to In Progress (automatic).
+  await post(`/jobs/${job122.id}/timer/start`);
 }
