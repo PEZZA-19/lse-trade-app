@@ -8,6 +8,7 @@
     "dev:worker": "wrangler dev",
     "migrate": "tsx src/db/migrate-cli.ts",
     "seed": "tsx src/db/seed-cli.ts",
+    "seed:reset": "tsx src/db/seed-cli.ts --reset",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "build": "wrangler deploy --dry-run --outdir dist"

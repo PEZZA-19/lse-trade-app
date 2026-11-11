@@ -63,6 +63,8 @@ export interface QuoteRevisionDto {
   title: string;
   notes: string | null;
   validDays: number;
+  /** Markup used for lines without their own (customer override or business default). */
+  defaultMarkupBp: number;
   sentAt: string | null;
   supersededAt: string | null;
   acceptedOptions: string[];

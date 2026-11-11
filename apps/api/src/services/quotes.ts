@@ -172,6 +172,7 @@ function toRevisionDto(rev: RevisionRow, lines: LineRow[]): QuoteRevisionDto {
     title: rev.title,
     notes: rev.notes,
     validDays: rev.validDays,
+    defaultMarkupBp: rev.defaultMarkupBp,
     sentAt: iso(rev.sentAt),
     supersededAt: iso(rev.supersededAt),
     acceptedOptions: rev.acceptedOptions,
