@@ -26,7 +26,14 @@ import type {
 } from '@lse/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { getOutbox, NeedsAttentionError, saveJob, saveQuote, timerAction } from '../offline';
+import {
+  createOrQueue,
+  getOutbox,
+  NeedsAttentionError,
+  saveJob,
+  saveQuote,
+  timerAction,
+} from '../offline';
 import { persister } from '../offline/persist';
 import { api, ApiError, newIdempotencyKey, setCsrfToken } from './client';
 
@@ -218,8 +225,11 @@ export const useJob = (id: string) =>
 export function useCreateCustomer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: CustomerCreate) => api<CustomerDetailDto>('POST', '/customers', input),
-    onSuccess: (c) => {
+    mutationFn: (input: CustomerCreate) =>
+      createOrQueue<CustomerDetailDto>('customer', input, input.name),
+    onSuccess: (r) => {
+      if (r.status === 'queued') return;
+      const c = r.record;
       qc.setQueryData(keys.customer(c.id), c);
       void qc.invalidateQueries({ queryKey: ['customers'] });
     },
@@ -229,8 +239,11 @@ export function useCreateCustomer() {
 export function useCreateQuote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: QuoteCreate) => api<QuoteDetailDto>('POST', '/quotes', input),
-    onSuccess: (q) => {
+    mutationFn: (input: QuoteCreate) =>
+      createOrQueue<QuoteDetailDto>('quote', input, input.title?.trim() || 'New quote'),
+    onSuccess: (r) => {
+      if (r.status === 'queued') return;
+      const q = r.record;
       qc.setQueryData(keys.quote(q.id), q);
       void qc.invalidateQueries({ queryKey: ['quotes'] });
       void qc.invalidateQueries({ queryKey: keys.customer(q.customerId) });
@@ -302,8 +315,11 @@ export function useConvertQuote(id: string) {
 export function useCreateJob() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: JobCreate) => api<JobDetailDto>('POST', '/jobs', input),
-    onSuccess: (j) => {
+    mutationFn: (input: JobCreate) =>
+      createOrQueue<JobDetailDto>('job', input, input.title?.trim() || 'New job'),
+    onSuccess: (r) => {
+      if (r.status === 'queued') return;
+      const j = r.record;
       qc.setQueryData(keys.job(j.id), j);
       void qc.invalidateQueries({ queryKey: ['jobs'] });
       void qc.invalidateQueries({ queryKey: keys.customer(j.customerId) });

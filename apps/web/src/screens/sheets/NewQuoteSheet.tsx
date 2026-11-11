@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ApiError } from '../../api/client';
 import { useCreateQuote, useCustomer, useCustomers } from '../../api/hooks';
+import { QUEUED_TOAST } from '../../components/PendingCreates';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { Button, List, Section, SelectField, TextField } from '../../components/ui';
@@ -38,10 +39,15 @@ function NewQuoteSheetInner(props: { open: boolean; onClose: () => void; custome
     create.mutate(
       { customerId, siteId: siteId || null, title },
       {
-        onSuccess: (q) => {
-          toast.show(`Quote ${q.number} started`);
+        onSuccess: (r) => {
           close();
-          navigate(`/quotes/${q.id}`);
+          if (r.status === 'queued') {
+            toast.show(QUEUED_TOAST('quote'));
+            navigate('/quotes');
+            return;
+          }
+          toast.show(`Quote ${r.record.number} started`);
+          navigate(`/quotes/${r.record.id}`);
         },
       },
     );

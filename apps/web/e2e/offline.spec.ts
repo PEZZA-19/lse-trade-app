@@ -131,3 +131,51 @@ test('offline quote edit: saved on the device, "Mark as sent" waits until it rea
     'Fault finding',
   ]);
 });
+
+test('offline create: a job and a customer are saved on the device, then made once when signal returns', async ({
+  page,
+  context,
+}) => {
+  const api = await serverApi(page.request);
+  const stamp = Date.now();
+  const name = `Offline Customer ${stamp}`;
+  const title = `Offline job ${stamp}`;
+  const customerCount = async () =>
+    (await api.get(`/customers?q=${encodeURIComponent(name)}`)).items.length;
+  const jobCount = async () => (await api.get(`/jobs?q=${encodeURIComponent(title)}`)).items.length;
+
+  // Open the New Job sheet with signal so the customer list is loaded, then lose signal.
+  await page.goto('/jobs');
+  await page.getByRole('button', { name: 'New job' }).first().click();
+  const customer = page.getByRole('combobox', { name: 'Customer' });
+  await expect(customer.locator('option', { hasText: 'Demo Farm Ltd' })).toHaveCount(1);
+  await context.setOffline(true);
+  await expect(page.getByText('You’re offline.')).toBeVisible();
+  await customer.selectOption({ label: 'Demo Farm Ltd' });
+  await page.getByLabel('What’s the job?').fill(title);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(page.getByText(/the job is saved on this phone/)).toBeVisible();
+  const pendingJobs = page.getByRole('list', { name: 'New jobs waiting to sync' });
+  await expect(pendingJobs.getByText(title)).toBeVisible();
+  await expect(pendingJobs.getByText('Waiting')).toBeVisible();
+
+  // A new customer, still offline (in-app navigation: no page load needed).
+  await page.getByRole('link', { name: 'More' }).click();
+  await page.getByRole('link', { name: 'Customers' }).click();
+  await page.getByRole('button', { name: 'Add customer' }).first().click();
+  await page.getByLabel('Name', { exact: true }).fill(name);
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText(/the customer is saved on this phone/)).toBeVisible();
+  const pendingCustomers = page.getByRole('list', { name: 'New customers waiting to sync' });
+  await expect(pendingCustomers.getByText(name)).toBeVisible();
+  // Honest: neither is on the server yet.
+  expect(await customerCount()).toBe(0);
+  expect(await jobCount()).toBe(0);
+
+  await context.setOffline(false);
+  await expect(pendingCustomers).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByRole('link', { name: new RegExp(name) })).toBeVisible();
+  // Made exactly once each.
+  await expect.poll(customerCount).toBe(1);
+  await expect.poll(jobCount).toBe(1);
+});

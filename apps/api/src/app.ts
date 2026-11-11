@@ -262,9 +262,30 @@ export function createApp(deps: AppDeps) {
     const q = parse(listQuery, c.req.query());
     return c.json(await c.var.tx((tx) => customers.listCustomers(tx, q)));
   });
+  /**
+   * Creates that may be queued offline (or double-tapped on a weak signal) carry an Idempotency-Key:
+   * a replay returns the record made the first time instead of making a second one.
+   */
+  const createdOnce = async <T>(
+    c: Context<AppEnv>,
+    fingerprint: string,
+    fn: (tx: Tx) => Promise<T>,
+  ) => {
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, fingerprint, async () => ({
+        status: 201,
+        body: await fn(tx),
+      })),
+    );
+    if (result.replayed) c.header('Idempotent-Replayed', 'true');
+    return c.json(result.body, result.status as 201);
+  };
   app.post('/api/customers', async (c) => {
     const input = parse(customerCreate, await jsonBody(c.req));
-    return c.json(await c.var.tx((tx) => customers.createCustomer(tx, c.var.auth, input)), 201);
+    return createdOnce(c, `customer:${JSON.stringify(input)}`, (tx) =>
+      customers.createCustomer(tx, c.var.auth, input),
+    );
   });
   app.get('/api/customers/:id', async (c) => {
     const id = uuidParam(c);
@@ -313,7 +334,9 @@ export function createApp(deps: AppDeps) {
   });
   app.post('/api/quotes', async (c) => {
     const input = parse(quoteCreate, await jsonBody(c.req));
-    return c.json(await c.var.tx((tx) => quotes.createQuote(tx, c.var.auth, input)), 201);
+    return createdOnce(c, `quote:${JSON.stringify(input)}`, (tx) =>
+      quotes.createQuote(tx, c.var.auth, input),
+    );
   });
   app.get('/api/quotes/:id', async (c) => {
     const id = uuidParam(c);
@@ -372,7 +395,9 @@ export function createApp(deps: AppDeps) {
   });
   app.post('/api/jobs', async (c) => {
     const input = parse(jobCreate, await jsonBody(c.req));
-    return c.json(await c.var.tx((tx) => jobs.createJob(tx, c.var.auth, input)), 201);
+    return createdOnce(c, `job:${JSON.stringify(input)}`, (tx) =>
+      jobs.createJob(tx, c.var.auth, input),
+    );
   });
   app.get('/api/jobs/:id', async (c) => {
     const id = uuidParam(c);

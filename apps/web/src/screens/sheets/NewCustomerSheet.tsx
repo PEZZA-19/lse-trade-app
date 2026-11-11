@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { ApiError } from '../../api/client';
 import { useCreateCustomer } from '../../api/hooks';
+import { QUEUED_TOAST } from '../../components/PendingCreates';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { Button, List, Section, TextField } from '../../components/ui';
@@ -34,10 +35,15 @@ export function NewCustomerSheet(props: { open: boolean; onClose: () => void }) 
         sites: address ? [{ address }] : [],
       },
       {
-        onSuccess: (c) => {
-          toast.show(`${c.name} added`);
+        onSuccess: (r) => {
           close();
-          navigate(`/customers/${c.id}`);
+          if (r.status === 'queued') {
+            toast.show(QUEUED_TOAST('customer'));
+            navigate('/customers');
+            return;
+          }
+          toast.show(`${r.record.name} added`);
+          navigate(`/customers/${r.record.id}`);
         },
       },
     );

@@ -24,6 +24,8 @@
 import { editableFields, sameValue, type Entity, type Fields } from './fields';
 
 export type OpStatus = 'pending' | 'conflict' | 'failed';
+/** Edits are only ever jobs and quotes; actions can also create a customer (or a new job or quote). */
+export type OpEntity = Entity | 'customer';
 
 export interface OutboxOp {
   /** Also used as the Idempotency-Key. */
@@ -32,7 +34,7 @@ export interface OutboxOp {
   kind?: 'edit' | 'action';
   seq: number;
   tenantId: string;
-  entity: Entity;
+  entity: OpEntity;
   entityId: string;
   /** Short human label, e.g. "Job 123" or "Q-0004". */
   label: string;
@@ -107,7 +109,7 @@ export class Outbox {
       /** Current business; only its edits are sent (a shared device never mixes businesses). */
       tenantId: () => string | null;
       /** Called with the server's record after an edit is confirmed or the server copy is chosen. */
-      onRecord?: (entity: Entity, id: string, record: unknown) => void;
+      onRecord?: (entity: OpEntity, id: string, record: unknown) => void;
       newId?: () => string;
       now?: () => Date;
     },
@@ -211,18 +213,20 @@ export class Outbox {
 
   /** Saves a one-off action (POST) on the device, to be sent in order with the edits. */
   async enqueueAction(input: {
-    entity: Entity;
+    entity: OpEntity;
     entityId: string;
     label: string;
     path: string;
     body: Fields;
+    /** Reuse the key of a request that may already have reached the server (no duplicates). */
+    id?: string;
   }): Promise<OutboxOp> {
     await this.load();
     const tenantId = this.opts.tenantId();
     if (!tenantId) throw new Error('Not signed in');
     const now = (this.opts.now?.() ?? new Date()).toISOString();
     const op: OutboxOp = {
-      id: this.opts.newId?.() ?? crypto.randomUUID(),
+      id: input.id ?? this.opts.newId?.() ?? crypto.randomUUID(),
       kind: 'action',
       seq: Math.max(0, ...this.ops.map((o) => o.seq)) + 1,
       tenantId,
@@ -300,7 +304,10 @@ export class Outbox {
       }
       if (err.status === 409 && err.code === 'version_conflict' && op.kind !== 'action') {
         const details = err.details as { current: unknown; currentVersion: number };
-        const server = editableFields(op.entity, details.current);
+        const server = editableFields(
+          op.entity as Entity, // edits are only jobs and quotes
+          details.current,
+        );
         const changed = Object.keys(op.changes);
         const theyChanged = changed.filter((k) => !sameValue(server[k], op.base[k]));
         const clash = theyChanged.filter((k) => !sameValue(server[k], op.changes[k]));

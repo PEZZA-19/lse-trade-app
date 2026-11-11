@@ -1,4 +1,5 @@
 import { formatPence, type QuoteStatus } from '@lse/shared';
+import { PendingCreates } from '../components/PendingCreates';
 import { useState } from 'react';
 import { useQuotes } from '../api/hooks';
 import { IconPlus, IconQuotes } from '../components/icons';
@@ -97,6 +98,7 @@ export function QuotesScreen() {
           </List>
         </Section>
       )}
+      <PendingCreates kind="quote" />
       <NewQuoteSheet open={adding} onClose={() => setAdding(false)} />
     </Page>
   );

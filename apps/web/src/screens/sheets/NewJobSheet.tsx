@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ApiError } from '../../api/client';
 import { useCreateJob, useCustomer, useCustomers } from '../../api/hooks';
+import { QUEUED_TOAST } from '../../components/PendingCreates';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { Button, List, Section, SelectField, TextField } from '../../components/ui';
@@ -46,10 +47,15 @@ function NewJobSheetInner(props: { open: boolean; onClose: () => void; customerI
     create.mutate(
       { customerId, siteId: siteId || null, title, placeOfWork: place },
       {
-        onSuccess: (j) => {
-          toast.show(`Job ${j.number} created`);
+        onSuccess: (r) => {
           close();
-          navigate(`/jobs/${j.id}`);
+          if (r.status === 'queued') {
+            toast.show(QUEUED_TOAST('job'));
+            navigate('/jobs');
+            return;
+          }
+          toast.show(`Job ${r.record.number} created`);
+          navigate(`/jobs/${r.record.id}`);
         },
       },
     );

@@ -16,16 +16,16 @@ export const useOnline = () =>
   );
 
 /**
- * Says exactly what works offline. Job status and quote edits are saved on the device and sync later;
- * creating new records still needs a connection (and says so when you try).
+ * Says exactly what works offline. Job stages, the timer, quote edits and new customers, quotes and
+ * jobs are saved on the device and sync later; sending, invoicing, assigning and booking need signal.
  */
 export function OfflineBanner() {
   const online = useOnline();
   if (online) return null;
   return (
     <div className="offline-banner" role="status">
-      You’re offline. Job status and quote edits are saved on this device and will sync. Adding new
-      customers, quotes or jobs needs signal.
+      You’re offline. Job stages, the timer, quote edits and new customers, quotes and jobs are
+      saved on this device and will sync. Sending, invoicing, assigning and booking need signal.
     </div>
   );
 }

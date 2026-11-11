@@ -1,4 +1,5 @@
 import type { JobStageDto, JobSummaryDto, SystemStageKey } from '@lse/shared';
+import { PendingCreates } from '../components/PendingCreates';
 import { useState } from 'react';
 import { useJobs, useJobStages } from '../api/hooks';
 import {
@@ -185,6 +186,7 @@ export function JobsScreen() {
           </List>
         </Section>
       )}
+      <PendingCreates kind="job" />
       <NewJobSheet open={adding} onClose={() => setAdding(false)} />
       <StageSheet
         open={pickingFilter}

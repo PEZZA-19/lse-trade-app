@@ -1,7 +1,7 @@
 import type { JobDetailDto, JobSummaryDto, Page, QuoteDetailDto } from '@lse/shared';
 import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { Fields } from './fields';
 import { idbOutboxStorage, openOfflineDb } from './idb';
 import { Outbox, type SyncSnapshot } from './outbox';
@@ -27,6 +27,11 @@ export function initOffline(qc: QueryClient) {
       tenantId: () =>
         qc.getQueryData<{ tenantId: string | null } | null>(['session'])?.tenantId ?? null,
       onRecord: (entity, id, record) => {
+        if (id.startsWith('new:')) {
+          // A record created offline has now been made on the server: show it in its list.
+          void qc.invalidateQueries({ queryKey: [`${entity}s`] });
+          return;
+        }
         qc.setQueryData([entity, id], record);
         void qc.invalidateQueries({ queryKey: [entity === 'job' ? 'jobs' : 'quotes'] });
         if (entity === 'job') {
@@ -185,4 +190,36 @@ export async function saveQuote(id: string, changes: Fields): Promise<SaveResult
     return 'synced';
   }
   return save('quote', id, q.number, changes, q);
+}
+
+export type CreateResult<T> = { status: 'created'; record: T } | { status: 'queued' };
+
+/**
+ * Creates a customer, quote or job. With signal it is made at once. With no connection it is saved
+ * on this device and made when the signal returns, under the SAME Idempotency-Key, so if the first
+ * try did reach the server, the replay returns that record instead of making a second one.
+ * Anything the server refuses (e.g. a missing name) is thrown as usual and nothing is queued.
+ */
+export async function createOrQueue<T>(
+  entity: 'customer' | 'quote' | 'job',
+  body: object,
+  label: string,
+): Promise<CreateResult<T>> {
+  const key = crypto.randomUUID();
+  const path = `/${entity}s`;
+  try {
+    return { status: 'created', record: await api<T>('POST', path, body, { idempotencyKey: key }) };
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 0) throw e;
+  }
+  const box = getOutbox();
+  await box.enqueueAction({
+    id: key,
+    entity,
+    entityId: `new:${key}`,
+    label,
+    path,
+    body: { ...body },
+  });
+  return { status: 'queued' };
 }

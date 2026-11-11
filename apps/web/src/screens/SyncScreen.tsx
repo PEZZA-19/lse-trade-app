@@ -3,7 +3,7 @@ import { getOutbox, useSync } from '../offline';
 import type { OutboxOp } from '../offline/outbox';
 import { Button, EmptyState, List, Page, Section, StaticRow } from '../components/ui';
 import { IconCheckCircle } from '../components/icons';
-import { formatDateTime } from './syncFormat';
+import { describeAction, formatDateTime } from './syncFormat';
 
 const FIELD_LABEL: Record<string, string> = {
   stageId: 'Stage',
@@ -56,9 +56,7 @@ export function SyncScreen() {
                           <span className="row__title">{op.label}</span>
                           <span className="row__sub">
                             {op.kind === 'action'
-                              ? op.path.endsWith('/timer/start')
-                                ? 'Timer started'
-                                : 'Timer stopped'
+                              ? describeAction(op.path)
                               : Object.keys(op.changes)
                                   .map((k) => FIELD_LABEL[k] ?? k)
                                   .join(', ')}{' '}

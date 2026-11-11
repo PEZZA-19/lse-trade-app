@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PendingCreates } from '../components/PendingCreates';
 import { useCustomers } from '../api/hooks';
 import { IconCustomers, IconMail, IconPhone, IconPlus } from '../components/icons';
 import { SwipeRow, type SwipeAction } from '../components/SwipeRow';
@@ -100,6 +101,7 @@ export function CustomersScreen() {
           </List>
         </Section>
       )}
+      <PendingCreates kind="customer" />
       <NewCustomerSheet open={adding} onClose={() => setAdding(false)} />
     </Page>
   );
