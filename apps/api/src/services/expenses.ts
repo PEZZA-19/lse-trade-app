@@ -3,7 +3,8 @@
  * Profit and Loss shows a real net profit. Recording or removing one is the owner's decision
  * (like recording a payment); anyone with Accounts access can see them.
  */
-import { type ExpenseDto, expenseCreate } from '@lse/shared';
+import type { expenseCreate } from '@lse/shared';
+import { type ExpenseDto } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
 import { AppError, notFound } from '../lib/errors';
