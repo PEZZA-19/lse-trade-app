@@ -196,19 +196,26 @@ export function InvoiceLineSheet(props: {
   onClose: () => void;
 }) {
   const init = props.line;
+  const initTotal = init ? signedLineTotal(init.qtyMilli, init.unitPricePence) : 0;
   const [form, setForm] = useState(() => ({
     description: init?.description ?? '',
-    qty: formatQty(init?.qtyMilli ?? 1000),
-    price: init ? (init.unitPricePence / 100).toFixed(2) : '',
+    qty: formatQty(Math.abs(init?.qtyMilli ?? 1000)),
+    price: init ? (Math.abs(init.unitPricePence) / 100).toFixed(2) : '',
+    minus: initTotal < 0,
   }));
-  const qty = parseQty(form.qty);
-  const price = parsePounds(form.price);
-  const valid = !!form.description.trim() && qty != null && qty !== 0 && price != null;
+  const qtyParsed = parseQty(form.qty);
+  const priceParsed = parsePounds(form.price);
+  const qty = qtyParsed == null ? null : Math.abs(qtyParsed);
+  // A minus (credit) line: the price is taken off, so the line total is negative.
+  const price =
+    priceParsed == null ? null : form.minus ? -Math.abs(priceParsed) : Math.abs(priceParsed);
+  const valid =
+    !!form.description.trim() && qty != null && qty !== 0 && price != null && price !== 0;
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     if (!valid) return;
     props.onSave({
-      kind: init?.kind ?? 'material',
+      kind: init?.kind ?? (form.minus ? 'adjustment' : 'material'),
       description: form.description.trim(),
       qtyMilli: qty!,
       unitPricePence: price!,
@@ -248,11 +255,27 @@ export function InvoiceLineSheet(props: {
               onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
             />
             <TextField
-              label="Price each (£)"
+              label={form.minus ? 'Amount off each (£)' : 'Price each (£)'}
               value={form.price}
               inputMode="decimal"
               onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
             />
+          </List>
+        </Section>
+        <Section footer="A minus line takes money off this invoice, e.g. rent already paid or a goodwill credit.">
+          <List className="form-list">
+            <li>
+              <label className="row" style={{ cursor: 'pointer' }}>
+                <span className="row__main">Minus line (credit)</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={form.minus}
+                  onChange={(e) => setForm((f) => ({ ...f, minus: e.target.checked }))}
+                  className="switch"
+                />
+              </label>
+            </li>
           </List>
         </Section>
         <Section>

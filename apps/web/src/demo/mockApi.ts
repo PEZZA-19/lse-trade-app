@@ -34,7 +34,7 @@ import {
   jobStageUpdate,
   SYSTEM_STAGE_DEFAULTS,
   EDITABLE_SYSTEM_STAGES,
-  lineTotal,
+  signedLineTotal,
   quoteAccept,
   quoteCreate,
   quoteDisplayNumber,
@@ -287,7 +287,12 @@ function quoteDetail(q: Quote): QuoteDetailDto {
   const r = cur(q);
   const lines: QuoteLineDto[] = r.lines.map((l, i) => {
     const sell = unitSell(priced(l), { markupBp: r.defaultMarkupBp });
-    return { ...l, position: i, unitSellPence: sell, totalPence: lineTotal(l.qtyMilli, sell) };
+    return {
+      ...l,
+      position: i,
+      unitSellPence: sell,
+      totalPence: signedLineTotal(l.qtyMilli, sell),
+    };
   });
   return {
     ...quoteSummary(q),
@@ -1060,7 +1065,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
                 qtyMilli: l.qtyMilli,
                 unitCostPence: l.unitCostPence,
                 unitSellPence: sell,
-                totalPence: lineTotal(l.qtyMilli, sell),
+                totalPence: signedLineTotal(l.qtyMilli, sell),
                 source: 'quote' as const,
                 invoiced: false,
               };

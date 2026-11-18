@@ -246,3 +246,34 @@ test('a kit with fitting time adds its own labour line, kept in step and editabl
     .click();
   await expect.poll(saved).toEqual([]);
 });
+
+test('a minus (credit) line on a quote takes money off the total', async ({ page }) => {
+  const api = await apiFor(page);
+  const stamp = Date.now();
+  const customers = await api.get('/customers?q=Demo%20Farm');
+  const q = await api.post('/quotes', {
+    customerId: customers.items[0].id,
+    title: `Credit quote ${stamp}`,
+    lines: [{ kind: 'labour', description: 'Rewire', qtyMilli: 10000, unitPricePence: 4500 }],
+  });
+  await page.goto(`/quotes/${q.id}`);
+  await page.getByRole('button', { name: 'Add line' }).click();
+  const line = page.getByRole('dialog', { name: 'Add Line' });
+  await line.getByLabel('Description').fill('Rent payments');
+  await line.getByRole('switch', { name: 'Minus line (credit)' }).check();
+  await line.getByLabel('Amount off (£)').fill('120');
+  await expect(line.getByText('-£120.00').last()).toBeVisible();
+  await line.getByRole('button', { name: 'Add' }).click();
+  await expect(page.getByLabel('Total £330.00')).toBeVisible();
+  await expect
+    .poll(async () => (await api.get(`/quotes/${q.id}`)).current.lines[1]?.unitPricePence)
+    .toBe(-12000);
+  // Editing keeps it a minus line.
+  await page
+    .getByRole('list', { name: 'Quote lines' })
+    .getByRole('button', { name: /Rent payments/ })
+    .click();
+  const edit = page.getByRole('dialog', { name: 'Edit Line' });
+  await expect(edit.getByRole('switch', { name: 'Minus line (credit)' })).toBeChecked();
+  await expect(edit.getByLabel('Amount off (£)')).toHaveValue('120.00');
+});

@@ -241,21 +241,24 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
     const server = serverLines[i];
     const sell = server && server.description === l.description ? server.unitSellPence : undefined;
     const unit = l.kind === 'labour' ? 'h' : '';
+    const lineTotalPence = lineTotalOf(l, q.current.defaultMarkupBp);
+    const minus = lineTotalPence < 0;
     const row = (
       <>
         <span className="row__main">
           <span className="row__title">{l.description}</span>
           <span className="row__sub">
-            {LINE_KIND_LABEL[l.kind]}
-            {(l.kind === 'labour' || l.kind === 'material') &&
+            {minus ? `Minus line · ${LINE_KIND_LABEL[l.kind]}` : LINE_KIND_LABEL[l.kind]}
+            {!minus &&
+              (l.kind === 'labour' || l.kind === 'material') &&
               ` · ${formatQty(l.qtyMilli ?? 1000)}${unit}`}
-            {sell !== undefined && (l.kind === 'labour' || l.kind === 'material')
+            {!minus && sell !== undefined && (l.kind === 'labour' || l.kind === 'material')
               ? ` × ${formatPence(sell)}`
               : ''}
           </span>
         </span>
-        <span className="row__meta num" style={{ color: 'var(--label)' }}>
-          {formatPence(lineTotalOf(l, q.current.defaultMarkupBp))}
+        <span className="row__meta num" style={{ color: minus ? 'var(--green)' : 'var(--label)' }}>
+          {formatPence(lineTotalPence)}
         </span>
       </>
     );

@@ -380,3 +380,23 @@ describe('csv and overview', () => {
     expect(o.profit.lastYear.netProfit).toBe(0);
   });
 });
+
+describe('minus (credit) lines on an invoice', () => {
+  it('net off sales: labour £450 less a £120 materials credit books £330, and balances', () => {
+    const b: BooksInput = {
+      opening: null,
+      invoices: [inv('m', '2027-03-01', '2027-03-15', 45_000, 33_000)],
+      payments: [],
+      credits: [],
+      bills: [],
+      billPayments: [],
+      budgets: [],
+    };
+    const p = postings(b);
+    const sum = (a: string) => p.filter((x) => x.account === a).reduce((s, x) => s + x.pence, 0);
+    expect(sum('200')).toBe(-45_000);
+    expect(sum('210')).toBe(12_000);
+    expect(sum('610')).toBe(33_000);
+    expect(p.reduce((s, x) => s + x.pence, 0)).toBe(0);
+  });
+});

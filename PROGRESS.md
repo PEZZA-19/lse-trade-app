@@ -662,12 +662,18 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 34. Business overview: what was your bank balance on the day you'd like the app's records to start
     (e.g. 1 Jan 2027)? It makes Bank and Cash and the Balance Sheet match your bank.
 35. Do you want a budget for 2027 (monthly income and materials targets) for Budget vs Actual?
+36. Jobs 14 (rent payments) and 108 (supplier credit) come to less than £0, which means you owe the
+    customer. The app won't approve an invoice for £0 or less. Should these be a credit note or a
+    refund to the customer instead, or carried forward onto their next invoice?
+37. Labour on kits uses the business charge-out rate. Should it use a named person's rate when the
+    job is assigned to them (ties in with Q28)?
 
 ## Next (after session 4)
 
 1. ~~Business overview and Xero-style reports~~ (done, session 4).
-2. Labour in every quote kit (see below).
-3. Minus (credit) lines on invoices, then re-import jobs 14, 79, 108, 110, 111 in the private demo.
+2. ~~Labour in every quote kit~~ (done, session 4).
+3. ~~Minus (credit) lines on invoices and quotes; private demo re-imported~~ (done, session 4;
+   see Q36 for jobs that come to less than £0).
 4. Two-way calendar sync.
 5. Later for the books: expenses/overheads and wages (so net profit is real), bank feed or bank
    statement import and reconciliation, refunds.
@@ -751,3 +757,25 @@ Known limits: no wages/overheads/expenses yet (net profit is before them); no ba
 opening balance + recorded payments); supplier bills are recorded gross (no input tax); a refund
 of money already paid isn't modelled; the demo's real supplier bills stay drafts until applied,
 so You Owe is £0 there until they are.
+
+### Done (session 4, later: labour on kits, minus lines)
+
+- **Labour on quote kits**: each kit has fitting time for the whole kit and per item (per unit,
+  e.g. 15 min per socket), migration **0023**. The kit page shows time for the kit, time from
+  items, labour per kit and the kit with labour at the charge-out rate. Adding a kit to a quote asks
+  for the labour hours per kit (filled in from the kit) and the rate (the business charge-out
+  rate), and adds an ordinary labour line "Labour: <kit>" under the kit block, so it books to
+  labour sales and can be changed on that quote only. Editing the kit block keeps the labour line in
+  step with the number of kits (and lets you change hours or rate); removing the kit removes its
+  labour line (Undo puts both back). Quote snapshots keep the kit's fitting minutes.
+- **Fixed**: renaming a kit (or editing only its description) emptied its item list, because the
+  update schema filled in a default empty list. Now only the fields sent are changed (tested).
+- **Minus (credit) lines**: the quote line sheet and the invoice line sheet have a "Minus line
+  (credit)" switch with an amount to take off; minus lines show in green and net off the total.
+  Quote, job and invoice totals round minus lines the same size as plus lines. A minus line on a
+  quote carries through to the job and the invoice (API test), the books net it off sales (ledger
+  test), and an invoice still can't be approved at £0 or less.
+- **Private demo**: real jobs re-imported with their minus lines (job 14 rent payments, job 108
+  supplier credit, and minus lines on one more job) and with price-less lines kept at £0 (jobs 79,
+  110, 111: a heading and blank carriage lines, which is what was skipped before, not credits).
+  Jobs 14 and 108 come to less than £0, so they have no draft invoice (see Q36).

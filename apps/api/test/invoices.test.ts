@@ -405,3 +405,77 @@ describe('drafts, approval and the owner rule', () => {
     expect((await b.req('GET', '/api/invoices')).body).toEqual([]);
   });
 });
+
+describe('minus (credit) lines', () => {
+  it('a minus line on a quote carries to the job and the invoice, and nets off the total', async () => {
+    const c = await client();
+    await ready(c);
+    const cust = await seedCustomer(c);
+    const q = (
+      await c.req('POST', '/api/quotes', {
+        customerId: cust.id,
+        title: 'Flat works',
+        lines: [
+          { kind: 'labour', description: 'Rewire', qtyMilli: 10000, unitPricePence: 4500 },
+          {
+            kind: 'material',
+            description: 'Rent payments',
+            qtyMilli: 1000,
+            unitPricePence: -12000,
+          },
+        ],
+      })
+    ).body;
+    expect(q.current.totals.totalPence).toBe(33000);
+    expect(q.current.lines[1]).toMatchObject({ unitSellPence: -12000, totalPence: -12000 });
+    await c.req('POST', `/api/quotes/${q.id}/send`);
+    await c.req('POST', `/api/quotes/${q.id}/accept`, { acceptedOptions: [] });
+    const job = (await c.req('POST', `/api/quotes/${q.id}/convert`)).body;
+    const inv = await c.req('POST', `/api/jobs/${job.id}/invoices`, {
+      source: 'quote',
+      mode: 'whole',
+    });
+    expect(inv.status, JSON.stringify(inv.body)).toBe(201);
+    expect(inv.body.totalPence).toBe(33000);
+    expect(inv.body.lines.map((l: { totalPence: number }) => l.totalPence)).toEqual([
+      45000, -12000,
+    ]);
+    const sent = await approveAndSend(c, inv.body.id);
+    expect(sent.totalPence).toBe(33000);
+    expect((await pay(c, inv.body.id, 33000)).body.status).toBe('paid');
+  });
+
+  it('a draft invoice can take a minus line, but not one that makes the total zero or less', async () => {
+    const c = await client();
+    await ready(c);
+    const { job } = await timedJob(c);
+    const inv = (await c.req('POST', `/api/jobs/${job.id}/invoices`, { source: 'job' })).body;
+    const lines = inv.lines.map((l: Record<string, unknown>) => ({
+      kind: l.kind,
+      description: l.description,
+      qtyMilli: l.qtyMilli,
+      unitPricePence: l.unitPricePence,
+      taxRateBp: l.taxRateBp,
+    }));
+    const r = await c.req('PATCH', `/api/invoices/${inv.id}`, {
+      lines: [
+        ...lines,
+        { kind: 'adjustment', description: 'Goodwill', qtyMilli: 1000, unitPricePence: -1000 },
+      ],
+    });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.totalPence).toBe(inv.totalPence - 1000);
+    await c.req('PATCH', `/api/invoices/${inv.id}`, {
+      lines: [
+        ...lines,
+        {
+          kind: 'adjustment',
+          description: 'Too much',
+          qtyMilli: 1000,
+          unitPricePence: -inv.totalPence,
+        },
+      ],
+    });
+    expect((await c.req('POST', `/api/invoices/${inv.id}/approve`)).status).not.toBe(200);
+  });
+});

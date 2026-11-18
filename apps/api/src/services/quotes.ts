@@ -3,7 +3,7 @@ import {
   quoteTotals,
   revisionLetter,
   unitSell,
-  lineTotal,
+  signedLineTotal,
   type Page,
   type PricedLineInput,
   type QuoteKitSnapshot,
@@ -169,7 +169,7 @@ function toRevisionDto(rev: RevisionRow, lines: LineRow[]): QuoteRevisionDto {
   const defaults = { markupBp: rev.defaultMarkupBp };
   const lineDtos: QuoteLineDto[] = lines.map((l) => {
     const sell = unitSell(priced(l), defaults);
-    return { ...l, unitSellPence: sell, totalPence: lineTotal(l.qtyMilli, sell) };
+    return { ...l, unitSellPence: sell, totalPence: signedLineTotal(l.qtyMilli, sell) };
   });
   return {
     id: rev.id,
@@ -478,7 +478,7 @@ export async function convertToJob(
         qty_milli: l.qtyMilli,
         unit_cost_pence: l.unitCostPence,
         unit_sell_pence: sell,
-        total_pence: lineTotal(l.qtyMilli, sell),
+        total_pence: signedLineTotal(l.qtyMilli, sell),
         source: 'quote',
         source_quote_line_id: l.id,
       };

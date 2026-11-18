@@ -31,8 +31,14 @@ export function unitSell(line: PricedLineInput, defaults: PricingDefaults): Penc
   return 0;
 }
 
+/** qty x unit, rounded up in size: a minus (credit) line mirrors the same plus line exactly. */
+function signedTotal(qtyMilli: number, unitPence: Pence): Pence {
+  const t = lineTotal(Math.abs(qtyMilli), Math.abs(unitPence));
+  return qtyMilli < 0 !== unitPence < 0 && t !== 0 ? -t : t;
+}
+
 export function pricedLineTotal(line: PricedLineInput, defaults: PricingDefaults): Pence {
-  return lineTotal(line.qtyMilli, unitSell(line, defaults));
+  return signedTotal(line.qtyMilli, unitSell(line, defaults));
 }
 
 export interface QuoteTotals {
@@ -57,7 +63,7 @@ export function quoteTotals(
   const options: Record<string, Pence> = {};
   for (const line of lines) {
     const total = pricedLineTotal(line, defaults);
-    const cost = line.unitCostPence != null ? lineTotal(line.qtyMilli, line.unitCostPence) : 0;
+    const cost = line.unitCostPence != null ? signedTotal(line.qtyMilli, line.unitCostPence) : 0;
     if (line.optionLabel == null) {
       corePence += total;
       costPence += cost;

@@ -24,6 +24,9 @@ interface Draft {
   markup: string;
   optional: boolean;
   optionLabel: string;
+  /** A minus (credit) line: one amount taken off the quote. */
+  minus: boolean;
+  amount: string;
 }
 
 const pounds = (p: number | null | undefined) => (p == null ? '' : (p / 100).toFixed(2));
@@ -39,7 +42,10 @@ function toDraft(line: QuoteLineInput | undefined, labourRatePence: number): Dra
       markup: '',
       optional: false,
       optionLabel: '',
+      minus: false,
+      amount: '',
     };
+  const minus = (line.unitPricePence ?? 0) < 0 || (line.qtyMilli ?? 1000) < 0;
   return {
     kind: line.kind,
     description: line.description,
@@ -52,6 +58,12 @@ function toDraft(line: QuoteLineInput | undefined, labourRatePence: number): Dra
     markup: line.markupBp ? formatQty(line.markupBp / 10) : '',
     optional: !!line.optionLabel,
     optionLabel: line.optionLabel ?? '',
+    minus,
+    amount: minus
+      ? pounds(
+          Math.abs(lineTotal(Math.abs(line.qtyMilli ?? 1000), Math.abs(line.unitPricePence ?? 0))),
+        )
+      : '',
   };
 }
 
@@ -83,16 +95,31 @@ function LineSheetInner(props: LineSheetProps) {
   const cost = d.cost ? parsePounds(d.cost) : null;
   const price = d.price ? parsePounds(d.price) : null;
   const markupBp = d.markup ? (parseQty(d.markup) ?? NaN) * 10 : null;
-  const errors = {
-    qty: qtyMilli == null || qtyMilli <= 0 ? 'Enter a quantity, e.g. 2.5' : undefined,
-    cost: d.cost && cost == null ? 'Enter an amount, e.g. 12.50' : undefined,
-    price: d.price && price == null ? 'Enter an amount, e.g. 45' : undefined,
-    markup:
-      markupBp != null && (!Number.isInteger(markupBp) || markupBp < 10000 || markupBp > 100000)
-        ? 'Between 1 and 10, e.g. 1.3'
-        : undefined,
+  const amount = d.amount ? parsePounds(d.amount) : null;
+  const errors: Partial<Record<'qty' | 'cost' | 'price' | 'markup' | 'amount', string>> = d.minus
+    ? {
+        amount:
+          amount == null || amount <= 0 ? 'Enter the amount to take off, e.g. 450' : undefined,
+      }
+    : {
+        qty: qtyMilli == null || qtyMilli <= 0 ? 'Enter a quantity, e.g. 2.5' : undefined,
+        cost: d.cost && cost == null ? 'Enter an amount, e.g. 12.50' : undefined,
+        price: d.price && price == null ? 'Enter an amount, e.g. 45' : undefined,
+        markup:
+          markupBp != null && (!Number.isInteger(markupBp) || markupBp < 10000 || markupBp > 100000)
+            ? 'Between 1 and 10, e.g. 1.3'
+            : undefined,
+      };
+  const minusLine: QuoteLineInput = {
+    kind: d.kind,
+    description: d.description.trim(),
+    qtyMilli: 1000,
+    unitCostPence: null,
+    unitPricePence: -Math.abs(amount ?? 0),
+    markupBp: null,
+    optionLabel: d.optional ? d.optionLabel.trim() || null : null,
   };
-  const line: QuoteLineInput = {
+  const plainLine: QuoteLineInput = {
     kind: d.kind,
     description: d.description.trim(),
     qtyMilli: d.kind === 'labour' || d.kind === 'material' ? (qtyMilli ?? 1000) : 1000,
@@ -104,6 +131,7 @@ function LineSheetInner(props: LineSheetProps) {
     markupBp: d.kind === 'material' && markupBp && !errors.markup ? markupBp : null,
     optionLabel: d.optional ? d.optionLabel.trim() || null : null,
   };
+  const line = d.minus ? minusLine : plainLine;
   const sell = unitSell(
     {
       kind: line.kind,
@@ -165,7 +193,17 @@ function LineSheetInner(props: LineSheetProps) {
               placeholder={descPlaceholder}
               data-autofocus
             />
-            {d.kind === 'labour' && (
+            {d.minus && (
+              <TextField
+                label="Amount off (£)"
+                inputMode="decimal"
+                value={d.amount}
+                onChange={(e) => set('amount', e.target.value)}
+                placeholder="e.g. 450"
+                error={errors.amount}
+              />
+            )}
+            {!d.minus && d.kind === 'labour' && (
               <>
                 <TextField
                   label="Hours"
@@ -184,7 +222,7 @@ function LineSheetInner(props: LineSheetProps) {
                 />
               </>
             )}
-            {d.kind === 'material' && (
+            {!d.minus && d.kind === 'material' && (
               <>
                 <TextField
                   label="Quantity"
@@ -219,7 +257,7 @@ function LineSheetInner(props: LineSheetProps) {
                 />
               </>
             )}
-            {(d.kind === 'carriage' || d.kind === 'pc_sum') && (
+            {!d.minus && (d.kind === 'carriage' || d.kind === 'pc_sum') && (
               <TextField
                 label="Amount"
                 inputMode="decimal"
@@ -240,6 +278,18 @@ function LineSheetInner(props: LineSheetProps) {
           }
         >
           <List className="form-list">
+            <li>
+              <label className="row" style={{ cursor: 'pointer' }}>
+                <span className="row__main">Minus line (credit)</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={d.minus}
+                  onChange={(e) => set('minus', e.target.checked)}
+                  className="switch"
+                />
+              </label>
+            </li>
             <li>
               <label className="row" style={{ cursor: 'pointer' }}>
                 <span className="row__main">Optional extra</span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { quoteTotals, unitSell, type PricedLineInput } from '../src';
+import { pricedLineTotal, quoteTotals, unitSell, type PricedLineInput } from '../src';
 
 const base: PricedLineInput = {
   kind: 'material',
@@ -46,5 +46,29 @@ describe('quoteTotals', () => {
     const t = quoteTotals(lines, defaults, ['Outside light']);
     expect(t.totalPence).toBe(36000 + 4815 + 2500 + 5200);
     expect(t.costPence).toBe(16000 + 3702 + 4000);
+  });
+});
+
+describe('minus (credit) lines', () => {
+  it('take money off the total and mirror the same plus line to the penny', () => {
+    const plus = {
+      kind: 'material' as const,
+      qtyMilli: 1500,
+      unitCostPence: null,
+      markupBp: null,
+      unitPricePence: 333,
+      optionLabel: null,
+    };
+    const minus = { ...plus, unitPricePence: -333 };
+    expect(pricedLineTotal(plus, { markupBp: 13000 })).toBe(500);
+    expect(pricedLineTotal(minus, { markupBp: 13000 })).toBe(-500);
+    const t = quoteTotals(
+      [
+        { ...plus, qtyMilli: 1000, unitPricePence: 100000 },
+        { ...plus, kind: 'pc_sum', qtyMilli: 1000, unitPricePence: -45000 },
+      ],
+      { markupBp: 13000 },
+    );
+    expect(t.totalPence).toBe(55000);
   });
 });
