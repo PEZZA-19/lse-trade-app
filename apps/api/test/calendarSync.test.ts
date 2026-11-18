@@ -1,0 +1,157 @@
+import { describe, expect, it } from 'vitest';
+import { withTenant } from '../src/db/client';
+import { connect } from '../src/services/calendarSync';
+import { client, clientFor, fakeCalendar, seedCustomer, type Client } from './api-helpers';
+import { addMember, adminSql, appSql } from './helpers';
+
+/** Whole hours from a fixed point, so the same h(n) always means the same instant. */
+const BASE = Math.ceil(Date.now() / 3_600_000) * 3_600_000;
+const h = (hours: number) => new Date(BASE + hours * 3_600_000).toISOString();
+const isoH = (hours: number) => new Date(h(hours)).toISOString();
+
+async function connectGoogle(c: Client, calendarId = `cal-${c.userId}`) {
+  return withTenant(
+    appSql,
+    { tenantId: c.tenantId, userId: c.userId, role: 'owner' } as never,
+    (tx) =>
+      connect(tx, { tenantId: c.tenantId, userId: c.userId, role: 'owner' } as never, {
+        provider: 'google',
+        accountEmail: 'owner@example.com',
+        calendarId,
+        tokenEnc: 'sealed-token',
+      }),
+  );
+}
+
+async function bookedJob(c: Client, userId = c.userId) {
+  const cust = await seedCustomer(c);
+  const job = (await c.req('POST', '/api/jobs', { customerId: cust.id, title: 'Barn rewire' }))
+    .body;
+  const after = (
+    await c.req('POST', `/api/jobs/${job.id}/appointments`, {
+      startsAt: h(24),
+      endsAt: h(26),
+      userId,
+    })
+  ).body;
+  return { job, appt: after.appointments[0] };
+}
+
+/** The appointment's start as stored, or null when it's gone. */
+async function apptStart(id: string): Promise<string | null> {
+  const [r] = await adminSql<
+    { startsAt: Date }[]
+  >`SELECT starts_at FROM appointments WHERE id = ${id}`;
+  return r ? new Date(r.startsAt).toISOString() : null;
+}
+
+describe('two-way calendar sync', () => {
+  it('says which calendars can be connected; nothing is connected at first', async () => {
+    const c = await client();
+    const s = (await c.req('GET', '/api/calendar-sync')).body;
+    expect(s).toEqual({ available: { google: true, microsoft: false }, connections: [] });
+    const ms = await c.req('POST', '/api/calendar-sync/connect/microsoft');
+    expect(ms.status).toBe(503);
+    expect(ms.body.error.code).toBe('not_configured');
+  });
+
+  it('pushes appointments, ignores its own echo, turns a calendar move into a proposal', async () => {
+    const c = await client();
+    const { job, appt } = await bookedJob(c);
+    await connectGoogle(c);
+    const first = (await c.req('POST', '/api/calendar-sync/run')).body;
+    expect(first).toEqual({ created: 1, updated: 0, deleted: 0, proposals: 0 });
+    const ev = fakeCalendar.live().find((e) => e.lseId === appt.id)!;
+    expect(ev.title).toBe(`Job ${job.number}: Barn rewire`);
+    // Running again: our own write echoes back, nothing to do.
+    expect((await c.req('POST', '/api/calendar-sync/run')).body).toEqual({
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      proposals: 0,
+    });
+
+    // Moved in Google: a proposal, and the app doesn't change yet.
+    fakeCalendar.move(ev.remoteId, isoH(48), isoH(50));
+    expect((await c.req('POST', '/api/calendar-sync/run')).body.proposals).toBe(1);
+    const open = (await c.req('GET', '/api/proposals')).body;
+    const p = open.find((x: { kind: string }) => x.kind === 'calendar_change');
+    expect(p.title).toBe(`Job ${job.number}: moved in Google Calendar`);
+    expect(p.summary).toMatch(/Approve to move the appointment/);
+    expect(await apptStart(appt.id)).toBe(new Date(appt.startsAt).toISOString());
+
+    // Approve: the appointment moves; the next sync has nothing to undo.
+    const ok = await c.req('POST', `/api/proposals/${p.id}/approve`);
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.status).toBe('applied');
+    expect(await apptStart(appt.id)).toBe(isoH(48));
+    const after = (await c.req('POST', '/api/calendar-sync/run')).body;
+    expect(after.proposals).toBe(0);
+    expect(fakeCalendar.events.get(ev.remoteId)!.startsAt).toBe(isoH(48));
+  });
+
+  it('discarding a move puts the event back; app moves and deletes go out; hand-made events are ignored', async () => {
+    const c = await client();
+    const { appt } = await bookedJob(c);
+    await connectGoogle(c);
+    await c.req('POST', '/api/calendar-sync/run');
+    const ev = fakeCalendar.live().find((e) => e.lseId === appt.id)!;
+    fakeCalendar.addByHand(isoH(30), isoH(31));
+    fakeCalendar.move(ev.remoteId, isoH(72), isoH(73));
+    expect((await c.req('POST', '/api/calendar-sync/run')).body.proposals).toBe(1);
+    const p = (await c.req('GET', '/api/proposals')).body.find(
+      (x: { kind: string }) => x.kind === 'calendar_change',
+    );
+    expect((await c.req('POST', `/api/proposals/${p.id}/discard`)).status).toBe(200);
+    expect((await c.req('POST', '/api/calendar-sync/run')).body).toMatchObject({
+      updated: 1,
+      proposals: 0,
+    });
+    expect(fakeCalendar.events.get(ev.remoteId)!.startsAt).toBe(
+      new Date(appt.startsAt).toISOString(),
+    );
+
+    // Moved in the app → updated in the calendar; deleted in the app → deleted there.
+    await c.req('PATCH', `/api/appointments/${appt.id}`, { startsAt: h(96), endsAt: h(97) });
+    expect((await c.req('POST', '/api/calendar-sync/run')).body).toMatchObject({ updated: 1 });
+    expect(fakeCalendar.events.get(ev.remoteId)!.startsAt).toBe(isoH(96));
+    await c.req('DELETE', `/api/appointments/${appt.id}`);
+    expect((await c.req('POST', '/api/calendar-sync/run')).body).toMatchObject({ deleted: 1 });
+    expect(fakeCalendar.events.get(ev.remoteId)!.cancelled).toBe(true);
+  });
+
+  it('a delete in the calendar asks before removing the appointment', async () => {
+    const c = await client();
+    const { appt } = await bookedJob(c);
+    await connectGoogle(c);
+    await c.req('POST', '/api/calendar-sync/run');
+    const ev = fakeCalendar.live().find((e) => e.lseId === appt.id)!;
+    fakeCalendar.delete(ev.remoteId);
+    await c.req('POST', '/api/calendar-sync/run');
+    const p = (await c.req('GET', '/api/proposals')).body.find(
+      (x: { kind: string }) => x.kind === 'calendar_change',
+    );
+    expect(p.title).toMatch(/deleted in Google Calendar/);
+    expect(await apptStart(appt.id)).not.toBeNull();
+    await c.req('POST', `/api/proposals/${p.id}/approve`);
+    expect(await apptStart(appt.id)).toBeNull();
+  });
+
+  it('each person syncs only their own appointments and connection', async () => {
+    const c = await client();
+    const email = await addMember(c.tenantId, 'staff');
+    const [u] = await adminSql<{ id: string }[]>`SELECT id FROM users WHERE email = ${email}`;
+    const staff = await clientFor(email, { tenantId: c.tenantId, userId: u!.id });
+    const { appt: ownerAppt } = await bookedJob(c);
+    const { appt: staffAppt } = await bookedJob(c, staff.userId);
+    await connectGoogle(staff);
+    expect((await staff.req('POST', '/api/calendar-sync/run')).body.created).toBe(1);
+    const ids = fakeCalendar.live().map((e) => e.lseId);
+    expect(ids).toContain(staffAppt.id);
+    expect(ids).not.toContain(ownerAppt.id);
+    const conn = (await staff.req('GET', '/api/calendar-sync')).body.connections[0];
+    expect(conn).toMatchObject({ provider: 'google', linkedEvents: 1 });
+    expect((await c.req('DELETE', `/api/calendar-sync/${conn.id}`)).status).toBe(404);
+    expect((await staff.req('DELETE', `/api/calendar-sync/${conn.id}`)).status).toBe(204);
+  });
+});

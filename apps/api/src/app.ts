@@ -58,6 +58,8 @@ import {
   supplierUpdate,
   type ApiErrorBody,
   type BusinessDocument,
+  calendarProvider,
+  CALENDAR_PROVIDER_LABELS,
 } from '@lse/shared';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -75,6 +77,7 @@ import { StubTurnstile, type TurnstileVerifier } from './lib/turnstile';
 import { MemoryBlobs, type BlobStore } from './lib/blobs';
 import * as access from './services/access';
 import * as calendar from './services/calendar';
+import * as calendarSync from './services/calendarSync';
 import * as jobDetail from './services/jobDetail';
 import * as enquiries from './services/enquiries';
 import * as proposals from './services/proposals';
@@ -120,6 +123,8 @@ export interface AppDeps {
   holdSeconds?: number;
   /** Job photo files (R2 in production once a bucket exists). Defaults to in-memory for dev and tests. */
   blobs?: BlobStore;
+  /** Two-way calendar sync adapters. None until the Google / Microsoft OAuth apps exist. */
+  calendarAdapters?: calendarSync.CalendarAdapters;
 }
 
 /** `If-Match: 7` or `If-Match: "7"` -> 7. Absent means "don't check" (online edits from the latest copy). */
@@ -1005,6 +1010,34 @@ export function createApp(deps: AppDeps) {
     const scope = c.req.param('scope');
     if (scope !== 'mine' && scope !== 'all') throw notFound('Calendar');
     return c.json(await c.var.tx((tx) => calendar.revoke(tx, c.var.auth, scope)));
+  });
+  // Two-way calendar sync: each person connects their own calendar.
+  const calendarAdapters = deps.calendarAdapters ?? {};
+  app.get('/api/calendar-sync', async (c) =>
+    c.json(await c.var.tx((tx) => calendarSync.status(tx, c.var.auth, calendarAdapters))),
+  );
+  app.post('/api/calendar-sync/connect/:provider', async (c) => {
+    const provider = parse(calendarProvider, c.req.param('provider'));
+    if (!calendarAdapters[provider])
+      throw new AppError(
+        503,
+        'not_configured',
+        `Connecting ${CALENDAR_PROVIDER_LABELS[provider]} needs setting up first (an app registration with ${provider === 'google' ? 'Google' : 'Microsoft'}).`,
+      );
+    // The OAuth redirect goes here once the app registration exists.
+    throw new AppError(503, 'not_configured', 'Calendar sign-in is not switched on yet.');
+  });
+  app.post('/api/calendar-sync/run', async (c) =>
+    c.json(
+      await c.var.tx((tx) =>
+        calendarSync.syncMine(tx, c.var.auth, calendarAdapters, deps.auth.appOrigin),
+      ),
+    ),
+  );
+  app.delete('/api/calendar-sync/:id', async (c) => {
+    const id = uuidParam(c);
+    await c.var.tx((tx) => calendarSync.disconnect(tx, c.var.auth, id));
+    return c.body(null, 204);
   });
   app.get('/api/team/access', async (c) =>
     c.json(await c.var.tx((tx) => access.listAccess(tx, c.var.auth))),

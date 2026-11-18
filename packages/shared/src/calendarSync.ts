@@ -1,0 +1,245 @@
+/**
+ * Two-way calendar sync (Google Calendar, Microsoft 365), the provider-free part: what each side
+ * should do, worked out from the app's appointments, the links we keep to calendar events, and the
+ * changes a calendar reports. The API runs the plans through a provider adapter.
+ *
+ * Rules (PROGRESS.md design note): the app writes only to its own "LSE jobs" calendar; events made
+ * by hand in that calendar are ignored; a move or delete made in the calendar never changes the app
+ * silently — it becomes a proposal in Approvals that Joe applies or discards. If both sides changed
+ * since the last sync, the app's version stays and the proposal says so.
+ */
+import { z } from 'zod';
+
+export const CALENDAR_PROVIDERS = ['google', 'microsoft'] as const;
+export type CalendarProvider = (typeof CALENDAR_PROVIDERS)[number];
+export const calendarProvider = z.enum(CALENDAR_PROVIDERS);
+export const CALENDAR_PROVIDER_LABELS: Record<CalendarProvider, string> = {
+  google: 'Google Calendar',
+  microsoft: 'Outlook (Microsoft 365)',
+};
+
+/** An appointment as the sync sees it (no money, same as the one-way feed). */
+export interface SyncAppointment {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  jobNumber: string;
+  jobTitle: string;
+  customerName: string;
+  siteAddress: string | null;
+  assignee: string | null;
+}
+
+/** What we write to the calendar for one appointment. */
+export interface CalendarEventBody {
+  /** Our appointment id, stored on the event (Google private extended property, Graph extended property). */
+  lseId: string;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  location: string | null;
+  description: string;
+}
+
+/** The link between an appointment and its event in one connected calendar. */
+export interface EventLink {
+  appointmentId: string;
+  remoteId: string;
+  etag: string | null;
+  /** Hash of the body we last wrote: tells us whether the app changed since. */
+  appHash: string;
+  /** Times the calendar had at the last sync: tells us whether the calendar changed since. */
+  remoteStartsAt: string;
+  remoteEndsAt: string;
+}
+
+/** One change reported by the calendar (incremental sync). */
+export interface RemoteChange {
+  remoteId: string;
+  /** Our appointment id if the event carries it; null for events made by hand. */
+  lseId: string | null;
+  etag: string | null;
+  cancelled: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
+export function eventBody(a: SyncAppointment, appOrigin: string | null = null): CalendarEventBody {
+  const lines = [
+    `Customer: ${a.customerName}`,
+    a.assignee ? `Booked: ${a.assignee}` : null,
+    appOrigin ? `${appOrigin.replace(/\/$/, '')}/jobs` : null,
+    'Moving or deleting this event asks for approval in the app before anything changes.',
+  ].filter(Boolean);
+  return {
+    lseId: a.id,
+    title: `Job ${a.jobNumber}: ${a.jobTitle}`.slice(0, 250),
+    startsAt: new Date(a.startsAt).toISOString(),
+    endsAt: new Date(a.endsAt).toISOString(),
+    location: a.siteAddress,
+    description: lines.join('\n'),
+  };
+}
+
+/** Small stable hash (FNV-1a, hex) of what we write; equal hash = nothing to push. */
+export function bodyHash(b: CalendarEventBody): string {
+  const s = [b.lseId, b.title, b.startsAt, b.endsAt, b.location ?? '', b.description].join(
+    '\u241f',
+  );
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+export type PushOp =
+  | { op: 'create'; appointmentId: string; body: CalendarEventBody; hash: string }
+  | {
+      op: 'update';
+      appointmentId: string;
+      remoteId: string;
+      etag: string | null;
+      body: CalendarEventBody;
+      hash: string;
+    }
+  | { op: 'delete'; appointmentId: string; remoteId: string };
+
+/** App → calendar: create what's new, update what changed, delete what's gone. */
+export function planPush(
+  appointments: SyncAppointment[],
+  links: EventLink[],
+  appOrigin: string | null = null,
+): PushOp[] {
+  const byAppt = new Map(links.map((l) => [l.appointmentId, l]));
+  const ops: PushOp[] = [];
+  const live = new Set<string>();
+  for (const a of appointments) {
+    live.add(a.id);
+    const body = eventBody(a, appOrigin);
+    const hash = bodyHash(body);
+    const link = byAppt.get(a.id);
+    if (!link) ops.push({ op: 'create', appointmentId: a.id, body, hash });
+    else if (link.appHash !== hash)
+      ops.push({
+        op: 'update',
+        appointmentId: a.id,
+        remoteId: link.remoteId,
+        etag: link.etag,
+        body,
+        hash,
+      });
+  }
+  for (const l of links)
+    if (!live.has(l.appointmentId))
+      ops.push({ op: 'delete', appointmentId: l.appointmentId, remoteId: l.remoteId });
+  return ops;
+}
+
+export type PullProposal =
+  | {
+      type: 'move';
+      appointmentId: string;
+      remoteId: string;
+      fromStartsAt: string;
+      fromEndsAt: string;
+      startsAt: string;
+      endsAt: string;
+      /** The app changed it too since the last sync: applying would overwrite that. */
+      conflict: boolean;
+    }
+  | { type: 'cancel'; appointmentId: string; remoteId: string; conflict: boolean };
+
+/**
+ * Calendar → app: proposals for linked events that were moved or deleted in the calendar.
+ * Our own writes echo back with the times we wrote, so they produce nothing.
+ */
+export function planPull(
+  changes: RemoteChange[],
+  links: EventLink[],
+  appointments: SyncAppointment[],
+  appOrigin: string | null = null,
+): PullProposal[] {
+  const byRemote = new Map(links.map((l) => [l.remoteId, l]));
+  const byAppt = new Map(links.map((l) => [l.appointmentId, l]));
+  const appts = new Map(appointments.map((a) => [a.id, a]));
+  const out: PullProposal[] = [];
+  for (const c of changes) {
+    const link = byRemote.get(c.remoteId) ?? (c.lseId ? byAppt.get(c.lseId) : undefined);
+    if (!link) continue; // made by hand in the calendar, or not ours: ignored
+    const a = appts.get(link.appointmentId);
+    if (!a) continue; // already gone in the app; the push deletes the event
+    const appChanged = bodyHash(eventBody(a, appOrigin)) !== link.appHash;
+    if (c.cancelled) {
+      out.push({
+        type: 'cancel',
+        appointmentId: a.id,
+        remoteId: link.remoteId,
+        conflict: appChanged,
+      });
+      continue;
+    }
+    if (!c.startsAt || !c.endsAt) continue;
+    const s = new Date(c.startsAt).toISOString();
+    const e = new Date(c.endsAt).toISOString();
+    if (s === link.remoteStartsAt && e === link.remoteEndsAt) continue; // our own write, or no time change
+    if (!(e > s)) continue;
+    out.push({
+      type: 'move',
+      appointmentId: a.id,
+      remoteId: link.remoteId,
+      fromStartsAt: new Date(a.startsAt).toISOString(),
+      fromEndsAt: new Date(a.endsAt).toISOString(),
+      startsAt: s,
+      endsAt: e,
+      conflict: appChanged,
+    });
+  }
+  return out;
+}
+
+/** "Thu 19 Nov, 09:00–11:00" in the business's time zone. */
+export function slotText(startsAt: string, endsAt: string, timeZone = 'Europe/Guernsey'): string {
+  const d = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone,
+  }).format(new Date(startsAt));
+  const t = (x: string) =>
+    new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone }).format(
+      new Date(x),
+    );
+  return `${d}, ${t(startsAt)}–${t(endsAt)}`;
+}
+
+/** Payload of a calendar_change proposal. */
+export interface CalendarChangePayload {
+  provider: CalendarProvider;
+  connectionId: string;
+  change: PullProposal;
+}
+
+export interface CalendarConnectionDto {
+  id: string;
+  provider: CalendarProvider;
+  accountEmail: string | null;
+  calendarName: string;
+  status: 'connected' | 'needs_reconnect';
+  lastSyncedAt: string | null;
+  linkedEvents: number;
+}
+
+export interface CalendarSyncStatusDto {
+  /** Which providers this installation can connect to (OAuth app set up). */
+  available: Record<CalendarProvider, boolean>;
+  connections: CalendarConnectionDto[];
+}
+
+export interface CalendarSyncResultDto {
+  created: number;
+  updated: number;
+  deleted: number;
+  proposals: number;
+}

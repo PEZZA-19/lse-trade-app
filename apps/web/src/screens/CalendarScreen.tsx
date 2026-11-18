@@ -1,5 +1,7 @@
 import {
   buildIcs,
+  CALENDAR_PROVIDER_LABELS,
+  CALENDAR_PROVIDERS,
   calendarLinks,
   feedEvents,
   type AppointmentListItemDto,
@@ -7,10 +9,19 @@ import {
 } from '@lse/shared';
 import { useState } from 'react';
 import { api } from '../api/client';
-import { useCalendarFeeds, useRegenerateFeed, useRevokeFeed } from '../api/calendar';
+import {
+  useCalendarFeeds,
+  useCalendarSync,
+  useConnectCalendar,
+  useDisconnectCalendar,
+  useRegenerateFeed,
+  useRevokeFeed,
+  useRunCalendarSync,
+} from '../api/calendar';
 import { useMe } from '../api/hooks';
 import { useToast } from '../components/Toast';
-import { Button, List, Page, Section } from '../components/ui';
+import { Button, KeyValueRow, List, Page, Section } from '../components/ui';
+import { formatDayShort } from '../lib/dates';
 
 const DEMO = import.meta.env.VITE_DEMO === '1';
 const NOTE =
@@ -24,6 +35,7 @@ export function CalendarScreen() {
   return (
     <Page title="Calendar" back={{ label: 'More', to: '/more' }}>
       {DEMO ? <DemoCalendar /> : <LiveCalendar />}
+      <TwoWaySection />
     </Page>
   );
 }
@@ -228,6 +240,118 @@ function DemoCalendar() {
           Download Calendar File (.ics)
         </Button>
       </div>
+    </Section>
+  );
+}
+
+const TWO_WAY_NOTE =
+  'Two-way: your booked jobs go into an “LSE jobs” calendar in your Google or Outlook account, and if someone moves or deletes one there, it comes back here as a change to approve (nothing changes by itself).';
+
+/** Two-way sync with Google Calendar or Outlook, per person. */
+function TwoWaySection() {
+  const status = useCalendarSync(!DEMO);
+  const connect = useConnectCalendar();
+  const run = useRunCalendarSync();
+  const disconnect = useDisconnectCalendar();
+  const toast = useToast();
+  if (DEMO)
+    return (
+      <Section header="Two-way sync" footer={TWO_WAY_NOTE}>
+        <p className="section__footer" style={{ marginTop: 0 }}>
+          Needs the app online and a one-off setup with Google and Microsoft, so it isn’t in this
+          demo.
+        </p>
+      </Section>
+    );
+  const s = status.data;
+  const connected = new Map((s?.connections ?? []).map((c) => [c.provider, c]));
+  return (
+    <Section
+      header="Two-way sync"
+      footer={
+        connect.error ? (
+          <span role="alert" style={{ color: 'var(--red)' }}>
+            {connect.error.message}
+          </span>
+        ) : (
+          TWO_WAY_NOTE
+        )
+      }
+    >
+      <List label="Connected calendars">
+        {CALENDAR_PROVIDERS.map((p) => {
+          const c = connected.get(p);
+          if (c)
+            return (
+              <li key={p}>
+                <KeyValueRow
+                  label={CALENDAR_PROVIDER_LABELS[p]}
+                  value={
+                    c.status === 'needs_reconnect'
+                      ? 'Sign in again'
+                      : `${c.linkedEvents} ${c.linkedEvents === 1 ? 'job' : 'jobs'}${c.lastSyncedAt ? ` · ${formatDayShort(new Date(c.lastSyncedAt))}` : ''}`
+                  }
+                />
+              </li>
+            );
+          return (
+            <li key={p}>
+              <KeyValueRow
+                label={CALENDAR_PROVIDER_LABELS[p]}
+                value={
+                  s?.available[p] === false ? (
+                    <span style={{ color: 'var(--label-2)' }}>Needs setting up</span>
+                  ) : (
+                    <Button
+                      variant="plain"
+                      onClick={() => connect.mutate(p)}
+                      loading={connect.isPending && connect.variables === p}
+                    >
+                      Connect
+                    </Button>
+                  )
+                }
+              />
+            </li>
+          );
+        })}
+      </List>
+      {!!s?.connections.length && (
+        <div className="button-stack">
+          <Button
+            block
+            onClick={() =>
+              run.mutate(undefined, {
+                onSuccess: (r) =>
+                  toast.show(
+                    r.proposals
+                      ? `${r.proposals} calendar ${r.proposals === 1 ? 'change' : 'changes'} to approve`
+                      : `Calendar up to date (${r.created + r.updated + r.deleted} changed)`,
+                  ),
+                onError: (e) => toast.show(e.message, { tone: 'error' }),
+              })
+            }
+            loading={run.isPending}
+          >
+            Sync Now
+          </Button>
+          {s.connections.map((c) => (
+            <Button
+              key={c.id}
+              variant="destructive"
+              block
+              onClick={() =>
+                disconnect.mutate(c.id, {
+                  onSuccess: () =>
+                    toast.show(`${CALENDAR_PROVIDER_LABELS[c.provider]} disconnected`),
+                })
+              }
+            >
+              Disconnect {CALENDAR_PROVIDER_LABELS[c.provider]}
+            </Button>
+          ))}
+        </div>
+      )}
     </Section>
   );
 }

@@ -395,7 +395,7 @@ Tests now: shared 135 (+1 local-only skipped), API 194, web 52, e2e 32 mobile + 
 
 Tests now: shared 136 (+1 local-only skipped), API 196, web 52, e2e mobile all passing.
 
-### Design note: two-way calendar sync (Google and Microsoft), not built
+### Design note: two-way calendar sync (Google and Microsoft) — engine built in session 4, sign-in not yet
 
 - **Connect**: per person, Settings › Calendar › "Connect Google" / "Connect Microsoft 365" via OAuth
   (Google: `calendar.events` scope on a dedicated "LSE jobs" calendar the app creates, not the whole
@@ -665,6 +665,10 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 36. Jobs 14 (rent payments) and 108 (supplier credit) come to less than £0, which means you owe the
     customer. The app won't approve an invoice for £0 or less. Should these be a credit note or a
     refund to the customer instead, or carried forward onto their next invoice?
+38. Two-way calendar sync needs two one-off setups in your name: a Google Cloud project (so the app
+    can ask to use a "LSE jobs" calendar in your Google account; Google reviews the request) and a
+    Microsoft (Azure) app registration for Outlook. Shall I prepare step-by-step instructions, and
+    which do you use day to day: Google, Outlook, or both?
 37. Labour on kits uses the business charge-out rate. Should it use a named person's rate when the
     job is assigned to them (ties in with Q28)?
 
@@ -674,7 +678,8 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 2. ~~Labour in every quote kit~~ (done, session 4).
 3. ~~Minus (credit) lines on invoices and quotes; private demo re-imported~~ (done, session 4;
    see Q36 for jobs that come to less than £0).
-4. Two-way calendar sync.
+4. Two-way calendar sync: the engine is done (session 4); next is the Google and Microsoft sign-in
+   and adapters, once the app registrations exist (Q38), then push notifications so it runs by itself.
 5. Later for the books: expenses/overheads and wages (so net profit is real), bank feed or bank
    statement import and reconciliation, refunds.
 
@@ -779,3 +784,25 @@ so You Owe is £0 there until they are.
   supplier credit, and minus lines on one more job) and with price-less lines kept at £0 (jobs 79,
   110, 111: a heading and blank carriage lines, which is what was skipped before, not credits).
   Jobs 14 and 108 come to less than £0, so they have no draft invoice (see Q36).
+
+### Done (session 4, later: two-way calendar sync engine)
+
+- **Shared plans** (`packages/shared/src/calendarSync.ts`): what goes in each calendar event (job
+  number and title, customer, site, who's booked; never money; our appointment id on the event), a
+  hash of what we wrote, the app → calendar plan (create new, update changed, delete gone) and the
+  calendar → app plan (a move or delete of one of our events becomes a proposal; our own writes
+  echoing back and events made by hand are ignored; if the app changed it too, the proposal says so).
+- **API**: migration **0024** (`calendar_connections` per person and provider, tokens stored
+  encrypted; `calendar_event_links`; proposals kind `calendar_change`; RLS). `GET /api/calendar-sync`
+  (which providers can be connected, my connections), `POST /api/calendar-sync/run` (my calendars:
+  calendar changes first, then the app's changes out), `DELETE /api/calendar-sync/:id`,
+  `POST /api/calendar-sync/connect/:provider` (says plainly it needs setting up until the Google /
+  Microsoft app registrations exist). Approving a calendar proposal moves or removes the
+  appointment; discarding puts the app's time back into the calendar on the next sync.
+  Appointments waiting on a proposal aren't pushed. Each person only syncs their own bookings.
+- **Screens**: More › Calendar › Two-way sync (Google Calendar, Outlook; Connect / Needs setting up,
+  Sync Now, Disconnect); Approvals shows calendar changes (booked now → moved to, or deleted).
+- **Tests**: shared planner (7), API with an in-memory calendar (5: push, echo, move → approve,
+  discard → restored, app move/delete out, calendar delete → approve, per-person), e2e (setup state).
+- **Not yet**: the Google and Microsoft adapters and OAuth sign-in (need Q38), push notifications /
+  a schedule so it runs without "Sync Now", token encryption key handling in the Worker.

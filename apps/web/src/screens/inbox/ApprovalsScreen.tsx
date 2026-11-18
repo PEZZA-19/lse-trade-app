@@ -1,7 +1,10 @@
 import {
+  CALENDAR_PROVIDER_LABELS,
   formatPence,
   formatQty,
   PROPOSAL_KIND_LABELS,
+  slotText,
+  type CalendarChangePayload,
   type EmailPayload,
   type PriceUpdatePayload,
   type ProposalDto,
@@ -84,6 +87,28 @@ function Preview({ p }: { p: ProposalDto }) {
       </List>
     );
   }
+  if (p.kind === 'calendar_change') {
+    const c = (p.payload as CalendarChangePayload).change;
+    return (
+      <List className="form-list" label="Calendar change">
+        <KeyValueRow
+          label="From"
+          value={CALENDAR_PROVIDER_LABELS[(p.payload as CalendarChangePayload).provider]}
+        />
+        {c.type === 'move' ? (
+          <>
+            <KeyValueRow label="Booked now" value={slotText(c.fromStartsAt, c.fromEndsAt)} />
+            <KeyValueRow label="Moved to" value={slotText(c.startsAt, c.endsAt)} />
+          </>
+        ) : (
+          <KeyValueRow label="Change" value="Event deleted" />
+        )}
+        {c.conflict && (
+          <KeyValueRow label="Note" value="Also changed in the app since the last sync" />
+        )}
+      </List>
+    );
+  }
   const u = p.payload as PriceUpdatePayload;
   return (
     <List className="form-list" label="Price changes">
@@ -162,7 +187,7 @@ function ProposalCard({ p, owner, detail }: { p: ProposalDto; owner: boolean; de
           >
             Approve
           </Button>
-          {p.kind !== 'price_update' && (
+          {p.kind !== 'price_update' && p.kind !== 'calendar_change' && (
             <Button variant="secondary" onClick={() => setEditing(true)}>
               Edit
             </Button>

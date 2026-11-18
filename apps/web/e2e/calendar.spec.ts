@@ -71,3 +71,14 @@ test('More › Calendar: private link, subscribe links, copy, regenerate (old li
   await expect(mine).toBeHidden();
   expect((await page.context().request.fetch(second)).status()).toBe(404);
 });
+
+test('More › Calendar: two-way sync says plainly that Google and Outlook need setting up', async ({
+  page,
+}) => {
+  await page.goto('/calendar');
+  const list = page.getByRole('list', { name: 'Connected calendars' });
+  await expect(list.getByText('Google Calendar')).toBeVisible();
+  await expect(list.getByText('Outlook (Microsoft 365)')).toBeVisible();
+  await expect(list.getByText('Needs setting up')).toHaveCount(2);
+  await expect(page.getByText(/comes back here as a change to approve/)).toBeVisible();
+});

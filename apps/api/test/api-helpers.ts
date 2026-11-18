@@ -4,6 +4,7 @@ import { AiGateway } from '../src/ai/gateway';
 import { FakeProvider } from '../src/ai/fake';
 import { DEFAULT_ORIGIN, signIn, type SessionClient } from '../src/dev/session-client';
 import { ConsoleMailer } from '../src/lib/mailer';
+import { FakeCalendar } from '../src/dev/fakeCalendar';
 import { appSql, newTenant } from './helpers';
 
 export interface Client {
@@ -24,6 +25,8 @@ export const mailer = new ConsoleMailer(() => {});
 const generous = { max: 10_000, windowSeconds: 60 };
 /** The deterministic stand-in model; no test ever calls a real one. */
 export const fakeAi = new FakeProvider();
+/** In-memory Google calendar for the two-way sync tests. */
+export const fakeCalendar = new FakeCalendar();
 export const app = createApp({
   getSql: () => appSql,
   auth: {
@@ -33,6 +36,7 @@ export const app = createApp({
   },
   ai: new AiGateway(fakeAi),
   calendarLimits: { perIp: generous, perFeed: generous },
+  calendarAdapters: { google: fakeCalendar },
 });
 
 export async function toResult(res: Response) {

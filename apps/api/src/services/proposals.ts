@@ -10,6 +10,7 @@ import {
   EMAIL_KINDS,
   HOLD_SECONDS,
   quoteLineInput,
+  type CalendarChangePayload,
   type EmailPayload,
   type PriceUpdatePayload,
   type ProposalCountsDto,
@@ -33,6 +34,7 @@ import type { MessageSender } from '../lib/messages';
 import { iso, isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { applyBill, getBill } from './bills';
+import * as calendarSync from './calendarSync';
 import * as enquiries from './enquiries';
 import { assertOwnerDecision } from './invoices';
 
@@ -368,7 +370,7 @@ export async function edit(
   const p = await lock(tx, id, v);
   if (p.status !== 'pending') throw conflict('not_pending', 'Only a waiting draft can be edited.');
   const isEmail = EMAIL_KINDS.includes(p.kind);
-  if (isEmail !== 'subject' in patch || p.kind === 'price_update')
+  if (isEmail !== 'subject' in patch || p.kind === 'price_update' || p.kind === 'calendar_change')
     throw invalid('Those changes don’t fit this kind of draft.');
   const payload = { ...p.payload, ...patch };
   await tx`UPDATE proposals SET payload = ${tx.json(payload as never)} WHERE id = ${id}`;
@@ -383,6 +385,8 @@ export async function discard(tx: Tx, auth: Auth, id: string, v?: number) {
   if (p.status !== 'pending')
     throw conflict('not_pending', 'Only a waiting draft can be discarded.');
   await tx`UPDATE proposals SET status = 'discarded', decided_by = ${auth.userId}, decided_at = now() WHERE id = ${id}`;
+  if (p.kind === 'calendar_change')
+    await calendarSync.discardChange(tx, p.payload as CalendarChangePayload);
   await event(tx, auth, id, 'discarded');
   await audit(tx, auth, 'proposal_discarded', 'proposal', id, {});
   return getProposal(tx, id);
@@ -443,6 +447,8 @@ export async function approve(
       { lines, notes: q.notes || null },
     );
     result = { quoteId: e.quoteId, customerId: e.customerId };
+  } else if (p.kind === 'calendar_change') {
+    result = await calendarSync.applyChange(tx, auth, p.payload as CalendarChangePayload);
   } else {
     const pu = p.payload as PriceUpdatePayload;
     const applied = await applyBill(tx, auth, pu.billId, false);

@@ -4,12 +4,14 @@
  * two minutes, with a Stop button, before they go.
  */
 import { z } from 'zod';
+import type { CalendarChangePayload } from './calendarSync';
 
 export const PROPOSAL_KINDS = [
   'reply_email',
   'overdue_reminder',
   'quote_draft',
   'price_update',
+  'calendar_change',
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 export const PROPOSAL_STATUSES = [
@@ -29,6 +31,7 @@ export const PROPOSAL_KIND_LABELS: Record<ProposalKind, string> = {
   overdue_reminder: 'Payment reminder',
   quote_draft: 'Quote draft',
   price_update: 'Price update',
+  calendar_change: 'Calendar change',
 };
 
 export type EmailPayload = { to: string; toName: string; subject: string; body: string };
@@ -76,7 +79,7 @@ export interface ProposalDto {
   title: string;
   /** What approving will do, in plain words. */
   summary: string;
-  payload: EmailPayload | QuoteDraftPayload | PriceUpdatePayload;
+  payload: EmailPayload | QuoteDraftPayload | PriceUpdatePayload | CalendarChangePayload;
   sourceType: string | null;
   sourceId: string | null;
   /** The model that drafted it ("fake" in tests and the preview), or null for rule-based helpers. */

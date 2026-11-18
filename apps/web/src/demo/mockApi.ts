@@ -649,6 +649,12 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
   const q = query.get('q');
 
   const user = { ...DEMO_USER, email: 'owner@lse.example' };
+  // Two-way calendar sync needs a server and the Google/Microsoft setup: never in the demo.
+  if (a === 'calendar-sync') {
+    if (method === 'GET' && !id)
+      return { available: { google: false, microsoft: false }, connections: [] };
+    return fail(503, 'not_configured', 'Two-way calendar sync isn’t available in the demo.');
+  }
   if (
     method === 'GET' &&
     sub === 'document' &&
