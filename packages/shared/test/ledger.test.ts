@@ -440,3 +440,75 @@ describe('customer credit (a job below £0) used on a later invoice', () => {
     expect(v('Net assets')).toBe(v('Total equity'));
   });
 });
+
+describe('expenses and wages in the books', () => {
+  const withExpenses = (): BooksInput => ({
+    ...books(),
+    expenses: [
+      {
+        id: 'e1',
+        date: '2027-01-15',
+        payee: 'Insurer',
+        account: '433',
+        description: 'Public liability',
+        amountPence: 24_000,
+        taxPence: 4_000,
+        paidFrom: 'bank',
+      },
+      {
+        id: 'e2',
+        date: '2027-02-01',
+        payee: 'Sam',
+        account: '477',
+        description: 'January',
+        amountPence: 150_000,
+        taxPence: 0,
+        paidFrom: 'bank',
+      },
+      {
+        id: 'e3',
+        date: '2027-02-02',
+        payee: 'Ferry',
+        account: '493',
+        description: '',
+        amountPence: 1_500,
+        taxPence: 0,
+        paidFrom: 'owner',
+      },
+    ],
+  });
+  const range = { from: '2027-01-01', to: '2027-02-28' };
+
+  it('every expense balances; net profit falls by the net cost', () => {
+    const ps = postings(withExpenses());
+    for (const id of ['e1', 'e2', 'e3'])
+      expect(ps.filter((p) => p.sourceId === id).reduce((s, p) => s + p.pence, 0)).toBe(0);
+    const before = plFigures(postings(books()), range);
+    const after = plFigures(ps, range);
+    expect(after.expenses).toBe(20_000 + 150_000 + 1_500);
+    expect(before.netProfit - after.netProfit).toBe(171_500);
+    const bs = bsFigures(ps, '2027-02-28', '01-01');
+    expect(bs.netAssets).toBe(bs.equity);
+  });
+
+  it('cash flow splits money out into suppliers, wages and expenses; owner-paid isn’t bank', () => {
+    const { months } = monthlyCash(withExpenses(), range);
+    const feb = months.find((m) => m.month === '2027-02')!;
+    expect(feb.outWagesPence).toBe(150_000);
+    expect(feb.outExpensesPence).toBe(0); // the ferry was paid personally
+    expect(feb.outSuppliersPence + feb.outWagesPence + feb.outExpensesPence).toBe(feb.outPence);
+    const jan = months.find((m) => m.month === '2027-01')!;
+    expect(jan.outExpensesPence).toBe(24_000);
+    const cf = cashFlow(withExpenses(), range);
+    expect(cf.rows.map((r) => r.label)).toEqual(
+      expect.arrayContaining(['Paid to suppliers', 'Wages', 'Expenses']),
+    );
+    // P&L lists only the overhead accounts used.
+    const pl = profitAndLoss(withExpenses(), range);
+    const labels = pl.rows.map((r) => r.label);
+    expect(labels).toEqual(
+      expect.arrayContaining(['Insurance', 'Wages and salaries', 'Travel and ferries']),
+    );
+    expect(labels).not.toContain('Bank fees');
+  });
+});

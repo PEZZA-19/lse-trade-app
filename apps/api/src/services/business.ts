@@ -4,6 +4,7 @@ import {
   type BillPaymentDto,
   type BudgetUpdate,
   type BusinessDto,
+  type LedgerExpense,
   type OpeningBalanceUpdate,
 } from '@lse/shared';
 import type { Tx } from '../db/client';
@@ -103,6 +104,21 @@ export async function getBusiness(tx: Tx): Promise<BusinessDto> {
   >`
     SELECT id, bill_id, paid_on::text AS date, amount_pence, method, reference
       FROM supplier_bill_payments`;
+  const expenses = await tx<
+    {
+      id: string;
+      date: string;
+      payee: string;
+      account: LedgerExpense['account'];
+      description: string;
+      amountPence: string;
+      taxPence: string;
+      paidFrom: 'bank' | 'owner';
+    }[]
+  >`
+    SELECT id, spent_on::text AS date, payee, account_code AS account, description, amount_pence,
+           tax_pence, paid_from
+      FROM expenses ORDER BY spent_on, created_at`;
   const budgets = await tx<{ month: string; account: string; amountPence: string }[]>`
     SELECT to_char(month, 'YYYY-MM') AS month, account_code AS account, amount_pence FROM budgets`;
   const pipeline = await tx<
@@ -143,6 +159,11 @@ export async function getBusiness(tx: Tx): Promise<BusinessDto> {
     creditUses: creditUses.map((u) => ({ ...u, amountPence: n(u.amountPence) })),
     bills: bills.map((b) => ({ ...b, totalPence: n(b.totalPence), homePence: n(b.homePence) })),
     billPayments: billPayments.map((p) => ({ ...p, amountPence: n(p.amountPence) })),
+    expenses: expenses.map((e) => ({
+      ...e,
+      amountPence: n(e.amountPence),
+      taxPence: n(e.taxPence),
+    })),
     budgets: budgets.map((b) => ({ ...b, amountPence: n(b.amountPence) })),
     pipeline: pipeline.map((p) => ({ ...p, count: n(p.count), valuePence: n(p.valuePence) })),
     openQuotes: { count: n(quotes?.count), valuePence: n(quotes?.value) },

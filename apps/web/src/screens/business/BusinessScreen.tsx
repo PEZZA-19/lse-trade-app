@@ -175,6 +175,16 @@ export function BusinessScreen() {
               <dd>{money(o.profit.year.grossProfit)}</dd>
             </div>
             <div>
+              <dt>
+                <Link to="/business/expenses">Expenses and wages</Link>
+              </dt>
+              <dd>{money(-o.profit.year.expenses)}</dd>
+            </div>
+            <div className="biz-rows__total">
+              <dt>Net profit</dt>
+              <dd>{money(o.profit.year.netProfit)}</dd>
+            </div>
+            <div>
               <dt>This month</dt>
               <dd>{money(o.profit.month.netProfit)}</dd>
             </div>

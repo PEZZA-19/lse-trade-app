@@ -3,7 +3,9 @@ import {
   billPaymentCreate,
   budgetMonths,
   budgetUpdate,
+  expenseCreate,
   openingBalanceUpdate,
+  type ExpenseDto,
   type BillDetailDto,
   type BillPaymentDto,
   type BillSummaryDto,
@@ -19,8 +21,15 @@ export interface BusinessDb {
   opening: { date: string; bankPence: number } | null;
   budgets: LedgerBudget[];
   billPayments: (BillPaymentDto & { billId: string })[];
+  /** Expenses and wages (older saved demos don't have it yet). */
+  expenses?: ExpenseDto[];
 }
-export const freshBusiness = (): BusinessDb => ({ opening: null, budgets: [], billPayments: [] });
+export const freshBusiness = (): BusinessDb => ({
+  opening: null,
+  budgets: [],
+  billPayments: [],
+  expenses: [],
+});
 
 export interface BusinessCtx {
   db: BusinessDb;
@@ -126,6 +135,7 @@ export function demoBusiness(c: BusinessCtx): BusinessDto {
       method: p.method,
       reference: p.reference,
     })),
+    expenses: (c.db.expenses ?? []).map(({ memberUserId: _m, createdAt: _c, ...e }) => e),
     budgets: c.db.budgets,
     pipeline: [...c.stages]
       .filter((s) => s.systemKey !== 'cancelled')
@@ -171,6 +181,38 @@ export function businessRoute(
         });
       }
       return demoBusiness(c);
+    }
+    return undefined;
+  }
+  if (a === 'expenses') {
+    const list = (c.db.expenses ??= []);
+    if (method === 'GET' && !id)
+      return [...list].sort(
+        (x, y) => y.date.localeCompare(x.date) || y.createdAt.localeCompare(x.createdAt),
+      );
+    if (method === 'POST' && !id) {
+      const input = c.parse(expenseCreate, body);
+      if (input.date > c.today) c.fail(422, 'future_date', 'The date can’t be in the future.');
+      const e: ExpenseDto = {
+        id: c.uid(),
+        date: input.date,
+        payee: input.payee,
+        account: input.account,
+        description: input.description,
+        amountPence: input.amountPence,
+        taxPence: input.taxPence,
+        paidFrom: input.paidFrom,
+        memberUserId: input.memberUserId ?? null,
+        createdAt: c.now(),
+      };
+      list.push(e);
+      return e;
+    }
+    if (method === 'DELETE' && id) {
+      const i = list.findIndex((e) => e.id === id);
+      if (i < 0) c.fail(404, 'not_found', 'Expense not found');
+      list.splice(i, 1);
+      return null;
     }
     return undefined;
   }

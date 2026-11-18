@@ -3,6 +3,8 @@ import type {
   BillPaymentDto,
   BudgetUpdate,
   BusinessDto,
+  ExpenseCreate,
+  ExpenseDto,
   OpeningBalanceUpdate,
 } from '@lse/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -55,6 +57,41 @@ export function useRecordBillPayment(id: string) {
     onSuccess: (rows) => {
       setKey(newIdempotencyKey());
       qc.setQueryData(billPaymentsKey(id), rows);
+      void qc.invalidateQueries({ queryKey: businessKey });
+    },
+  });
+}
+
+/* ------------------------------ expenses and wages ------------------------------ */
+
+export const expensesKey = ['expenses'] as const;
+export const useExpenses = (enabled = true) =>
+  useQuery({
+    queryKey: expensesKey,
+    queryFn: () => api<ExpenseDto[]>('GET', '/expenses'),
+    enabled,
+  });
+
+export function useAddExpense() {
+  const qc = useQueryClient();
+  const [key, setKey] = useState(newIdempotencyKey);
+  return useMutation({
+    mutationFn: (input: ExpenseCreate) =>
+      api<ExpenseDto>('POST', '/expenses', input, { idempotencyKey: key }),
+    onSuccess: () => {
+      setKey(newIdempotencyKey());
+      void qc.invalidateQueries({ queryKey: expensesKey });
+      void qc.invalidateQueries({ queryKey: businessKey });
+    },
+  });
+}
+
+export function useDeleteExpense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<null>('DELETE', `/expenses/${id}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: expensesKey });
       void qc.invalidateQueries({ queryKey: businessKey });
     },
   });

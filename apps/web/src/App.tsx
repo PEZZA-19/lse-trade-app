@@ -29,6 +29,7 @@ import { EnquiryScreen } from './screens/inbox/EnquiryScreen';
 import { ReportsScreen } from './screens/reports/ReportsScreen';
 import { BusinessScreen } from './screens/business/BusinessScreen';
 import { ReportScreen } from './screens/business/ReportScreen';
+import { ExpensesScreen } from './screens/business/ExpensesScreen';
 import { ApprovalsScreen, ProposalScreen } from './screens/inbox/ApprovalsScreen';
 import { KitScreen } from './screens/pricing/KitScreen';
 import { KitsScreen } from './screens/pricing/KitsScreen';
@@ -82,6 +83,7 @@ export function App() {
           <Route path="reports" element={<ReportsScreen />} />
           <Route path="business" element={<BusinessScreen />} />
           <Route path="business/reports/:kind" element={<ReportScreen />} />
+          <Route path="business/expenses" element={<ExpensesScreen />} />
           <Route path="approvals/:id" element={<ProposalScreen />} />
           <Route path="enquiries" element={<EnquiriesScreen />} />
           <Route path="enquiries/:id" element={<EnquiryScreen />} />

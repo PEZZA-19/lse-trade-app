@@ -32,9 +32,45 @@ export const ACCOUNTS: readonly Account[] = [
   { code: '200', name: 'Sales: labour', type: 'revenue' },
   { code: '210', name: 'Sales: materials and other', type: 'revenue' },
   { code: '310', name: 'Materials and supplies', type: 'direct_cost' },
+  // Overheads and wages (Xero's default codes), entered as Expenses.
+  { code: '404', name: 'Bank fees', type: 'expense' },
+  { code: '412', name: 'Accountancy and legal', type: 'expense' },
+  { code: '429', name: 'General expenses', type: 'expense' },
+  { code: '433', name: 'Insurance', type: 'expense' },
+  { code: '449', name: 'Vehicle and fuel', type: 'expense' },
+  { code: '463', name: 'Software and subscriptions', type: 'expense' },
+  { code: '473', name: 'Tools and repairs', type: 'expense' },
+  { code: '477', name: 'Wages and salaries', type: 'expense' },
+  { code: '489', name: 'Phone and internet', type: 'expense' },
+  { code: '493', name: 'Travel and ferries', type: 'expense' },
 ] as const;
+export const EXPENSE_ACCOUNT_CODES = [
+  '404',
+  '412',
+  '429',
+  '433',
+  '449',
+  '463',
+  '473',
+  '477',
+  '489',
+  '493',
+] as const;
+export type ExpenseAccountCode = (typeof EXPENSE_ACCOUNT_CODES)[number];
+/** Wages: shown apart from other overheads in Cash Flow and on the Expenses screen. */
+export const WAGES_ACCOUNT: ExpenseAccountCode = '477';
 export type AccountCode =
-  '090' | '610' | '800' | '820' | '880' | '960' | '970' | '200' | '210' | '310';
+  | '090'
+  | '610'
+  | '800'
+  | '820'
+  | '880'
+  | '960'
+  | '970'
+  | '200'
+  | '210'
+  | '310'
+  | ExpenseAccountCode;
 export const accountByCode = (code: string) => ACCOUNTS.find((a) => a.code === code);
 /** Accounts that can carry a budget (the Profit and Loss ones). */
 export const PL_ACCOUNTS = ACCOUNTS.filter((a) =>
@@ -109,6 +145,22 @@ export interface LedgerBillPayment {
   method: string;
   reference: string | null;
 }
+/**
+ * Money spent that isn't a supplier bill for materials: overheads (insurance, fuel, phone, ferries)
+ * and wages. Paid from the business bank, or by the owner personally (owner's money put in).
+ */
+export interface LedgerExpense {
+  id: string;
+  date: string;
+  payee: string;
+  account: ExpenseAccountCode;
+  description: string;
+  /** Gross, including any tax. */
+  amountPence: number;
+  /** Tax reclaimable within the amount (0 when none). */
+  taxPence: number;
+  paidFrom: 'bank' | 'owner';
+}
 export interface LedgerBudget {
   /** YYYY-MM */
   month: string;
@@ -132,6 +184,8 @@ export interface BooksInput {
   creditUses?: LedgerCreditUse[];
   bills: LedgerBill[];
   billPayments: LedgerBillPayment[];
+  /** Overheads and wages (optional: none if left out). */
+  expenses?: LedgerExpense[];
   budgets: LedgerBudget[];
 }
 /** What GET /api/business returns. */
@@ -147,7 +201,14 @@ export interface BusinessDto extends BooksInput {
 /* ------------------------------ postings ------------------------------ */
 
 export type SourceKind =
-  'opening' | 'invoice' | 'payment' | 'credit_note' | 'bill' | 'supplier_credit' | 'bill_payment';
+  | 'opening'
+  | 'invoice'
+  | 'payment'
+  | 'credit_note'
+  | 'bill'
+  | 'supplier_credit'
+  | 'bill_payment'
+  | 'expense';
 export interface Posting {
   date: string;
   account: AccountCode;
@@ -286,6 +347,24 @@ export function postings(b: BooksInput): Posting[] {
       [
         ['800', p.amountPence],
         ['090', -p.amountPence],
+      ],
+    );
+  }
+  for (const e of b.expenses ?? []) {
+    add(
+      {
+        date: e.date,
+        source: 'expense',
+        sourceId: e.id,
+        reference: e.description,
+        contact: e.payee,
+        description: e.account === WAGES_ACCOUNT ? 'Wages paid' : 'Expense',
+      },
+      [
+        [e.account, e.amountPence - e.taxPence],
+        ['820', e.taxPence],
+        // Paid personally: the owner's own money put into the business (less drawings).
+        [e.paidFrom === 'owner' ? '880' : '090', -e.amountPence],
       ],
     );
   }
@@ -526,12 +605,15 @@ export function profitAndLoss(b: BooksInput, r: DateRange, compare: DateRange[] 
     return withVar ? [...v, v[0]! - v[1]!] : v;
   };
   const rowsFor = (type: AccountType) =>
-    PL_ACCOUNTS.filter((a) => a.type === type).map((a): ReportRow => ({
-      label: a.name,
-      kind: 'line',
-      account: a.code,
-      values: vals((x) => x.byAccount.get(a.code) ?? 0),
-    }));
+    PL_ACCOUNTS.filter((a) => a.type === type)
+      // Overhead accounts only appear once something has been spent on them.
+      .filter((a) => type !== 'expense' || f.some((x) => (x.byAccount.get(a.code) ?? 0) !== 0))
+      .map((a): ReportRow => ({
+        label: a.name,
+        kind: 'line',
+        account: a.code,
+        values: vals((x) => x.byAccount.get(a.code) ?? 0),
+      }));
   return {
     title: 'Profit and Loss',
     subtitle: colLabel(r),
@@ -550,8 +632,7 @@ export function profitAndLoss(b: BooksInput, r: DateRange, compare: DateRange[] 
       { label: 'Net profit', kind: 'total', values: vals((x) => x.netProfit) },
     ],
     notes: [
-      'Income is invoiced work (accrual basis) less credit notes. Costs are supplier bills; items bought for home are drawings, not costs.',
-      'Wages and overheads are not recorded in the app yet, so net profit is before them.',
+      'Income is invoiced work (accrual basis) less credit notes. Cost of sales is supplier bills; items bought for home are drawings, not costs. Operating expenses are the overheads and wages entered under Expenses.',
     ],
   };
 }
@@ -781,6 +862,10 @@ export interface MonthFlow {
   month: string;
   inPence: number;
   outPence: number;
+  /** Money out split: supplier bills, wages, and other expenses (they add up to outPence). */
+  outSuppliersPence: number;
+  outWagesPence: number;
+  outExpensesPence: number;
   netPence: number;
   closingPence: number;
 }
@@ -808,9 +893,25 @@ export function monthlyCash(b: BooksInput, r: DateRange): { opening: number; mon
       .filter((p) => p.date.startsWith(m) && inRange(p.date, r) && p.source === 'opening')
       .reduce((s, p) => s + p.pence, 0);
     const inP = inMonth.filter((p) => p.pence > 0).reduce((s, p) => s + p.pence, 0);
-    const outP = inMonth.filter((p) => p.pence < 0).reduce((s, p) => s - p.pence, 0);
+    const outs = inMonth.filter((p) => p.pence < 0);
+    const outP = outs.reduce((s, p) => s - p.pence, 0);
+    const outOf = (f: (p: Posting) => boolean) => outs.filter(f).reduce((s, p) => s - p.pence, 0);
+    const wages = new Set(
+      (b.expenses ?? []).filter((e) => e.account === WAGES_ACCOUNT).map((e) => e.id),
+    );
+    const outWages = outOf((p) => p.source === 'expense' && wages.has(p.sourceId));
+    const outExpenses = outOf((p) => p.source === 'expense') - outWages;
     bal += opened + inP - outP;
-    return { month: m, inPence: inP, outPence: outP, netPence: inP - outP, closingPence: bal };
+    return {
+      month: m,
+      inPence: inP,
+      outPence: outP,
+      outSuppliersPence: outP - outWages - outExpenses,
+      outWagesPence: outWages,
+      outExpensesPence: outExpenses,
+      netPence: inP - outP,
+      closingPence: bal,
+    };
   });
   return { opening, months };
 }
@@ -858,10 +959,35 @@ export function cashFlow(b: BooksInput, r: DateRange): ReportTable {
         kind: 'line',
         account: '800',
         values: v(
-          (m) => m.outPence,
-          sum((m) => m.outPence),
+          (m) => m.outSuppliersPence,
+          sum((m) => m.outSuppliersPence),
         ),
       },
+      ...(sum((m) => m.outWagesPence)
+        ? [
+            {
+              label: 'Wages',
+              kind: 'line' as const,
+              account: WAGES_ACCOUNT,
+              values: v(
+                (m) => m.outWagesPence,
+                sum((m) => m.outWagesPence),
+              ),
+            },
+          ]
+        : []),
+      ...(sum((m) => m.outExpensesPence)
+        ? [
+            {
+              label: 'Expenses',
+              kind: 'line' as const,
+              values: v(
+                (m) => m.outExpensesPence,
+                sum((m) => m.outExpensesPence),
+              ),
+            },
+          ]
+        : []),
       {
         label: 'Net cash movement',
         kind: 'subtotal',
@@ -1157,4 +1283,42 @@ export interface BillPaymentDto {
   method: string;
   reference: string | null;
   createdAt: string;
+}
+
+/* ------------------------------ expenses ------------------------------ */
+
+export const expenseCreate = z
+  .object({
+    date: ymd,
+    payee: z.string().trim().min(1, 'Who was it paid to?').max(200),
+    account: z.enum(EXPENSE_ACCOUNT_CODES),
+    description: z.string().trim().max(500).default(''),
+    amountPence: z.number().int().positive('Enter the amount').max(100_000_000_00),
+    taxPence: z.number().int().min(0).max(100_000_000_00).default(0),
+    paidFrom: z.enum(['bank', 'owner']).default('bank'),
+    /** For wages: the team member paid (optional). */
+    memberUserId: z.uuid().nullish(),
+  })
+  .refine((e) => e.taxPence <= e.amountPence, {
+    message: 'Tax can’t be more than the amount',
+    path: ['taxPence'],
+  });
+export type ExpenseCreate = z.input<typeof expenseCreate>;
+export const expenseQuery = z.object({ from: ymd.optional(), to: ymd.optional() });
+export interface ExpenseDto extends LedgerExpense {
+  memberUserId: string | null;
+  createdAt: string;
+}
+/** Expenses by account for a range, biggest first (the Expenses screen's summary). */
+export function expenseTotals(
+  expenses: readonly LedgerExpense[],
+  r: DateRange,
+): { account: ExpenseAccountCode; name: string; netPence: number }[] {
+  const m = new Map<ExpenseAccountCode, number>();
+  for (const e of expenses)
+    if (e.date >= r.from && e.date <= r.to)
+      m.set(e.account, (m.get(e.account) ?? 0) + e.amountPence - e.taxPence);
+  return [...m.entries()]
+    .map(([account, netPence]) => ({ account, name: accountByCode(account)!.name, netPence }))
+    .sort((a, z) => z.netPence - a.netPence);
 }

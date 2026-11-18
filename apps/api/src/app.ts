@@ -44,6 +44,8 @@ import {
   areaForPath,
   invoiceApprove,
   billPaymentCreate,
+  expenseCreate,
+  expenseQuery,
   budgetUpdate,
   openingBalanceUpdate,
   canSeePrices,
@@ -106,6 +108,7 @@ import * as creditNotes from './services/creditNotes';
 import * as billRead from './services/billRead';
 import * as reports from './services/reports';
 import * as business from './services/business';
+import * as expenses from './services/expenses';
 import * as team from './services/team';
 import { AiGateway } from './ai/gateway';
 
@@ -915,6 +918,28 @@ export function createApp(deps: AppDeps) {
     books(c);
     const input = parse(budgetUpdate, await jsonBody(c.req));
     return c.json(await c.var.tx((tx) => business.setBudget(tx, c.var.auth, input)));
+  });
+  // Expenses and wages (Accounts access to see; the owner records or removes them).
+  app.get('/api/expenses', async (c) => {
+    const range = parse(expenseQuery, { from: c.req.query('from'), to: c.req.query('to') });
+    return c.json(await c.var.tx((tx) => expenses.listExpenses(tx, range.from, range.to)));
+  });
+  app.post('/api/expenses', async (c) => {
+    const input = parse(expenseCreate, await jsonBody(c.req));
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, `expense:${JSON.stringify(input)}`, async () => ({
+        status: 201,
+        body: await expenses.createExpense(tx, c.var.auth, input),
+      })),
+    );
+    if (result.replayed) c.header('Idempotent-Replayed', 'true');
+    return c.json(result.body, result.status as 201);
+  });
+  app.delete('/api/expenses/:id', async (c) => {
+    const id = uuidParam(c);
+    await c.var.tx((tx) => expenses.deleteExpense(tx, c.var.auth, id));
+    return c.body(null, 204);
   });
   app.get('/api/supplier-bills/:id/payments', async (c) => {
     const id = uuidParam(c);

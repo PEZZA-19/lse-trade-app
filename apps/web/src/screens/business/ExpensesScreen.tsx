@@ -1,0 +1,303 @@
+import {
+  accountByCode,
+  EXPENSE_ACCOUNT_CODES,
+  expenseTotals,
+  parsePounds,
+  presetRange,
+  WAGES_ACCOUNT,
+  type ExpenseAccountCode,
+  type ExpenseDto,
+} from '@lse/shared';
+import { useMemo, useState } from 'react';
+import { useBusiness, useAddExpense, useDeleteExpense, useExpenses } from '../../api/business';
+import { useMembers, useSession } from '../../api/hooks';
+import { IconBusiness } from '../../components/icons';
+import { Sheet } from '../../components/Sheet';
+import { useToast } from '../../components/Toast';
+import {
+  Button,
+  EmptyState,
+  KeyValueRow,
+  List,
+  ListSkeleton,
+  Page,
+  Section,
+  Segmented,
+  SelectField,
+  TextField,
+} from '../../components/ui';
+import { ConfirmSheet } from '../invoices/InvoiceSheets';
+import { money, shortDate } from './format';
+
+const name = (code: string) => accountByCode(code)?.name ?? code;
+
+/**
+ * Business › Expenses and Wages: overheads that aren't supplier bills (insurance, fuel, phone,
+ * ferries, software) and wages, so the Profit and Loss shows a real net profit. The owner adds
+ * them; everyone with Accounts access can see them.
+ */
+export function ExpensesScreen() {
+  const session = useSession();
+  const isOwner = session.data?.role === 'owner';
+  const list = useExpenses();
+  const b = useBusiness();
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<ExpenseDto | null>(null);
+  const del = useDeleteExpense();
+  const toast = useToast();
+  const today = b.data?.today ?? new Date().toISOString().slice(0, 10);
+  const yearStart = b.data?.yearStart ?? '01-01';
+  const ytd = useMemo(() => presetRange('year_to_date', today, yearStart), [today, yearStart]);
+  const totals = useMemo(() => expenseTotals(list.data ?? [], ytd), [list.data, ytd]);
+  const total = totals.reduce((s, t) => s + t.netPence, 0);
+  const back = { label: 'Business', to: '/business' };
+
+  if (list.isError)
+    return (
+      <Page title="Expenses" back={back}>
+        <EmptyState
+          icon={<IconBusiness />}
+          title="Couldn’t load expenses"
+          message={list.error.message}
+          action={<Button onClick={() => list.refetch()}>Try again</Button>}
+        />
+      </Page>
+    );
+  if (!list.data)
+    return (
+      <Page title="Expenses" back={back}>
+        <ListSkeleton rows={6} />
+      </Page>
+    );
+  return (
+    <Page title="Expenses and Wages" back={back}>
+      {isOwner && (
+        <div className="action-bar">
+          <Button large block onClick={() => setAdding(true)}>
+            Add Expense or Wages
+          </Button>
+        </div>
+      )}
+      <Section
+        header={`This year so far (from ${shortDate(ytd.from)})`}
+        footer="Before tax you can reclaim. These come off gross profit in the Profit and Loss."
+      >
+        <List label="Expenses by account">
+          {totals.map((t) => (
+            <li key={t.account}>
+              <KeyValueRow label={t.name} value={money(t.netPence)} />
+            </li>
+          ))}
+          <li>
+            <KeyValueRow label="Total" value={money(total)} strong />
+          </li>
+        </List>
+      </Section>
+      <Section header="Recent">
+        {list.data.length === 0 ? (
+          <p className="section__footer" style={{ marginTop: 0 }}>
+            Nothing yet. Add fuel, insurance, phone, ferries, software and wages here as you pay
+            them.
+          </p>
+        ) : (
+          <List label="Expenses">
+            {list.data.slice(0, 100).map((e) => (
+              <li key={e.id}>
+                <div className="row">
+                  <span className="row__main">
+                    <span className="row__title">{e.payee}</span>
+                    <span className="row__sub">
+                      {shortDate(e.date)} · {name(e.account)}
+                      {e.description ? ` · ${e.description}` : ''}
+                      {e.paidFrom === 'owner' ? ' · paid personally' : ''}
+                    </span>
+                  </span>
+                  <span className="row__meta">
+                    <span style={{ color: 'var(--label)' }}>{money(e.amountPence)}</span>
+                    {isOwner && (
+                      <Button
+                        variant="plain"
+                        aria-label={`Remove ${e.payee} ${money(e.amountPence)}`}
+                        onClick={() => setRemoving(e)}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </List>
+        )}
+      </Section>
+      {adding && <AddExpenseSheet today={today} onClose={() => setAdding(false)} />}
+      <ConfirmSheet
+        open={!!removing}
+        title="Remove Expense"
+        actionLabel="Remove"
+        onConfirm={() =>
+          removing &&
+          del.mutate(removing.id, {
+            onSuccess: () => {
+              toast.show('Expense removed');
+              setRemoving(null);
+            },
+          })
+        }
+        onClose={() => setRemoving(null)}
+        loading={del.isPending}
+        error={del.error?.message}
+      >
+        {removing && (
+          <p>
+            Remove <strong>{money(removing.amountPence)}</strong> to {removing.payee} on{' '}
+            {shortDate(removing.date)}? It comes out of the Profit and Loss and the bank balance.
+          </p>
+        )}
+      </ConfirmSheet>
+    </Page>
+  );
+}
+
+function AddExpenseSheet(props: { today: string; onClose: () => void }) {
+  const add = useAddExpense();
+  const members = useMembers();
+  const toast = useToast();
+  const [date, setDate] = useState(props.today);
+  const [account, setAccount] = useState<ExpenseAccountCode>('449');
+  const [payee, setPayee] = useState('');
+  const [memberId, setMemberId] = useState('');
+  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState('');
+  const [tax, setTax] = useState('');
+  const [paidFrom, setPaidFrom] = useState<'bank' | 'owner'>('bank');
+  const wages = account === WAGES_ACCOUNT;
+  const pence = parsePounds(amount);
+  const taxPence = tax.trim() ? parsePounds(tax) : 0;
+  const memberName = members.data?.find((m) => m.userId === memberId)?.name;
+  const who = wages && memberName ? memberName : payee.trim();
+  const problem = !who
+    ? null
+    : amount && pence === null
+      ? 'Enter an amount, e.g. 45.00'
+      : taxPence === null || (pence !== null && taxPence > pence)
+        ? 'Tax can’t be more than the amount'
+        : date > props.today
+          ? 'The date can’t be in the future'
+          : null;
+  const ready = !!who && pence !== null && pence > 0 && !problem && !!date;
+  const save = () => {
+    if (!ready || pence === null) return;
+    add.mutate(
+      {
+        date,
+        account,
+        payee: who,
+        description: description.trim(),
+        amountPence: pence,
+        taxPence: taxPence ?? 0,
+        paidFrom,
+        memberUserId: wages && memberId ? memberId : null,
+      },
+      {
+        onSuccess: () => {
+          toast.show(`${wages ? 'Wages' : 'Expense'} added · ${money(pence)}`);
+          props.onClose();
+        },
+        onError: (e) => toast.show(e.message, { tone: 'error' }),
+      },
+    );
+  };
+  return (
+    <Sheet
+      open
+      title={wages ? 'Add Wages' : 'Add Expense'}
+      onClose={props.onClose}
+      action={
+        <Button variant="plain" onClick={save} disabled={!ready} loading={add.isPending}>
+          Add
+        </Button>
+      }
+    >
+      <List className="form-list" label="Expense">
+        <SelectField
+          label="What for"
+          value={account}
+          onChange={(e) => setAccount(e.target.value as ExpenseAccountCode)}
+        >
+          {EXPENSE_ACCOUNT_CODES.map((c) => (
+            <option key={c} value={c}>
+              {name(c)}
+            </option>
+          ))}
+        </SelectField>
+        {wages && (members.data?.length ?? 0) > 0 && (
+          <SelectField
+            label="Paid to"
+            value={memberId}
+            onChange={(e) => setMemberId(e.target.value)}
+          >
+            <option value="">Someone else</option>
+            {members.data!.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {m.name}
+              </option>
+            ))}
+          </SelectField>
+        )}
+        {!(wages && memberId) && (
+          <TextField
+            label={wages ? 'Name' : 'Paid to'}
+            placeholder={wages ? 'Who was paid' : 'e.g. Island fuel'}
+            value={payee}
+            onChange={(e) => setPayee(e.target.value)}
+          />
+        )}
+        <TextField
+          label="Date"
+          type="date"
+          value={date}
+          max={props.today}
+          onChange={(e) => setDate(e.target.value)}
+        />
+        <TextField
+          label="Amount (£)"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          error={problem ?? undefined}
+        />
+        <TextField
+          label="Tax included (£)"
+          inputMode="decimal"
+          placeholder="0.00 (none)"
+          value={tax}
+          onChange={(e) => setTax(e.target.value)}
+        />
+        <TextField
+          label="Note"
+          placeholder={wages ? 'e.g. Week 46' : 'Optional'}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </List>
+      <Section header="Paid from">
+        <Segmented
+          label="Paid from"
+          value={paidFrom}
+          onChange={setPaidFrom}
+          options={[
+            { value: 'bank', label: 'Business bank' },
+            { value: 'owner', label: 'Paid personally' },
+          ]}
+        />
+      </Section>
+      <p className="section__footer">
+        {paidFrom === 'bank'
+          ? 'Comes off the business bank balance and the profit.'
+          : 'A business cost you paid yourself: it comes off the profit, not the business bank.'}
+      </p>
+    </Sheet>
+  );
+}
