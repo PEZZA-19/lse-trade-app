@@ -758,7 +758,7 @@ export async function recordPayment(
   id: string,
   input: z.output<typeof paymentCreate>,
 ): Promise<InvoiceDetailDto & { jobCompleted: boolean }> {
-  assertOwnerDecision(auth, 'record a payment');
+  // Anyone with Accounts access records payments (Joe, 18 Nov 11:34; as Xero's Standard role).
   const cur = await lockInvoice(tx, id);
   if (cur.status !== 'sent' && cur.status !== 'part_paid')
     throw conflict(

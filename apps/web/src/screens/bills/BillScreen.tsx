@@ -11,7 +11,8 @@ import {
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useApplyBill, useBill, useDeleteBill, useUpdateBill } from '../../api/bills';
-import { useJobs, useSession } from '../../api/hooks';
+import { useAccess, useJobs, useSession } from '../../api/hooks';
+import { canSee as canSeeArea } from '@lse/shared';
 import { IconPlusCircle, IconReceipt } from '../../components/icons';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
@@ -78,6 +79,7 @@ const toInput = (l: DraftLine): BillLineInput => ({
 
 function BillView({ bill: b }: { bill: BillDetailDto }) {
   const isOwner = useSession().data?.role === 'owner';
+  const canPayBills = canSeeArea(useAccess(), 'financials');
   const draft = b.status === 'draft';
   const credit = b.kind === 'credit_note';
   const update = useUpdateBill(b);
@@ -259,7 +261,7 @@ function BillView({ bill: b }: { bill: BillDetailDto }) {
 
       {applied && <ApplySummary r={applied} />}
 
-      <BillPayments bill={b} isOwner={isOwner} />
+      <BillPayments bill={b} canPay={canPayBills} />
 
       <Section header="Details">
         <List>

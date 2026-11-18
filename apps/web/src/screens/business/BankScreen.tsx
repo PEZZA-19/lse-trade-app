@@ -28,7 +28,6 @@ import {
   Segmented,
 } from '../../components/ui';
 import { AddExpenseSheet } from './ExpensesScreen';
-import { useSession } from '../../api/hooks';
 import { useInvoices } from '../../api/billing';
 import { Sheet } from '../../components/Sheet';
 import { money, shortDate } from './format';
@@ -56,7 +55,6 @@ export function BankScreen() {
   const [expenseFor, setExpenseFor] = useState<BankTransactionDto | null>(null);
   const [paymentFor, setPaymentFor] = useState<BankTransactionDto | null>(null);
   const [billFor, setBillFor] = useState<BankTransactionDto | null>(null);
-  const isOwner = useSession().data?.role === 'owner';
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
     new Date(),
   );
@@ -222,8 +220,8 @@ export function BankScreen() {
                 busy={act.isPending}
                 run={run}
                 onExpense={setExpenseFor}
-                onPayment={isOwner ? setPaymentFor : undefined}
-                onBill={isOwner ? setBillFor : undefined}
+                onPayment={setPaymentFor}
+                onBill={setBillFor}
               />
             ))}
           </List>
@@ -251,7 +249,7 @@ function BankLine({
   canEdit: boolean;
   busy: boolean;
   onExpense: (l: BankTransactionDto) => void;
-  /** Owner only: recording a payment is the owner's decision. */
+  /** Anyone with Accounts access (Joe, 18 Nov 11:34). */
   onPayment?: (l: BankTransactionDto) => void;
   onBill?: (l: BankTransactionDto) => void;
   run: (a: Parameters<ReturnType<typeof useBankLineAction>['mutate']>[0], done: string) => void;

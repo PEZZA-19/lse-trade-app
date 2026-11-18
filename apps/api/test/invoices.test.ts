@@ -329,7 +329,7 @@ describe('drafts, approval and the owner rule', () => {
     expect(ok.body.billTo).toMatchObject({ email: 'accounts@farm.example' });
   });
 
-  it('only the owner can approve, mark sent or record payments; staff can draft', async () => {
+  it('only the owner approves or marks sent; anyone with Accounts access drafts and records payments', async () => {
     const c = await client();
     await ready(c);
     const { job } = await quotedJob(c);
@@ -343,7 +343,13 @@ describe('drafts, approval and the owner rule', () => {
     await c.req('POST', `/api/invoices/${d.body.id}/approve`);
     expect((await staff.req('POST', `/api/invoices/${d.body.id}/mark-sent`)).status).toBe(403);
     await c.req('POST', `/api/invoices/${d.body.id}/mark-sent`);
-    expect((await pay(staff, d.body.id, 100)).status).toBe(403);
+    // Joe, 18 Nov 11:34: anyone with Accounts access can record a payment; field workers can't.
+    expect((await pay(staff, d.body.id, 100)).status).toBe(201);
+    const email = await addMember(c.tenantId, 'staff');
+    const [u] = await adminSql<{ id: string }[]>`SELECT id FROM users WHERE email = ${email}`;
+    await c.req('PUT', `/api/team/${u!.id}/access`, { isAdmin: false, areas: [] });
+    const worker = await clientFor(email, { tenantId: c.tenantId, userId: u!.id });
+    expect((await pay(worker, d.body.id, 100)).status).toBe(403);
   });
 
   it('a payment replayed with the same Idempotency-Key is recorded once', async () => {

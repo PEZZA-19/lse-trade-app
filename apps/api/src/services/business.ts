@@ -240,8 +240,7 @@ export async function recordBillPayment(
   billId: string,
   input: BillPaymentCreate,
 ) {
-  if (auth.role !== 'owner')
-    throw new AppError(403, 'owner_only', 'Only the business owner can record a payment.');
+  // Anyone with Accounts access (the route's area check) records payments (Joe, 18 Nov 11:34).
   const [b] = await tx<{ kind: string; status: string; total: string }[]>`
     SELECT kind, status, total_pence AS total FROM supplier_bills WHERE id = ${billId} FOR UPDATE`;
   if (!b) throw notFound('Bill');

@@ -1027,6 +1027,15 @@ it. `POST /api/bank/transactions/:id/bill-payment {billId}`.
 The bank feature is complete for now: import, suggestions, match/unmatch/ignore, Add as Expense,
 Record Payment, Pay Bill, and the balance check. Refunds not started (as asked).
 
+### Who records payments (Joe, 18 Nov 11:34)
+
+"Anyone with accounts access can record a payment; if in doubt check Xero or Tradify rules."
+Recording a customer payment (on the invoice or from a bank line) and paying a supplier bill (on the
+bill or from a bank line) is now allowed for anyone with Accounts access, enforced by the server's
+area check (403 for field workers / subcontractors). This matches Xero, where Standard users (not
+only Advisers/owners) can record payments. Approving and marking invoices sent, approving credit
+notes, applying bills and the customer-credit choices stay owner-only (unchanged).
+
 ## Where session 6 stopped (18 Nov 2026, 11:30 Guernsey, usage 90.5%)
 
 Stopped cleanly after the bank feature (steps 1–7) and the job-screen credit switch; everything is

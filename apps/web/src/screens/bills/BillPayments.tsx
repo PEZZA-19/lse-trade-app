@@ -18,7 +18,7 @@ const todayIso = () =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(new Date());
 
 /** Money paid to the supplier against an applied bill: what's left to pay, and Record Payment. */
-export function BillPayments({ bill, isOwner }: { bill: BillDetailDto; isOwner: boolean }) {
+export function BillPayments({ bill, canPay }: { bill: BillDetailDto; canPay: boolean }) {
   const access = useAccess();
   const list = useBillPayments(bill.id, bill.kind === 'bill' && bill.status === 'applied');
   const [open, setOpen] = useState(false);
@@ -30,9 +30,9 @@ export function BillPayments({ bill, isOwner }: { bill: BillDetailDto; isOwner: 
     <Section
       header="Payments"
       footer={
-        access.ready && isOwner
+        access.ready && canPay
           ? 'Recording a payment takes it off what you owe and out of the bank on the Business overview.'
-          : 'The owner records payments to suppliers.'
+          : 'Someone with Accounts access records payments to suppliers.'
       }
     >
       <List label="Payments">
@@ -56,7 +56,7 @@ export function BillPayments({ bill, isOwner }: { bill: BillDetailDto; isOwner: 
           />
         </li>
       </List>
-      {isOwner && left > 0 && (
+      {canPay && left > 0 && (
         <Button
           variant="secondary"
           block

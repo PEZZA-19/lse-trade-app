@@ -14,7 +14,8 @@ import {
   useInvoiceDecision,
   useUpdateInvoice,
 } from '../../api/billing';
-import { useSession } from '../../api/hooks';
+import { useAccess, useSession } from '../../api/hooks';
+import { canSee as canSeeArea } from '@lse/shared';
 import { IconDoc, IconPlusCircle, IconQuotes } from '../../components/icons';
 import { DocumentSheet } from '../documents/DocumentSheet';
 import { useToast } from '../../components/Toast';
@@ -70,6 +71,8 @@ const toInput = (inv: InvoiceDetailDto): InvoiceLineInput[] =>
 function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   const session = useSession();
   const isOwner = session.data?.role === 'owner';
+  // Anyone with Accounts access records payments (Joe, 18 Nov 11:34).
+  const canPay = canSeeArea(useAccess(), 'financials');
   const toast = useToast();
   const navigate = useNavigate();
   const decide = useInvoiceDecision(inv);
@@ -194,7 +197,9 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
         <Section
           footer={
             !isOwner
-              ? 'Only the business owner can approve, send or record payments.'
+              ? canPay && (inv.status === 'sent' || inv.status === 'part_paid')
+                ? 'Record money as it arrives, in full or in part.'
+                : 'Only the business owner can approve or send invoices.'
               : draft
                 ? inv.approvalBlockers.length
                   ? undefined
@@ -224,7 +229,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
               Mark as Sent…
             </Button>
           )}
-          {isOwner && (inv.status === 'sent' || inv.status === 'part_paid') && (
+          {canPay && (inv.status === 'sent' || inv.status === 'part_paid') && (
             <Button block large onClick={() => setPaying(true)}>
               Record Payment
             </Button>
@@ -684,7 +689,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
       >
         <p>Delete this draft? Any time it included goes back to unbilled. No number is used.</p>
       </ConfirmSheet>
-      {isOwner && paying && <PaymentSheet open invoice={inv} onClose={() => setPaying(false)} />}
+      {canPay && paying && <PaymentSheet open invoice={inv} onClose={() => setPaying(false)} />}
       {editing !== null && (
         <InvoiceLineSheet
           open

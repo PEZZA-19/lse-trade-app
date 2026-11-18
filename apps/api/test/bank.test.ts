@@ -283,7 +283,7 @@ describe('bank line to expense', () => {
 });
 
 describe('payment from a bank line', () => {
-  it('records the customer payment from money in and matches it, owner only', async () => {
+  it('records the customer payment from money in and matches it; anyone with Accounts access', async () => {
     const c = await client();
     const cust = await seedCustomer(c);
     await c.req('PATCH', '/api/settings', {
@@ -315,16 +315,16 @@ describe('payment from a bank line', () => {
     const list = (await c.req('GET', '/api/bank/transactions')).body as BankTransactionDto[];
     const by = (p: number) => list.find((x) => x.amountPence === p)!;
 
-    // Someone with Accounts access but not the owner can't record a payment.
+    // Anyone with Accounts access records it (Joe, 18 Nov 11:34); field workers can't.
     const { s, id } = await staff(c);
-    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: ['financials'] });
-    expect((await s.req('GET', '/api/bank/transactions')).status).toBe(200);
+    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: [] });
     const denied = await s.req('POST', `/api/bank/transactions/${by(20000).id}/payment`, {
       invoiceId: inv.id,
     });
     expect(denied.status).toBe(403);
+    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: ['financials'] });
 
-    const part = await c.req('POST', `/api/bank/transactions/${by(20000).id}/payment`, {
+    const part = await s.req('POST', `/api/bank/transactions/${by(20000).id}/payment`, {
       invoiceId: inv.id,
     });
     expect(part.status, JSON.stringify(part.body)).toBe(201);
@@ -363,7 +363,7 @@ describe('payment from a bank line', () => {
 });
 
 describe('supplier bill payment from a bank line', () => {
-  it('pays an applied bill from money out and matches it, owner only', async () => {
+  it('pays an applied bill from money out and matches it; anyone with Accounts access', async () => {
     const c = await client();
     const bill = (
       await c.req('POST', '/api/supplier-bills', {
@@ -390,16 +390,17 @@ describe('supplier bill payment from a bank line', () => {
     const inn = list.find((x) => x.amountPence === 500)!;
 
     const { s, id } = await staff(c);
-    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: ['financials'] });
+    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: [] });
     expect(
       (await s.req('POST', `/api/bank/transactions/${first.id}/bill-payment`, { billId: bill.id }))
         .status,
     ).toBe(403);
+    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: ['financials'] });
     expect(
       (await c.req('POST', `/api/bank/transactions/${inn.id}/bill-payment`, { billId: bill.id }))
         .status,
     ).toBe(422);
-    const ok = await c.req('POST', `/api/bank/transactions/${first.id}/bill-payment`, {
+    const ok = await s.req('POST', `/api/bank/transactions/${first.id}/bill-payment`, {
       billId: bill.id,
     });
     expect(ok.status, JSON.stringify(ok.body)).toBe(201);
