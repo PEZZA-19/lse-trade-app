@@ -8,6 +8,8 @@ import {
   bankImportCreate,
   bankLineExpense,
   bankLinePayment,
+  bankLineBillPayment,
+  type BillPaymentDto,
   type InvoiceDetailDto,
   bankLineStatus,
   bankMatch,
@@ -229,6 +231,22 @@ export function bankRoute(
     const paymentId = inv.payments[inv.payments.length - 1]!.id;
     Object.assign(line, { status: 'matched', matchKind: 'payment', matchId: paymentId });
     return { invoiceId, paymentId, jobCompleted: inv.jobCompleted };
+  }
+  if (method === 'POST' && sub === 'bill-payment' && line) {
+    const { billId } = c.parse(bankLineBillPayment, body);
+    if (line.status !== 'unmatched')
+      c.fail(409, 'already_matched', 'This bank line is already matched or ignored.');
+    if (line.amountPence >= 0)
+      c.fail(422, 'money_in', 'Only money going out can pay a supplier bill.');
+    const pays = c.call('POST', `/supplier-bills/${billId}/payments`, {
+      amountPence: -line.amountPence,
+      paidOn: line.date,
+      method: 'bank_transfer',
+      reference: line.description.slice(0, 200) || undefined,
+    }) as BillPaymentDto[];
+    const paymentId = [...pays].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1)!.id;
+    Object.assign(line, { status: 'matched', matchKind: 'bill_payment', matchId: paymentId });
+    return { billId, paymentId };
   }
   if (method === 'PUT' && sub === 'status' && line) {
     const { status } = c.parse(bankLineStatus, body);

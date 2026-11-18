@@ -12,6 +12,7 @@ import {
   useBusiness,
   useImportStatement,
   usePaymentFromBankLine,
+  useBillPaymentFromBankLine,
 } from '../../api/business';
 import { useAccess } from '../../api/hooks';
 import { IconBusiness } from '../../components/icons';
@@ -54,6 +55,7 @@ export function BankScreen() {
   const [result, setResult] = useState<BankImportResultDto | null>(null);
   const [expenseFor, setExpenseFor] = useState<BankTransactionDto | null>(null);
   const [paymentFor, setPaymentFor] = useState<BankTransactionDto | null>(null);
+  const [billFor, setBillFor] = useState<BankTransactionDto | null>(null);
   const isOwner = useSession().data?.role === 'owner';
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
     new Date(),
@@ -221,11 +223,13 @@ export function BankScreen() {
                 run={run}
                 onExpense={setExpenseFor}
                 onPayment={isOwner ? setPaymentFor : undefined}
+                onBill={isOwner ? setBillFor : undefined}
               />
             ))}
           </List>
         </Section>
       )}
+      {billFor && <BillPaymentFromBankSheet line={billFor} onClose={() => setBillFor(null)} />}
       {paymentFor && <PaymentFromBankSheet line={paymentFor} onClose={() => setPaymentFor(null)} />}
       {expenseFor && (
         <AddExpenseSheet today={today} fromBank={expenseFor} onClose={() => setExpenseFor(null)} />
@@ -241,6 +245,7 @@ function BankLine({
   run,
   onExpense,
   onPayment,
+  onBill,
 }: {
   l: BankTransactionDto;
   canEdit: boolean;
@@ -248,6 +253,7 @@ function BankLine({
   onExpense: (l: BankTransactionDto) => void;
   /** Owner only: recording a payment is the owner's decision. */
   onPayment?: (l: BankTransactionDto) => void;
+  onBill?: (l: BankTransactionDto) => void;
   run: (a: Parameters<ReturnType<typeof useBankLineAction>['mutate']>[0], done: string) => void;
 }) {
   const inn = l.amountPence > 0;
@@ -293,7 +299,9 @@ function BankLine({
                 ? onPayment
                   ? 'No payment in the app matches. Tap Record Payment to pick the invoice it pays.'
                   : 'No payment in the app matches. Ask the owner to record it on its invoice, then it’ll be suggested.'
-                : 'Nothing in the app matches. Add it as an expense, or record the supplier bill payment, then it’ll be suggested.'}
+                : onBill
+                  ? 'Nothing in the app matches. Add it as an expense, or Pay Bill if it paid a supplier bill.'
+                  : 'Nothing in the app matches. Add it as an expense, or ask the owner to record the supplier bill payment.'}
             </span>
           )}
         </span>
@@ -310,6 +318,16 @@ function BankLine({
               onClick={() => onExpense(l)}
             >
               Add as Expense
+            </Button>
+          )}
+          {canEdit && l.status === 'unmatched' && !inn && onBill && (
+            <Button
+              variant="plain"
+              disabled={busy}
+              aria-label={`Record ${l.description} as a supplier bill payment`}
+              onClick={() => onBill(l)}
+            >
+              Pay Bill
             </Button>
           )}
           {canEdit && l.status === 'unmatched' && inn && onPayment && (
@@ -434,6 +452,96 @@ function PaymentFromBankSheet({
                     </span>
                   </span>
                   <span className="row__meta num">{money(i.balancePence)} owed</span>
+                </label>
+              </li>
+            ))}
+          </List>
+        </Section>
+      )}
+    </Sheet>
+  );
+}
+
+/** Pick the applied supplier bill this money-out line paid; same amount owed first. */
+function BillPaymentFromBankSheet({
+  line,
+  onClose,
+}: {
+  line: BankTransactionDto;
+  onClose: () => void;
+}) {
+  const books = useBusiness();
+  const pay = useBillPaymentFromBankLine();
+  const toast = useToast();
+  const [picked, setPicked] = useState<string | null>(null);
+  const amount = -line.amountPence;
+  const paid = new Map<string, number>();
+  for (const p of books.data?.billPayments ?? [])
+    paid.set(p.billId, (paid.get(p.billId) ?? 0) + p.amountPence);
+  const fits = (books.data?.bills ?? [])
+    .filter((b) => b.kind === 'bill')
+    .map((b) => ({ ...b, owed: b.totalPence - (paid.get(b.id) ?? 0) }))
+    .filter((b) => b.owed >= amount)
+    .map((b) => ({ ...b, exact: b.owed === amount }))
+    .sort((a, b) => Number(b.exact) - Number(a.exact) || a.date.localeCompare(b.date));
+  const chosen = fits.find((b) => b.id === picked);
+  const save = () =>
+    chosen &&
+    pay.mutate(
+      { id: line.id, billId: chosen.id },
+      {
+        onSuccess: () => {
+          toast.show(`Payment to ${chosen.supplierName} recorded and matched.`);
+          onClose();
+        },
+        onError: (e) => toast.show(e.message, { tone: 'error' }),
+      },
+    );
+  return (
+    <Sheet
+      open
+      title="Pay Bill"
+      onClose={onClose}
+      action={
+        <Button onClick={save} disabled={!chosen || pay.isPending}>
+          Record
+        </Button>
+      }
+    >
+      <p className="section__footer" style={{ marginTop: 0 }}>
+        {money(amount)} out on {shortDate(line.date)} · {line.description}. It’s recorded as a bank
+        transfer to the supplier on that day and matched to this line.
+      </p>
+      {!books.data ? (
+        <ListSkeleton rows={3} />
+      ) : fits.length === 0 ? (
+        <p className="section__footer">
+          No applied supplier bill has {money(amount)} or more still owed. Apply the bill first, or
+          add the line as an expense.
+        </p>
+      ) : (
+        <Section header="Which bill did it pay?">
+          <List label="Bills to pay">
+            {fits.map((b) => (
+              <li key={b.id}>
+                <label className="row" style={{ cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="bank-pay-bill"
+                    checked={picked === b.id}
+                    onChange={() => setPicked(b.id)}
+                    aria-label={`${b.supplierName} ${b.reference}`}
+                  />
+                  <span className="row__main">
+                    <span className="row__title">
+                      {b.supplierName} · {b.reference}
+                    </span>
+                    <span className="row__sub">
+                      {shortDate(b.date)}
+                      {b.exact ? ' · Same amount' : ' · Part payment'}
+                    </span>
+                  </span>
+                  <span className="row__meta num">{money(b.owed)} owed</span>
                 </label>
               </li>
             ))}

@@ -361,3 +361,68 @@ describe('payment from a bank line', () => {
     expect(matched.every((x) => x.matchedTo?.kind === 'payment')).toBe(true);
   });
 });
+
+describe('supplier bill payment from a bank line', () => {
+  it('pays an applied bill from money out and matches it, owner only', async () => {
+    const c = await client();
+    const bill = (
+      await c.req('POST', '/api/supplier-bills', {
+        supplier: 'Island Electrical',
+        reference: 'GUR/3001',
+        billDate: todayIso(),
+        lines: [{ description: 'Cable', qtyMilli: 1000, unitCostPence: 4000, allocation: 'stock' }],
+      })
+    ).body;
+    expect(
+      (await c.req('POST', `/api/supplier-bills/${bill.id}/apply`, { dryRun: false })).status,
+    ).toBe(200);
+    const total = (await c.req('GET', `/api/supplier-bills/${bill.id}`)).body.totalPence as number;
+    const csv = [
+      'Date,Description,Amount',
+      `${day(0)},BACS ISLAND ELEC,-${(total / 100).toFixed(2)}`,
+      `${day(0)},BACS AGAIN,-${(total / 100).toFixed(2)}`,
+      `${day(0)},MONEY IN,5.00`,
+    ].join('\n');
+    await c.req('POST', '/api/bank/imports', { fileName: 'b.csv', csv });
+    const list = (await c.req('GET', '/api/bank/transactions')).body as BankTransactionDto[];
+    const first = list.find((x) => x.description === 'BACS ISLAND ELEC')!;
+    const second = list.find((x) => x.description === 'BACS AGAIN')!;
+    const inn = list.find((x) => x.amountPence === 500)!;
+
+    const { s, id } = await staff(c);
+    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: ['financials'] });
+    expect(
+      (await s.req('POST', `/api/bank/transactions/${first.id}/bill-payment`, { billId: bill.id }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await c.req('POST', `/api/bank/transactions/${inn.id}/bill-payment`, { billId: bill.id }))
+        .status,
+    ).toBe(422);
+    const ok = await c.req('POST', `/api/bank/transactions/${first.id}/bill-payment`, {
+      billId: bill.id,
+    });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
+    const pays = (await c.req('GET', `/api/supplier-bills/${bill.id}/payments`)).body;
+    expect(pays).toEqual([
+      expect.objectContaining({
+        amountPence: total,
+        method: 'bank_transfer',
+        reference: 'BACS ISLAND ELEC',
+      }),
+    ]);
+    // Paid in full already: the second line is refused and stays to match.
+    const again = await c.req('POST', `/api/bank/transactions/${second.id}/bill-payment`, {
+      billId: bill.id,
+    });
+    expect(again.status).toBe(422);
+    const matched = (await c.req('GET', '/api/bank/transactions?status=matched'))
+      .body as BankTransactionDto[];
+    expect(matched.map((x) => x.matchedTo?.kind)).toEqual(['bill_payment']);
+    expect(
+      ((await c.req('GET', '/api/bank/transactions')).body as BankTransactionDto[]).map(
+        (x) => x.description,
+      ),
+    ).toContain('BACS AGAIN');
+  });
+});

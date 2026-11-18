@@ -23,6 +23,7 @@ import { iso, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { recordPayment, today } from './invoices';
 import { createExpense } from './expenses';
+import { recordBillPayment } from './business';
 
 export async function importStatement(
   tx: Tx,
@@ -355,4 +356,32 @@ export async function paymentFromLine(
     ORDER BY created_at DESC LIMIT 1`;
   await matchLine(tx, auth, id, { kind: 'payment', id: p!.id });
   return { invoiceId: input.invoiceId, paymentId: p!.id, jobCompleted: inv.jobCompleted };
+}
+
+/**
+ * Pay a supplier bill straight from a money-out line (bank transfer, the line's date and amount)
+ * and match the line to that payment. Owner only, as on the bill.
+ */
+export async function billPaymentFromLine(
+  tx: Tx,
+  auth: Auth,
+  id: string,
+  input: { billId: string },
+): Promise<{ billId: string; paymentId: string }> {
+  const line = await lockLine(tx, id);
+  if (line.status !== 'unmatched')
+    throw conflict('already_matched', 'This bank line is already matched or ignored.');
+  if (line.amountPence >= 0)
+    throw new AppError(422, 'money_in', 'Only money going out can pay a supplier bill.');
+  await recordBillPayment(tx, auth, input.billId, {
+    amountPence: -line.amountPence,
+    paidOn: line.date,
+    method: 'bank_transfer',
+    reference: line.description.slice(0, 200) || undefined,
+  });
+  const [p] = await tx<{ id: string }[]>`
+    SELECT id FROM supplier_bill_payments WHERE bill_id = ${input.billId} AND recorded_by = ${auth.userId}
+    ORDER BY created_at DESC LIMIT 1`;
+  await matchLine(tx, auth, id, { kind: 'bill_payment', id: p!.id });
+  return { billId: input.billId, paymentId: p!.id };
 }

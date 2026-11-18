@@ -105,4 +105,32 @@ describe('demo bank statements (mirror the server)', () => {
       send('POST', `/bank/transactions/${inn.id}/payment`, { invoiceId: inv!.id }),
     ).rejects.toMatchObject({ status: 409 });
   });
+
+  it('pays a supplier bill from money out and matches it', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+      new Date(),
+    );
+    const [y, m, d] = today.split('-');
+    const bill = await send<{ id: string }>('POST', '/supplier-bills', {
+      supplier: 'Island Electrical',
+      reference: 'DEMO/1',
+      billDate: today,
+      lines: [{ description: 'Cable', qtyMilli: 1000, unitCostPence: 4000, allocation: 'stock' }],
+    });
+    await send('POST', `/supplier-bills/${bill.id}/apply`, { dryRun: false });
+    const { totalPence } = await send<{ totalPence: number }>('GET', `/supplier-bills/${bill.id}`);
+    const csv = `Date,Description,Amount\n${d}/${m}/${y},BACS ELEC,-${(totalPence / 100).toFixed(2)}\n`;
+    await send('POST', '/bank/imports', { fileName: 'b.csv', csv });
+    const [line] = await send<BankTransactionDto[]>('GET', '/bank/transactions?status=unmatched');
+    await send('POST', `/bank/transactions/${line!.id}/bill-payment`, { billId: bill.id });
+    const pays = await send<{ amountPence: number; reference: string }[]>(
+      'GET',
+      `/supplier-bills/${bill.id}/payments`,
+    );
+    expect(pays).toEqual([
+      expect.objectContaining({ amountPence: totalPence, reference: 'BACS ELEC' }),
+    ]);
+    const matched = await send<BankTransactionDto[]>('GET', '/bank/transactions?status=matched');
+    expect(matched.map((l) => l.matchedTo?.kind)).toEqual(['bill_payment']);
+  });
 });

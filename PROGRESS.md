@@ -1017,12 +1017,17 @@ transfer on the bank's date with the bank's description as the reference, and th
 matched in the same step. Paid in full completes the job as usual. Demo mirrors it.
 `POST /api/bank/transactions/:id/payment {invoiceId}`.
 
-Still to do for the bank: a supplier bill payment from a money-out line (today: record it on the
-bill, then Match). Refunds not started (as asked).
+Step 7 done: **Pay Bill** on an unmatched money-out line (owner only, like paying on the bill):
+pick an applied supplier bill with at least that much owed (same amount first); recorded as a bank
+transfer on the bank's date, bank description as reference, and matched in one step. Demo mirrors
+it. `POST /api/bank/transactions/:id/bill-payment {billId}`.
+
+The bank feature is complete for now: import, suggestions, match/unmatch/ignore, Add as Expense,
+Record Payment, Pay Bill, and the balance check. Refunds not started (as asked).
 
 ## Next (after session 6)
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
-2. Bank: supplier bill payment from a money-out line. Then refunds (not started, as asked). Then refunds (not started, as asked).
+2. Refunds (not started, as asked). Bank is done apart from refunds. Then refunds (not started, as asked).
 3. Answers needed: Q33, Q34, Q35, Q38. Q41–Q44 answered 18 Nov (credit, expenses, conflicts,
    expense access).

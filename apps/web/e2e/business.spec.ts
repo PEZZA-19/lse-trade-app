@@ -188,3 +188,34 @@ test('bank statement: record a customer payment from money in', async ({ page })
   await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Matched' }).click();
   await expect(page.getByRole('list', { name: 'Bank lines' })).toContainText(`FP PAYIN ${stamp}`);
 });
+
+test('bank statement: pay a supplier bill from money out', async ({ page }) => {
+  const stamp = Date.now();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+    new Date(),
+  );
+  const [y, m, d] = today.split('-');
+  await page.goto('/business');
+  const bill = (await postJson(page, '/supplier-bills', {
+    supplier: 'Island Electrical',
+    reference: `E2E/${stamp}`,
+    billDate: today,
+    lines: [{ description: 'Cable', qtyMilli: 1000, unitCostPence: 1234, allocation: 'stock' }],
+  })) as { id: string };
+  await postJson(page, `/supplier-bills/${bill.id}/apply`, { dryRun: false });
+  await page.goto('/business/bank');
+  await page.getByLabel('Bank statement CSV file').setInputFiles({
+    name: 'out.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(`Date,Description,Amount\n${d}/${m}/${y},BACS ${stamp},-5.00\n`),
+  });
+  await page
+    .getByRole('button', { name: `Record BACS ${stamp} as a supplier bill payment` })
+    .click();
+  const sheet = page.getByRole('dialog', { name: 'Pay Bill' });
+  await sheet.getByRole('radio', { name: `Island Electrical E2E/${stamp}` }).check();
+  await expect(sheet).toContainText('Part payment');
+  await sheet.getByRole('button', { name: 'Record', exact: true }).click();
+  await expect(page.getByText('Payment to Island Electrical recorded and matched.')).toBeVisible();
+  await expect(page.getByText(`BACS ${stamp}`)).toHaveCount(0);
+});

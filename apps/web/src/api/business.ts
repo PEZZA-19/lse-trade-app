@@ -153,6 +153,19 @@ export function usePaymentFromBankLine() {
   });
 }
 
+export function useBillPaymentFromBankLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, billId }: { id: string; billId: string }) =>
+      api<{ billId: string; paymentId: string }>('POST', `/bank/transactions/${id}/bill-payment`, {
+        billId,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries();
+    },
+  });
+}
+
 export function useExpenseFromBankLine() {
   const qc = useQueryClient();
   return useMutation({
