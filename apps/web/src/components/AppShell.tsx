@@ -20,6 +20,7 @@ import {
   IconTruck,
   IconTray,
   IconSeal,
+  IconBusiness,
   IconChart,
 } from './icons';
 import { OfflineBanner } from './OfflineBanner';
@@ -51,6 +52,7 @@ const UNDER_MORE = [
   '/bills',
   '/suppliers',
   '/reports',
+  '/business',
 ];
 /** Desktop sidebar has room for everything. */
 const SIDEBAR = [
@@ -58,6 +60,7 @@ const SIDEBAR = [
   { to: '/approvals', label: 'Approvals', Icon: IconSeal },
   { to: '/enquiries', label: 'Enquiries', Icon: IconTray },
   ...TABS.slice(1, 4),
+  { to: '/business', label: 'Business', Icon: IconBusiness },
   { to: '/invoices', label: 'Invoices', Icon: IconInvoice },
   { to: '/bills', label: 'Supplier Bills', Icon: IconReceipt },
   { to: '/reports', label: 'Reports', Icon: IconChart },

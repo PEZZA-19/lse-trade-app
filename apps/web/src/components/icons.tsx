@@ -206,3 +206,15 @@ export const IconChart = (p: SVGProps<SVGSVGElement>) => (
     <path d="M4 20h16M7 16v-5M12 16V7M17 16v-8" />
   </svg>
 );
+export const IconBusiness = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="3" width="18" height="18" rx="3" />
+    <path d="M7 16v-3M11 16V9M15 16v-5M19 7l-4 3-4-2-4 3" />
+  </svg>
+);
+export const IconPrint = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M7 9V3h10v6M7 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+    <rect x="7" y="14" width="10" height="7" rx="1" />
+  </svg>
+);

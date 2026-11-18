@@ -1,0 +1,61 @@
+import type {
+  BillPaymentCreate,
+  BillPaymentDto,
+  BudgetUpdate,
+  BusinessDto,
+  OpeningBalanceUpdate,
+} from '@lse/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { api, newIdempotencyKey } from './client';
+
+export const businessKey = ['business'] as const;
+
+/** The books behind the business overview and every Xero-style report (one fetch). */
+export const useBusiness = (enabled = true) =>
+  useQuery({
+    queryKey: businessKey,
+    queryFn: () => api<BusinessDto>('GET', '/business'),
+    enabled,
+  });
+
+export function useSetOpening() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: OpeningBalanceUpdate) =>
+      api<BusinessDto>('PUT', '/business/opening', input),
+    onSuccess: (d) => qc.setQueryData(businessKey, d),
+  });
+}
+
+export function useSetBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: BudgetUpdate) => api<BusinessDto>('PUT', '/business/budget', input),
+    onSuccess: (d) => qc.setQueryData(businessKey, d),
+  });
+}
+
+export const billPaymentsKey = (id: string) => ['bill-payments', id] as const;
+export const useBillPayments = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: billPaymentsKey(id),
+    queryFn: () => api<BillPaymentDto[]>('GET', `/supplier-bills/${id}/payments`),
+    enabled,
+  });
+
+export function useRecordBillPayment(id: string) {
+  const qc = useQueryClient();
+  const [key, setKey] = useState(newIdempotencyKey);
+  return useMutation({
+    mutationFn: (input: BillPaymentCreate) =>
+      api<BillPaymentDto[]>('POST', `/supplier-bills/${id}/payments`, input, {
+        idempotencyKey: key,
+      }),
+    onSuccess: (rows) => {
+      setKey(newIdempotencyKey());
+      qc.setQueryData(billPaymentsKey(id), rows);
+      void qc.invalidateQueries({ queryKey: businessKey });
+    },
+  });
+}

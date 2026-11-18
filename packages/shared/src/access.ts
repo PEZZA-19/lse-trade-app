@@ -75,6 +75,8 @@ export function areaForPath(method: string, path: string): AccessArea | null {
   if (/^\/api\/(invoices|credit-notes|supplier-bills|suppliers)(\/|$)/.test(path))
     return 'financials';
   if (/^\/api\/jobs\/[^/]+\/(invoices|invoicing)$/.test(path)) return 'financials';
+  // The business overview and Xero-style reports: Reports here, and Accounts checked by the route.
+  if (/^\/api\/business(\/|$)/.test(path)) return 'reports';
   if (/^\/api\/reports(\/|$)/.test(path) || /^\/api\/jobs\/[^/]+\/costing$/.test(path))
     return 'reports';
   if (/^\/api\/team(\/|$)/.test(path)) return 'costs';

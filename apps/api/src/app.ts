@@ -42,6 +42,9 @@ import {
   chargeOutUpdate,
   accessUpdate,
   areaForPath,
+  billPaymentCreate,
+  budgetUpdate,
+  openingBalanceUpdate,
   canSeePrices,
   redactPrices,
   timesheetCreate,
@@ -93,6 +96,7 @@ import * as bills from './services/bills';
 import * as creditNotes from './services/creditNotes';
 import * as billRead from './services/billRead';
 import * as reports from './services/reports';
+import * as business from './services/business';
 import * as team from './services/team';
 import { AiGateway } from './ai/gateway';
 
@@ -872,6 +876,41 @@ export function createApp(deps: AppDeps) {
   app.get('/api/reports', async (c) => {
     const q = parse(reportQuery, { from: c.req.query('from'), to: c.req.query('to') });
     return c.json(await c.var.tx((tx) => reports.getReports(tx, q)));
+  });
+
+  /* ---------------- business overview and Xero-style reports ---------------- */
+  // Needs both Reports and Accounts access (the middleware has checked Reports already).
+  const books = (c: Context<AppEnv>) => access.assertArea(c.var.auth, 'financials');
+  app.get('/api/business', async (c) => {
+    books(c);
+    return c.json(await c.var.tx((tx) => business.getBusiness(tx)));
+  });
+  app.put('/api/business/opening', async (c) => {
+    books(c);
+    const input = parse(openingBalanceUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => business.setOpening(tx, c.var.auth, input)));
+  });
+  app.put('/api/business/budget', async (c) => {
+    books(c);
+    const input = parse(budgetUpdate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => business.setBudget(tx, c.var.auth, input)));
+  });
+  app.get('/api/supplier-bills/:id/payments', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => business.billPayments(tx, id)));
+  });
+  app.post('/api/supplier-bills/:id/payments', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(billPaymentCreate, await jsonBody(c.req));
+    const key = c.req.header('idempotency-key');
+    const result = await c.var.tx((tx) =>
+      idempotent(tx, c.var.auth, key, `bill-payment:${id}:${JSON.stringify(input)}`, async () => ({
+        status: 201,
+        body: await business.recordBillPayment(tx, c.var.auth, id, input),
+      })),
+    );
+    if (result.replayed) c.header('Idempotent-Replayed', 'true');
+    return c.json(result.body, result.status as 201);
   });
 
   /* ------------- job detail: time and materials by hand, notes, photos ------------- */

@@ -4,6 +4,7 @@
  * in this browser (localStorage), and is clearly labelled as a demo in the UI.
  * The real rules (numbering in Postgres, RLS, idempotency) live in apps/api.
  */
+import { businessRoute, freshBusiness, type BusinessDb } from './mockBusiness';
 import {
   reportQuery,
   costRate,
@@ -178,6 +179,7 @@ interface Db {
   /** Who can see what (set in Settings › Access). */
   access?: Record<string, Access>;
   jobDetail?: JobDetailDb;
+  business?: BusinessDb;
 }
 type DemoSettings = Omit<SettingsDto, 'sequences'> & {
   numbering: Record<SequenceDto['kind'], { prefix: string; padding: number }>;
@@ -731,6 +733,28 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     body,
   );
   if (inbox !== undefined) return inbox;
+  const books = businessRoute(
+    {
+      db: (db!.business ??= freshBusiness()),
+      call: (m, p) => {
+        const u = new URL(p, 'http://demo');
+        return route(m, u.pathname, u.searchParams, undefined);
+      },
+      jobs: db!.jobs,
+      stages: db!.stages,
+      today: billingToday(),
+      yearStart: S().yearStart,
+      yearEffectiveFrom: S().yearEffectiveFrom,
+      parse,
+      fail,
+      uid,
+      now,
+    },
+    method,
+    seg,
+    body,
+  );
+  if (books !== undefined) return books;
   const bills = billsRoute(billingCtx(), method, seg, query, body);
   if (bills !== undefined) return bills;
   const billed = billingRoute(billingCtx(), method, seg, query, body);

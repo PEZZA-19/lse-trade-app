@@ -12,6 +12,7 @@ import {
   IconTray,
   IconSeal,
   IconChart,
+  IconBusiness,
 } from '../components/icons';
 import { useAccess } from '../api/hooks';
 import { useBills } from '../api/bills';
@@ -59,6 +60,16 @@ export function MoreScreen() {
       {(money || canSee(access, 'reports')) && (
         <Section header="Money">
           <List label="Money">
+            {money && canSee(access, 'reports') && (
+              <li>
+                <LinkRow
+                  to="/business"
+                  lead={icon(IconBusiness)}
+                  title="Business Overview"
+                  sub="Bank, owed, cash flow, profit and Xero-style reports"
+                />
+              </li>
+            )}
             {money && (
               <>
                 <li>

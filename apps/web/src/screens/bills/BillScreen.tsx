@@ -31,6 +31,7 @@ import { shortDate } from '../../lib/status';
 import { ConfirmSheet } from '../invoices/InvoiceSheets';
 import { Change } from '../pricing/Change';
 import { ApplySummary, BillLineSheet, type DraftLine } from './BillSheets';
+import { BillPayments } from './BillPayments';
 
 export function BillScreen() {
   const { id = '' } = useParams();
@@ -257,6 +258,8 @@ function BillView({ bill: b }: { bill: BillDetailDto }) {
       </Section>
 
       {applied && <ApplySummary r={applied} />}
+
+      <BillPayments bill={b} isOwner={isOwner} />
 
       <Section header="Details">
         <List>
