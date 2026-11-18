@@ -556,7 +556,10 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
           <li>
             It becomes credit note <strong>{inv.nextNumber ?? 'CN'}</strong> and is locked.
           </li>
-          <li>When you approve their next invoice, you’ll be asked whether to use it. No money is paid out.</li>
+          <li>
+            When you approve their next invoice, you’ll be asked whether to use it. No money is paid
+            out.
+          </li>
           <li>Nothing is sent to the customer.</li>
         </ul>
       </ConfirmSheet>
