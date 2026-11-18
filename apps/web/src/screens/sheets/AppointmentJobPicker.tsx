@@ -24,6 +24,7 @@ export function AppointmentJobPicker(props: {
     button.current?.focus();
   };
   const show = () => {
+    typeahead.current = { text: '', time: 0 };
     setActive(
       Math.max(
         0,
@@ -69,6 +70,10 @@ export function AppointmentJobPicker(props: {
         aria-labelledby={`${id}-label ${id}-value`}
         aria-invalid={!!props.error || undefined}
         aria-describedby={props.error ? `${id}-error` : undefined}
+        onPointerDown={(e) => {
+          // Keep the list focused until click; blur must not close then reopen the disclosure.
+          if (open) e.preventDefault();
+        }}
         onClick={() => (open ? close() : show())}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

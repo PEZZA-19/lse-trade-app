@@ -1,5 +1,5 @@
 import type { JobSummaryDto } from '@lse/shared';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -59,7 +59,10 @@ beforeEach(() => {
   mocks.loadError = false;
   mocks.error = null;
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 async function openPicker() {
   const user = userEvent.setup();
@@ -70,6 +73,24 @@ async function openPicker() {
 }
 
 describe('Schedule appointment job picker', () => {
+  it('does not let delayed sheet autofocus steal list focus, and cancels it on close', async () => {
+    let autofocus: FrameRequestCallback | undefined;
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
+      autofocus = callback;
+      return 99;
+    });
+    const cancel = vi.spyOn(globalThis, 'cancelAnimationFrame');
+    const user = await openPicker();
+    act(() => autofocus?.(0));
+    expect(screen.getByRole('listbox')).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Job Choose a job…' }));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Job Choose a job…' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(cancel).toHaveBeenCalledWith(99);
+    expect(screen.getByRole('button', { name: 'New appointment' })).toHaveFocus();
+  });
+
   it('keeps choices inside the dialog, supports keyboard navigation and only writes on Book', async () => {
     const user = await openPicker();
     const list = screen.getByRole('listbox', { name: 'Job' });
@@ -87,9 +108,14 @@ describe('Schedule appointment job picker', () => {
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.create.mock.calls[0]![0]).toMatchObject({ jobId: 'job-1', userId: 'owner' });
     expect(screen.getByRole('dialog')).toBeInTheDocument(); // Not saved until success.
-    const success = mocks.create.mock.calls[0]![1].onSuccess;
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(success).toBeTypeOf('function');
+    act(() =>
+      mocks.create.mock.calls[0]![1].onSuccess({
+        number: '101',
+        stage: { systemKey: 'scheduled' },
+      }),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining('Job 101 booked for'));
   });
 
   it('Escape closes the picker first, then the sheet, and restores launcher focus', async () => {
