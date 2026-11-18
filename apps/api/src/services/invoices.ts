@@ -242,9 +242,12 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
     creditsApplied: uses.filter((u) => u.invoiceId === id),
     creditUses: uses.filter((u) => u.creditId === id),
     creditToUsePence:
-      r.status === 'draft' && Number(r.totalPence) > 0
+      (r.status === 'draft' && Number(r.totalPence) > 0) ||
+      ['approved', 'sent', 'part_paid'].includes(r.status)
         ? Math.min(
-            Number(r.totalPence),
+            r.status === 'draft'
+              ? Number(r.totalPence)
+              : Number(r.totalPence) - Number(r.paidPence) - Number(r.creditedPence),
             (await availableCredits(tx, r.customerId)).reduce((a, c) => a + c.remainingPence, 0),
           )
         : 0,
@@ -268,7 +271,7 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
 async function creditUsesFor(tx: Tx, id: string): Promise<CreditUseDto[]> {
   const rows = await tx<(Omit<CreditUseDto, 'amountPence'> & { amountPence: string })[]>`
     SELECT u.id, u.credit_invoice_id AS credit_id, cr.number AS credit_number, u.invoice_id,
-           iv.number AS invoice_number, u.applied_on::text AS applied_on, u.amount_pence
+           iv.number AS invoice_number, u.applied_on::text AS applied_on, u.amount_pence, u.after_issue
       FROM credit_uses u
       JOIN invoices cr ON cr.id = u.credit_invoice_id
       JOIN invoices iv ON iv.id = u.invoice_id
@@ -322,12 +325,13 @@ async function applyCredits(
   customerId: string,
   owedPence: number,
   date: string,
+  afterIssue = false,
 ): Promise<number> {
   const plan = planCreditUse(await availableCredits(tx, customerId, true, date), owedPence);
   let used = 0;
   for (const p of plan) {
-    await tx`INSERT INTO credit_uses (tenant_id, credit_invoice_id, invoice_id, amount_pence, applied_on, created_by)
-             VALUES (${auth.tenantId}, ${p.creditId}, ${invoiceId}, ${p.amountPence}, ${date}::date, ${auth.userId})`;
+    await tx`INSERT INTO credit_uses (tenant_id, credit_invoice_id, invoice_id, amount_pence, applied_on, created_by, after_issue)
+             VALUES (${auth.tenantId}, ${p.creditId}, ${invoiceId}, ${p.amountPence}, ${date}::date, ${auth.userId}, ${afterIssue})`;
     await tx`UPDATE invoices SET credit_used_pence = credit_used_pence + ${p.amountPence} WHERE id = ${p.creditId}`;
     used += p.amountPence;
   }
@@ -864,7 +868,7 @@ export async function setJobCreditChoice(
   if (invoiced)
     throw conflict(
       'job_invoiced',
-      'This job has already been invoiced, so it’s left as it is. The credit stays on the customer’s account for later work.',
+      'This job has already been invoiced. To use their credit on it, open the invoice and tap Use Customer Credit.',
     );
   await tx`UPDATE jobs SET use_credit = ${useCredit} WHERE id = ${jobId}`;
   await audit(tx, auth, 'credit_choice', 'job', jobId, { useCredit });
@@ -885,4 +889,42 @@ export async function setQuoteCreditChoice(
   if (q.convertedJobId) await setJobCreditChoice(tx, auth, q.convertedJobId, useCredit);
   await tx`UPDATE quotes SET use_credit = ${useCredit} WHERE id = ${quoteId}`;
   await audit(tx, auth, 'credit_choice', 'quote', quoteId, { useCredit });
+}
+
+/**
+ * Use the customer's credit against an invoice that's already been issued (Joe, 18 Nov 2026,
+ * 10:35). The owner confirms first. What they owe goes down and the credit is used up; the invoice
+ * as billed (lines, total, PDF) stays the same. The credit was already in the Profit and Loss when
+ * it was issued, so the books only move it from their credit to this invoice.
+ */
+export async function useCreditAfterIssue(
+  tx: Tx,
+  auth: Auth,
+  id: string,
+): Promise<InvoiceDetailDto> {
+  assertOwnerDecision(auth, 'use customer credit');
+  const cur = await lockInvoice(tx, id);
+  if (!['approved', 'sent', 'part_paid'].includes(cur.status))
+    throw conflict(
+      'invoice_not_open',
+      cur.status === 'draft'
+        ? 'This invoice is still a draft: choose on the Approve sheet.'
+        : 'Nothing is owed on this invoice.',
+    );
+  await lockJob(tx, cur.jobId);
+  const [inv] = await tx<
+    { customerId: string; totalPence: string; paidPence: string; creditedPence: string }[]
+  >`SELECT j.customer_id, i.total_pence, i.paid_pence, i.credited_pence
+      FROM invoices i JOIN jobs j ON j.id = i.job_id WHERE i.id = ${id}`;
+  const owed = Number(inv!.totalPence) - Number(inv!.paidPence) - Number(inv!.creditedPence);
+  const t = await today(tx);
+  const used = await applyCredits(tx, auth, id, inv!.customerId, owed, t, true);
+  if (!used) throw conflict('no_credit', 'This customer has no credit to use.');
+  const credited = Number(inv!.creditedPence) + used;
+  if (cur.status !== 'approved' || Number(inv!.paidPence) + credited >= Number(inv!.totalPence)) {
+    const status = statusAfterPayment(Number(inv!.totalPence), Number(inv!.paidPence), credited);
+    await tx`UPDATE invoices SET status = ${status} WHERE id = ${id}`;
+    if (status === 'paid') await completeJobIfSettled(tx, auth, cur.jobId);
+  }
+  return getInvoice(tx, id);
 }

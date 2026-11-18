@@ -75,7 +75,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   const decide = useInvoiceDecision(inv);
   const update = useUpdateInvoice(inv);
   const del = useDeleteInvoice(inv);
-  const [confirm, setConfirm] = useState<'approve' | 'send' | 'delete' | null>(null);
+  const [confirm, setConfirm] = useState<'approve' | 'send' | 'delete' | 'credit' | null>(null);
   const [paying, setPaying] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [editing, setEditing] = useState<number | 'new' | null>(null);
@@ -115,7 +115,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
     decide.reset();
     setConfirm(null);
   };
-  const run = (action: 'approve' | 'mark-sent') =>
+  const run = (action: 'approve' | 'mark-sent' | 'use-credit') =>
     decide.mutate(
       {
         action,
@@ -130,7 +130,9 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
                 : r.creditedPence > 0
                   ? `Approved · Invoice ${r.number} · ${formatPence(r.creditedPence)} credit used`
                   : `Approved · Invoice ${r.number}`
-              : `Invoice ${r.number} marked as sent`,
+              : action === 'use-credit'
+                ? `Customer credit used · ${formatPence(r.balancePence)} still owed`
+                : `Invoice ${r.number} marked as sent`,
           );
           setConfirm(null);
         },
@@ -225,6 +227,11 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
           {isOwner && (inv.status === 'sent' || inv.status === 'part_paid') && (
             <Button block large onClick={() => setPaying(true)}>
               Record Payment
+            </Button>
+          )}
+          {isOwner && !draft && !isCredit && creditToUse > 0 && (
+            <Button block variant="secondary" onClick={() => setConfirm('credit')}>
+              Use Customer Credit…
             </Button>
           )}
         </Section>
@@ -365,6 +372,9 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
               <Link className="row" to={`/invoices/${u.creditId}`}>
                 <span className="row__main">
                   <span className="row__title">Customer credit {u.creditNumber} used</span>
+                  {u.afterIssue && (
+                    <span className="row__sub">After invoicing · not on the invoice PDF</span>
+                  )}
                 </span>
                 <span className="row__meta num" style={{ color: 'var(--green)' }}>
                   −{formatPence(u.amountPence)}
@@ -615,6 +625,25 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
             </li>
           </List>
         )}
+      </ConfirmSheet>
+      <ConfirmSheet
+        open={confirm === 'credit'}
+        title="Use Customer Credit"
+        actionLabel="Use Credit"
+        onConfirm={() => run('use-credit')}
+        onClose={closeConfirm}
+        loading={decide.isPending}
+        error={decide.error?.message}
+      >
+        <p>
+          <strong>{formatPence(creditToUse)}</strong> of {inv.customerName}’s credit comes off what
+          they owe, leaving <strong>{formatPence(inv.balancePence - creditToUse)}</strong>.
+        </p>
+        <ul>
+          <li>Invoice {inv.number} stays as billed: its lines, total and PDF don’t change.</li>
+          <li>The credit is already in the Profit and Loss, so profit doesn’t change.</li>
+          <li>Nothing is sent to the customer.</li>
+        </ul>
       </ConfirmSheet>
       <ConfirmSheet
         open={confirm === 'send'}

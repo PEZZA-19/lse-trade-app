@@ -207,7 +207,7 @@ export function useDeleteInvoice(inv: { id: string; jobId: string }) {
 export function useInvoiceDecision(inv: { id: string; jobId: string; version: number }) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (d: { action: 'approve' | 'mark-sent'; useCredit?: boolean }) =>
+    mutationFn: (d: { action: 'approve' | 'mark-sent' | 'use-credit'; useCredit?: boolean }) =>
       api<InvoiceDetailDto>(
         'POST',
         `/invoices/${inv.id}/${d.action}`,

@@ -214,7 +214,8 @@ export function invoiceDocument(
     pence: credit ? -inv.totalPence : inv.totalPence,
     strong: true,
   });
-  for (const u of inv.creditsApplied ?? [])
+  // Credit used after the invoice was issued doesn't change the invoice as billed.
+  for (const u of (inv.creditsApplied ?? []).filter((x) => !x.afterIssue))
     totals.push({
       label: `Credit ${u.creditNumber} used`,
       value: formatPence(-u.amountPence),
@@ -243,11 +244,17 @@ export function invoiceDocument(
         value: formatPence(-cn.amountPence),
         pence: -cn.amountPence,
       });
-  if (!credit && (inv.paidPence > 0 || (inv.creditedPence ?? 0) > 0)) {
+  // Credit used after issue is left off the document (the invoice stays as billed).
+  const afterIssue = (inv.creditsApplied ?? [])
+    .filter((x) => x.afterIssue)
+    .reduce((a, x) => a + x.amountPence, 0);
+  const shownCredited = (inv.creditedPence ?? 0) - afterIssue;
+  if (!credit && (inv.paidPence > 0 || shownCredited > 0)) {
+    const due = inv.balancePence + afterIssue;
     totals.push({
       label: 'Balance due',
-      value: formatPence(inv.balancePence),
-      pence: inv.balancePence,
+      value: formatPence(due),
+      pence: due,
       strong: true,
     });
   }

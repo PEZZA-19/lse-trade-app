@@ -120,6 +120,7 @@ export interface DemoCreditUse {
   appliedOn: string;
   amountPence: number;
   createdAt: string;
+  afterIssue?: boolean;
 }
 export interface BillingDb {
   items: Item[];
@@ -464,6 +465,7 @@ function detail(c: BillingCtx, i: Invoice): InvoiceDetailDto {
     invoiceNumber: getInvoice(c, u.invoiceId).number ?? '',
     appliedOn: u.appliedOn,
     amountPence: u.amountPence,
+    ...(u.afterIssue ? { afterIssue: true } : {}),
   });
   const uses = c.b.creditUses ?? [];
   return {
@@ -497,9 +499,10 @@ function detail(c: BillingCtx, i: Invoice): InvoiceDetailDto {
     creditsApplied: uses.filter((u) => u.invoiceId === i.id).map(useDto),
     creditUses: uses.filter((u) => u.creditId === i.id).map(useDto),
     creditToUsePence:
-      i.status === 'draft' && t.totalPence > 0
+      (i.status === 'draft' && t.totalPence > 0) ||
+      ['approved', 'sent', 'part_paid'].includes(i.status)
         ? Math.min(
-            t.totalPence,
+            i.status === 'draft' ? t.totalPence : summary(c, i).balancePence,
             availableCredits(c, j.customerId).reduce((a, x) => a + x.remainingPence, 0),
           )
         : 0,
@@ -683,7 +686,7 @@ export function availableCredits(c: BillingCtx, customerId: string, asOf?: strin
     .sort((a, z) => (a.issueDate < z.issueDate ? -1 : a.issueDate > z.issueDate ? 1 : 0));
 }
 /** Uses the customer's credit on an invoice just approved (as the server does). */
-function applyCredits(c: BillingCtx, inv: Invoice, date: string) {
+function applyCredits(c: BillingCtx, inv: Invoice, date: string, afterIssue = false) {
   const owed = summary(c, inv).balancePence;
   const plan = planCreditUse(availableCredits(c, c.job(inv.jobId).customerId, date), owed);
   c.b.creditUses ??= [];
@@ -695,7 +698,9 @@ function applyCredits(c: BillingCtx, inv: Invoice, date: string) {
       appliedOn: date,
       amountPence: p.amountPence,
       createdAt: c.now(),
+      ...(afterIssue ? { afterIssue: true } : {}),
     });
+  return plan.reduce((a, p) => a + p.amountPence, 0);
 }
 
 function settled(c: BillingCtx, jobId: string) {
@@ -931,6 +936,27 @@ export function billingRoute(
       });
       inv.version += 1;
       if (useCredit) applyCredits(c, inv, t);
+      return detail(c, inv);
+    }
+    if (method === 'POST' && sub === 'use-credit') {
+      // Joe, 18 Nov 10:35: credit on an issued invoice; the invoice as billed doesn't change.
+      if (!['approved', 'sent', 'part_paid'].includes(inv.status))
+        c.fail(
+          409,
+          'invoice_not_open',
+          inv.status === 'draft'
+            ? 'This invoice is still a draft: choose on the Approve sheet.'
+            : 'Nothing is owed on this invoice.',
+        );
+      if (!applyCredits(c, inv, today(), true))
+        c.fail(409, 'no_credit', 'This customer has no credit to use.');
+      const s = summary(c, inv);
+      if (inv.status !== 'approved' || s.balancePence <= 0) {
+        const st = statusAfterPayment(s.totalPence, s.paidPence, s.creditedPence);
+        inv.status = st;
+        if (st === 'paid' && settled(c, inv.jobId)) c.completeJob(inv.jobId);
+      }
+      inv.version += 1;
       return detail(c, inv);
     }
     if (method === 'POST' && sub === 'mark-sent') {

@@ -454,4 +454,12 @@ test('a job below £0 is issued as a customer credit and comes off the next invo
     sheet2.getByRole('switch', { name: 'Use their credit on this invoice' }),
   ).not.toBeChecked();
   await expect(sheet2).toContainText('stays on their account for a later invoice');
+  await sheet2.getByRole('button', { name: 'Approve', exact: true }).last().click();
+  // Joe, 10:35: it can still be used once invoiced, without changing the invoice as billed.
+  await page.getByRole('button', { name: 'Use Customer Credit…' }).click();
+  const use2 = page.getByRole('dialog', { name: 'Use Customer Credit' });
+  await expect(use2).toContainText('stays as billed');
+  await use2.getByRole('button', { name: 'Use Credit', exact: true }).last().click();
+  await expect(page.getByText(/Customer credit used · £150\.00 still owed/)).toBeVisible();
+  await expect(page.getByText('After invoicing · not on the invoice PDF')).toBeVisible();
 });

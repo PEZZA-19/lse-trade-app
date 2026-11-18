@@ -121,3 +121,37 @@ describe('demo credit choice on work not yet invoiced (Joe, 18 Nov 2026, 10:27)'
     );
   });
 });
+
+describe('demo credit on an issued invoice (Joe, 18 Nov 2026, 10:35)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetDemo();
+  });
+
+  it('owed drops, the invoice document stays as billed', async () => {
+    const cust = await send<CustomerDetailDto>('POST', '/customers', {
+      name: 'After Issue',
+      email: 'after@example.com',
+    });
+    const work = [{ kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 6000 }];
+    const inv = await draft(cust.id, work);
+    await send('POST', `/invoices/${inv.id}/approve`);
+    await send('POST', `/invoices/${inv.id}/mark-sent`);
+    const docBefore = await get(`/invoices/${inv.id}/document`);
+    const rent = [
+      { kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 10000 },
+      { kind: 'material', description: 'Rent payments', qtyMilli: 1000, unitPricePence: -25000 },
+    ];
+    const w = await draft(cust.id, [rent[0]]);
+    const d = await send<InvoiceDetailDto>('PATCH', `/invoices/${w.id}`, { lines: rent });
+    await send('POST', `/invoices/${d.id}/approve`);
+    expect((await get<InvoiceDetailDto>(`/invoices/${inv.id}`)).creditToUsePence).toBe(6000);
+    const r = await send<InvoiceDetailDto>('POST', `/invoices/${inv.id}/use-credit`);
+    expect(r).toMatchObject({ status: 'paid', totalPence: 6000, balancePence: 0 });
+    expect(r.creditsApplied[0]).toMatchObject({ amountPence: 6000, afterIssue: true });
+    expect(await get(`/invoices/${inv.id}/document`)).toEqual(docBefore);
+    expect((await get<CustomerDetailDto>(`/customers/${cust.id}`)).credits[0]!.remainingPence).toBe(
+      9000,
+    );
+  });
+});

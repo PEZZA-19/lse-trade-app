@@ -1,6 +1,9 @@
 import {
   aged,
   balanceSheet,
+  bsFigures,
+  plFigures,
+  postings,
   invoiceDocument,
   openInvoices,
   overview,
@@ -302,11 +305,48 @@ describe('customer credit: Joe’s rules (18 Nov 2026)', () => {
     const s1 = (await c.req('GET', `/api/invoices/${sent.id}`)).body;
     const s2 = (await c.req('GET', `/api/invoices/${approved.id}`)).body;
     expect([s1.balancePence, s2.balancePence]).toEqual([6000, 4000]);
-    expect([s1.creditToUsePence, s2.creditToUsePence]).toEqual([0, 0]);
-    // A payment on the sent one still works as normal; the credit waits for the next invoice.
+    // Never silently: they show what could be used, nothing more.
+    expect([s1.creditToUsePence, s2.creditToUsePence]).toEqual([6000, 4000]);
     expect((await c.req('GET', `/api/customers/${cust.id}`)).body.credits[0].remainingPence).toBe(
       15000,
     );
+  });
+
+  it('Joe, 10:35: credit can be used on an issued invoice; what they owe drops, the invoice as billed doesn’t', async () => {
+    const c = await client();
+    await ready(c);
+    const cust = await seedCustomer(c);
+    const sent = await draftFor(c, (await job(c, cust.id, 'Earlier work', WORK_JOB(6000))).id);
+    await c.req('POST', `/api/invoices/${sent.id}/approve`);
+    await c.req('POST', `/api/invoices/${sent.id}/mark-sent`);
+    const pdfBefore = (await c.req('GET', `/api/invoices/${sent.id}/document`)).body;
+    const before = (await c.req('GET', '/api/business')).body as BusinessDto;
+    const { draft: credit } = await creditDraft(c, cust.id);
+    await c.req('POST', `/api/invoices/${credit.id}/approve`);
+    const mid = (await c.req('GET', '/api/business')).body as BusinessDto;
+
+    const r = await c.req('POST', `/api/invoices/${sent.id}/use-credit`);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    // £60 owed, £150 credit: settled, total unchanged, £90 credit left.
+    expect(r.body).toMatchObject({ status: 'paid', totalPence: 6000, balancePence: 0 });
+    expect(r.body.creditsApplied).toMatchObject([{ amountPence: 6000, afterIssue: true }]);
+    expect((await c.req('GET', `/api/customers/${cust.id}`)).body.credits[0].remainingPence).toBe(
+      9000,
+    );
+    // The invoice document is exactly as billed.
+    expect((await c.req('GET', `/api/invoices/${sent.id}/document`)).body).toEqual(pdfBefore);
+    // The credit is in the P&L once (when issued); using it doesn't change profit, and the books balance.
+    const after = (await c.req('GET', '/api/business')).body as BusinessDto;
+    const range = { from: '2000-01-01', to: after.today };
+    const np = (d: BusinessDto) => plFigures(postings(d), range).netProfit;
+    expect(np(mid)).toBe(np(before) - 15000);
+    expect(np(after)).toBe(np(mid));
+    const bs = bsFigures(postings(after), after.today, '01-01');
+    expect(bs.netAssets).toBe(bs.equity);
+    // Nothing more to use; a draft goes through the Approve sheet instead.
+    expect((await c.req('POST', `/api/invoices/${sent.id}/use-credit`)).status).toBe(409);
+    const staff = await clientFor(await addMember(c.tenantId, 'staff'), c);
+    expect((await staff.req('POST', `/api/invoices/${sent.id}/use-credit`)).status).toBe(403);
   });
 
   it('a quote for a customer with credit is never reduced by it, but says it’s there', async () => {

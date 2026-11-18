@@ -720,6 +720,10 @@ export function createApp(deps: AppDeps) {
       ),
     );
   });
+  app.post('/api/invoices/:id/use-credit', async (c) => {
+    const id = uuidParam(c);
+    return c.json(await c.var.tx((tx) => invoices.useCreditAfterIssue(tx, c.var.auth, id)));
+  });
   app.post('/api/invoices/:id/mark-sent', async (c) => {
     const id = uuidParam(c);
     return c.json(await c.var.tx((tx) => invoices.markSent(tx, c.var.auth, id)));

@@ -193,6 +193,8 @@ export interface CreditUseDto {
   invoiceNumber: string;
   appliedOn: string;
   amountPence: Pence;
+  /** Used after the invoice was issued: it doesn't change the invoice or its PDF. */
+  afterIssue?: boolean;
 }
 
 /**
@@ -285,7 +287,10 @@ export interface InvoiceDetailDto extends InvoiceSummaryDto {
   creditNotes: CreditNoteSummaryDto[];
   /** Customer credits taken off this invoice (shown on it and on its PDF). */
   creditsApplied: CreditUseDto[];
-  /** Drafts: the customer's credit that approving would take off (0 if none). */
+  /**
+   * Drafts: the customer's credit that approving would take off. Issued and unpaid: the credit that
+   * could be used against what's still owed (Joe, 18 Nov 10:35). 0 if none.
+   */
   creditToUsePence: Pence;
   /** What the owner chose on the quote or job about using credit (sets the Approve switch). */
   jobUseCredit: boolean | null;

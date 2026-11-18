@@ -676,8 +676,9 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 41. ANSWERED 18 Nov 2026, 10:27 by Joe: "You can apply the credit if the job hasn't been invoiced but
     if it has don't worry about it." Done in session 6: on a quote or job not yet invoiced, the owner
     can switch on "Use their credit" (the quote itself isn't reduced; the choice carries from quote
-    to job). It sets the default on the invoice's Approve sheet, which still confirms. Once a job has
-    an approved or sent invoice its choice can't change, and those invoices are never touched.
+    to job). It sets the default on the invoice's Approve sheet, which still confirms. Updated 10:35:
+    credit can also be used on an invoice already issued ("Use Customer Credit…", confirmed); it
+    lowers what they owe but the invoice as billed and its PDF don't change.
 42. Expenses you pay personally (not from the business bank) are recorded as money you put into the
     business (they reduce your drawings on the Balance Sheet). OK?
 43. If a booking is changed in the app and in Google Calendar before they sync, Google's change wins
@@ -961,6 +962,15 @@ Migration 0030 (`quotes.use_credit`, `jobs.use_credit`). `PUT /api/quotes/:id/cr
 invoice). The quote screen has a "Use their credit" switch under Totals; the invoice's Approve
 switch starts from that choice (on if none) and still has to be confirmed. Job screen switch: not
 built yet (the API is there).
+
+### Credit on an invoice already issued (Joe, 18 Nov 10:35, updates Q41)
+
+"Actually it can be applied to one which has been invoiced it obviously just won't adjust the billed
+amount but will show on the p&l." Migration 0031 (`credit_uses.after_issue`). An approved, sent or
+part-paid invoice shows "Use Customer Credit…" (owner, with a confirm sheet): the credit comes off
+what they owe and is used up, but the invoice's lines, total and PDF stay as billed (the PDF leaves
+after-issue credit out). The credit was already in the P&L as reduced sales when it was issued, so
+using it doesn't change profit again; the books still balance. `POST /api/invoices/:id/use-credit`.
 
 ### Bank statements (in progress)
 
