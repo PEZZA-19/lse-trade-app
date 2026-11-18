@@ -1073,3 +1073,7 @@ Q45–Q47. Q34 (opening bank balance) matters for "Check against your bank".
 2. Refunds (not started, as asked). Bank is done apart from refunds.
 3. Answers needed: Q33, Q34, Q35, Q38. Q41–Q44 answered 18 Nov (credit, expenses, conflicts,
    expense access).
+
+## Found after session stop (18 Nov, 12:18)
+- FIRST next session: real jobs 14 and 108 no longer import into the private demo, because their quotes total below £0 and quotes below £0 are now blocked. Import them as customer credits (Joe's decision) instead of below-£0 quotes, and check the demo again.
+- Phone nits: the tab bar still clips the last line on a few scrolling pages; bank line titles and some invoice names get cut off; a bank line says "No payment in the app matches" even when Record Payment lists an invoice for the same amount (make the match suggestion and the message agree).
