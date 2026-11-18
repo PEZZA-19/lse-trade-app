@@ -2,6 +2,8 @@
 interface ImportMetaEnv {
   /** "1" builds the static preview that runs on in-browser demo data. */
   readonly VITE_DEMO?: string;
+  /** '1' in the private local demo built with the business's own jobs. */
+  readonly VITE_DEMO_OWN_JOBS?: string;
   /** "1" uses #/routes (the local single-file demo opened from a folder). */
   readonly VITE_HASH_ROUTER?: string;
 }

@@ -23,6 +23,17 @@ function demoSeed(): Plugin {
   };
 }
 
+/** True when the private seed replaces the example jobs with the business's own. */
+function ownJobsSeed(): boolean {
+  const file = process.env.LSE_DEMO_SEED;
+  if (!file) return false;
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')).replaceExamples === true;
+  } catch {
+    return false;
+  }
+}
+
 /** The single-file demo has no public folder: inline the icon, drop the home-screen icon link. */
 function inlineIcons(): Plugin {
   return {
@@ -44,7 +55,12 @@ export default defineConfig(({ mode }) => {
     base: local ? './' : '/',
     // Set here, not in a .env file (those are git-ignored), so the build is reproducible.
     define: local
-      ? { 'import.meta.env.VITE_DEMO': '"1"', 'import.meta.env.VITE_HASH_ROUTER': '"1"' }
+      ? {
+          'import.meta.env.VITE_DEMO': '"1"',
+          'import.meta.env.VITE_HASH_ROUTER': '"1"',
+          // The private seed brings the business's own jobs: the banner says so (no data here).
+          'import.meta.env.VITE_DEMO_OWN_JOBS': JSON.stringify(ownJobsSeed() ? '1' : ''),
+        }
       : {},
     publicDir: local ? false : 'public',
     plugins: [

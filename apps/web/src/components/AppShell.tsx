@@ -159,19 +159,33 @@ function NoAccess({ area }: { area: AccessArea | null }) {
   );
 }
 
+/** What the demo banner says: the private demo with the business's own jobs, or sample data. */
+export function demoBannerText(local: boolean, ownJobs: boolean): { long: string; short: string } {
+  if (local && ownJobs)
+    return {
+      long: 'Private demo on this computer with your own jobs, customers and supplier bills. Nothing is sent; changes stay in this browser.',
+      short: 'Private demo · your jobs',
+    };
+  if (local)
+    return {
+      long: 'Demo on this computer: sample jobs and customers, plus your own supplier bills. Nothing is sent; changes stay in this browser.',
+      short: 'Demo · nothing is sent',
+    };
+  return {
+    long: 'Preview with made-up sample data. Changes stay on this device.',
+    short: 'Preview · sample data',
+  };
+}
+
 function DemoBanner() {
+  const text = demoBannerText(
+    import.meta.env.VITE_HASH_ROUTER === '1',
+    import.meta.env.VITE_DEMO_OWN_JOBS === '1',
+  );
   return (
     <div className="demo-banner" role="note">
-      <span className="demo-banner__long">
-        {import.meta.env.VITE_HASH_ROUTER === '1'
-          ? 'Demo on this computer: sample jobs and customers, plus your own supplier bills. Nothing is sent; changes stay in this browser.'
-          : 'Preview with made-up sample data. Changes stay on this device.'}
-      </span>
-      <span className="demo-banner__short">
-        {import.meta.env.VITE_HASH_ROUTER === '1'
-          ? 'Demo · nothing is sent'
-          : 'Preview · sample data'}
-      </span>{' '}
+      <span className="demo-banner__long">{text.long}</span>
+      <span className="demo-banner__short">{text.short}</span>{' '}
       <button
         type="button"
         onClick={async () => {
