@@ -45,13 +45,16 @@ export function Sheet(props: {
     document.addEventListener('keydown', onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    requestAnimationFrame(() => {
+    const autofocus = requestAnimationFrame(() => {
+      // Do not steal focus if the user already reached a control (e.g. opened a picker).
+      if (panel.current?.contains(document.activeElement)) return;
       const target = panel.current?.querySelector<HTMLElement>(
         '[data-autofocus], .sheet__body input, .sheet__body textarea',
       );
       (target ?? panel.current)?.focus();
     });
     return () => {
+      cancelAnimationFrame(autofocus);
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = overflow;
       previous?.focus?.();

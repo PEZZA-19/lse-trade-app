@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 const channel = process.env.CI ? undefined : 'chrome';
 export default defineConfig({
   testDir: 'e2e',
-  testMatch: /screenshots\.spec\.ts/,
+  testMatch: /(?:screenshots|schedule-picker)\.spec\.ts/,
   workers: 1,
   reporter: [['list']],
   use: {

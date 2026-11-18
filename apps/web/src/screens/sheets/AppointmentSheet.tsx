@@ -13,6 +13,7 @@ import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { Button, List, Section, SelectField, TextField } from '../../components/ui';
 import { addMinutes, formatDayShort, fromInputs, toDateInput, toTimeInput } from '../../lib/dates';
+import { AppointmentJobPicker } from './AppointmentJobPicker';
 
 export type AppointmentSheetState =
   | { mode: 'create'; jobId?: string; jobLabel?: string; start?: Date }
@@ -127,19 +128,15 @@ function Inner({ state, onClose }: { state: AppointmentSheetState; onClose: () =
         <Section>
           <List className="form-list">
             {needsJob && (
-              <SelectField
-                label="Job"
+              <AppointmentJobPicker
                 value={jobId}
-                onChange={(e) => setJobId(e.target.value)}
+                onChange={setJobId}
+                jobs={jobs.data?.items ?? []}
+                loading={jobs.isPending}
+                loadError={jobs.isError}
+                onRetry={() => void jobs.refetch()}
                 error={fields.jobId}
-              >
-                <option value="">Choose a job…</option>
-                {(jobs.data?.items ?? []).map((j) => (
-                  <option key={j.id} value={j.id}>
-                    {j.number} · {j.title}
-                  </option>
-                ))}
-              </SelectField>
+              />
             )}
             <TextField
               label="Date"
