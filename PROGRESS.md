@@ -845,3 +845,17 @@ so You Owe is £0 there until they are.
   ledger (2) and `planCreditUse` (1); demo `mockCredit.test.ts` (1).
 - **Private demo**: real jobs 14 and 108 are now issued as customer credits (were left without an
   invoice).
+- **E2E** (`billing.spec.ts`): issue a customer credit from the invoice screen, see it on the
+  customer, approve their next invoice and see the credit come off.
+
+### Kit labour optional per kit (Joe's decision)
+
+- Adding a kit to a quote has an **Include labour** switch. It starts on when the kit has fitting
+  time (or has no items), off otherwise; switched off, no labour line is added even if the kit has
+  time. A kit can be **items only, labour only, or both**: a kit with no items adds just its own
+  "Labour: <kit>" line (no £0 block); a kit with neither is refused with a plain reason. The kit
+  list says "Labour only" for kits without items. Editing a kit block on a quote still lets you
+  clear the hours to drop its labour line.
+- Shared `kitAddLines` (used by the picker) decides the lines. **Tests**: shared (4: items only with
+  labour off, both, labour only, nothing to add) and e2e (items only by switching labour off;
+  labour-only kit adds just the labour line). Existing kit labour e2e unchanged and passing.

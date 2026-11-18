@@ -2,6 +2,7 @@ import {
   expandKitLine,
   formatPence,
   formatQty,
+  kitAddLines,
   kitLabourLine,
   kitPriceChanged,
   kitQuoteLine,
@@ -123,7 +124,11 @@ export function KitPickerSheet(props: {
               <ButtonRow
                 onClick={() => setKitId(k.id)}
                 title={k.name}
-                sub={`${k.lineCount} ${k.lineCount === 1 ? 'item' : 'items'}${k.labourMinutes ? ` · ${hoursText(k.labourMinutes)} labour` : ''}`}
+                sub={
+                  k.lineCount === 0
+                    ? `Labour only${k.labourMinutes ? ` · ${hoursText(k.labourMinutes)}` : ''}`
+                    : `${k.lineCount} ${k.lineCount === 1 ? 'item' : 'items'}${k.labourMinutes ? ` · ${hoursText(k.labourMinutes)} labour` : ''}`
+                }
                 meta={<span className="num">{formatPence(k.sellPence)}</span>}
               />
             </li>
@@ -144,18 +149,23 @@ function KitPickerDetail(props: {
   const [qty, setQty] = useState('1');
   const parsed = parseQty(qty);
   const labour = useLabourFields(k.labourMinutes, props.labourRatePence);
-  const ready = parsed != null && parsed > 0 && labour.valid;
-  const kits = ready ? parsed! : 1000;
-  const materials = lineTotal(kits, k.sellPence);
-  const labourPence = labourTotal(labour.minutes, kits, labour.ratePence);
+  const hasItems = k.lines.length > 0;
+  // Labour is optional per kit (Joe, 18 Nov 2026): on when the kit has fitting time or no items.
+  const [withLabour, setWithLabour] = useState(k.labourMinutes > 0 || !hasItems);
+  const snap = snapshotFromKit(k);
+  const kits = parsed != null && parsed > 0 ? parsed : 1000;
+  const plan = kitAddLines(snap, kits, {
+    include: withLabour,
+    minutesPerKit: labour.minutes,
+    ratePence: labour.ratePence,
+  });
+  const ready = parsed != null && parsed > 0 && (!withLabour || labour.valid) && 'lines' in plan;
+  const materials = hasItems ? lineTotal(kits, k.sellPence) : 0;
+  const labourPence = withLabour ? labourTotal(labour.minutes, kits, labour.ratePence) : 0;
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
-    if (!ready) return;
-    const snap = snapshotFromKit(k);
-    const out: QuoteLineInput[] = [kitQuoteLine(snap, parsed!)];
-    if (labour.minutes > 0)
-      out.push(kitLabourLine(snap.name, labour.minutes, parsed!, labour.ratePence));
-    props.onAdd(out);
+    if (!ready || !('lines' in plan)) return;
+    props.onAdd(plan.lines);
     props.onClose();
   };
   return (
@@ -175,7 +185,7 @@ function KitPickerDetail(props: {
       }
     >
       <form onSubmit={submit}>
-        <Section footer={componentsSummary(snapshotFromKit(k))}>
+        <Section footer={hasItems ? componentsSummary(snap) : 'Labour only (no items).'}>
           <List className="form-list">
             <TextField
               label="How many kits"
@@ -188,18 +198,53 @@ function KitPickerDetail(props: {
         </Section>
         <Section
           header="Labour"
-          footer="Added as its own labour line under the kit. Leave hours empty for no labour."
+          footer={
+            withLabour
+              ? 'Added as its own labour line under the kit.'
+              : hasItems
+                ? 'Items only: no labour line is added.'
+                : 'This kit has no items, so switch labour on to add it.'
+          }
         >
-          <List className="form-list">{labour.fields}</List>
+          <List className="form-list">
+            <li>
+              <label className="row" style={{ cursor: 'pointer' }}>
+                <span className="row__main">Include labour</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={withLabour}
+                  onChange={(e) => setWithLabour(e.target.checked)}
+                  className="switch"
+                />
+              </label>
+            </li>
+            {withLabour && labour.fields}
+          </List>
+          {'error' in plan && parsed != null && parsed > 0 && (
+            <p className="field-error" role="alert">
+              {plan.error}
+            </p>
+          )}
         </Section>
-        <Section footer="Materials at today’s price. You can expand the kit into its items later.">
+        <Section
+          footer={
+            hasItems
+              ? 'Materials at today’s price. You can expand the kit into its items later.'
+              : 'Labour only: this kit has no items.'
+          }
+        >
           <List>
-            <li>
-              <KeyValueRow label="Materials" value={ready ? formatPence(materials) : '—'} />
-            </li>
-            <li>
-              <KeyValueRow label="Labour" value={ready ? formatPence(labourPence) : '—'} />
-            </li>
+            {hasItems && (
+              <li>
+                <KeyValueRow label="Materials" value={ready ? formatPence(materials) : '—'} />
+              </li>
+            )}
+            {withLabour && (
+              <li>
+                <KeyValueRow label="Labour" value={ready ? formatPence(labourPence) : '—'} />
+              </li>
+            )}
             <li>
               <KeyValueRow
                 label="Total"

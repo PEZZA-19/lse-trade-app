@@ -291,6 +291,34 @@ export function kitQuoteLine(
 }
 
 /**
+ * The lines adding a kit to a quote gives (Joe, 18 Nov 2026: labour is optional per kit). A kit
+ * can be items only, labour only, or both:
+ * - the kit block, if the kit has items;
+ * - its own labour line, if labour is included and there are hours.
+ * Returns the reason instead when that would add nothing.
+ */
+export function kitAddLines(
+  snap: QuoteKitSnapshot,
+  kitsQtyMilli: number,
+  labour: { include: boolean; minutesPerKit: number; ratePence: Pence },
+  optionLabel: string | null = null,
+): { lines: (KitQuoteLine | ReturnType<typeof kitLabourLine>)[] } | { error: string } {
+  const lines: (KitQuoteLine | ReturnType<typeof kitLabourLine>)[] = [];
+  if (snap.components.length) lines.push(kitQuoteLine(snap, kitsQtyMilli, optionLabel));
+  if (labour.include && labour.minutesPerKit > 0)
+    lines.push(
+      kitLabourLine(snap.name, labour.minutesPerKit, kitsQtyMilli, labour.ratePence, optionLabel),
+    );
+  if (!lines.length)
+    return {
+      error: snap.components.length
+        ? 'Nothing to add.'
+        : 'This kit has no items: switch labour on and enter the hours.',
+    };
+  return { lines };
+}
+
+/**
  * Expands a kit block into its component lines (qty multiplied by the number of kits), at the
  * frozen prices. Rounding is per line, so the total can differ from the block by a penny or two.
  */

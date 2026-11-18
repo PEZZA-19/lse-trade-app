@@ -288,3 +288,58 @@ describe('kitUpdate', () => {
     expect(kitUpdate.parse({ name: 'New name' })).toEqual({ name: 'New name' });
   });
 });
+
+describe('kitAddLines (labour optional per kit)', () => {
+  const snap = (components: number, labourMinutes = 0) => ({
+    kitId: '00000000-0000-4000-8000-000000000001',
+    name: 'Socket kit',
+    costPence: 1000,
+    sellPence: 1500,
+    labourMinutes,
+    components: Array.from({ length: components }, (_, i) => ({
+      itemId: `00000000-0000-4000-8000-00000000001${i}`,
+      code: null,
+      description: `Item ${i}`,
+      unit: 'each',
+      qtyMilli: 1000,
+      unitCostPence: 500,
+      unitSellPence: 750,
+      labourMinutes: 0,
+    })),
+  });
+  it('items only: no labour line, even when the kit has fitting time but labour is off', async () => {
+    const { kitAddLines } = await import('../src');
+    const r = kitAddLines(snap(2, 30), 2000, {
+      include: false,
+      minutesPerKit: 30,
+      ratePence: 4500,
+    });
+    expect('lines' in r && r.lines.map((l) => l.kind)).toEqual(['material']);
+  });
+  it('both: the kit block and its own labour line', async () => {
+    const { kitAddLines } = await import('../src');
+    const r = kitAddLines(snap(2, 30), 2000, { include: true, minutesPerKit: 30, ratePence: 4500 });
+    expect('lines' in r && r.lines.map((l) => [l.kind, l.description, l.qtyMilli])).toEqual([
+      ['material', 'Socket kit', 2000],
+      ['labour', 'Labour: Socket kit', 1000],
+    ]);
+  });
+  it('labour only: a kit with no items adds just the labour line', async () => {
+    const { kitAddLines } = await import('../src');
+    const r = kitAddLines(snap(0, 90), 1000, { include: true, minutesPerKit: 90, ratePence: 4500 });
+    expect('lines' in r && r.lines).toMatchObject([
+      { kind: 'labour', description: 'Labour: Socket kit', qtyMilli: 1500, unitPricePence: 4500 },
+    ]);
+  });
+  it('nothing to add: no items and no labour is refused with a reason', async () => {
+    const { kitAddLines } = await import('../src');
+    expect(
+      kitAddLines(snap(0), 1000, { include: true, minutesPerKit: 0, ratePence: 4500 }),
+    ).toEqual({
+      error: 'This kit has no items: switch labour on and enter the hours.',
+    });
+    expect(
+      kitAddLines(snap(0, 60), 1000, { include: false, minutesPerKit: 60, ratePence: 4500 }),
+    ).toHaveProperty('error');
+  });
+});

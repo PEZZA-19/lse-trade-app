@@ -247,6 +247,58 @@ test('a kit with fitting time adds its own labour line, kept in step and editabl
   await expect.poll(saved).toEqual([]);
 });
 
+test('kit labour is optional: items only (labour switched off) or labour only (no items)', async ({
+  page,
+}) => {
+  const api = await apiFor(page);
+  const stamp = Date.now();
+  const a = await api.post('/price-list', { description: `Gland ${stamp}`, unitCostPence: 200 });
+  const withTime = await api.post('/kits', {
+    name: `Gland kit ${stamp}`,
+    labourMinutes: 30,
+    lines: [{ itemId: a.id, qtyMilli: 1000 }],
+  });
+  const labourOnly = await api.post('/kits', {
+    name: `Test and inspect ${stamp}`,
+    labourMinutes: 90,
+    lines: [],
+  });
+  const customers = await api.get('/customers?q=Demo%20Farm');
+  const q = await api.post('/quotes', {
+    customerId: customers.items[0].id,
+    title: `Optional kit labour ${stamp}`,
+  });
+  const saved = async () =>
+    (await api.get(`/quotes/${q.id}`)).current.lines.map(
+      (l: { kind: string; qtyMilli: number }) => `${l.kind}:${l.qtyMilli}`,
+    );
+  const pick = async (name: string) => {
+    await page.getByRole('button', { name: 'Add kit' }).click();
+    await page
+      .getByRole('dialog', { name: 'Add Kit' })
+      .getByRole('button', { name: new RegExp(name) })
+      .click();
+    return page.getByRole('dialog', { name });
+  };
+
+  await page.goto(`/quotes/${q.id}`);
+  // Items only: the kit has fitting time, but labour is switched off for this quote.
+  const add = await pick(withTime.name);
+  const sw = add.getByRole('switch', { name: 'Include labour' });
+  await expect(sw).toBeChecked();
+  await sw.uncheck();
+  await expect(add.getByLabel('Labour hours per kit')).toHaveCount(0);
+  await add.getByRole('button', { name: 'Add' }).click();
+  await expect.poll(saved).toEqual(['material:1000']);
+
+  // Labour only: a kit with no items adds just its labour line (1.5 h).
+  const add2 = await pick(labourOnly.name);
+  await expect(add2.getByRole('switch', { name: 'Include labour' })).toBeChecked();
+  await expect(add2.getByText('Labour only: this kit has no items.')).toBeVisible();
+  await add2.getByRole('button', { name: 'Add' }).click();
+  await expect.poll(saved).toEqual(['material:1000', 'labour:1500']);
+});
+
 test('a minus (credit) line on a quote takes money off the total', async ({ page }) => {
   const api = await apiFor(page);
   const stamp = Date.now();
@@ -276,4 +328,52 @@ test('a minus (credit) line on a quote takes money off the total', async ({ page
   const edit = page.getByRole('dialog', { name: 'Edit Line' });
   await expect(edit.getByRole('switch', { name: 'Minus line (credit)' })).toBeChecked();
   await expect(edit.getByLabel('Amount off (£)')).toHaveValue('120.00');
+});
+
+test('a job below £0 is issued as a customer credit and comes off the next invoice', async ({
+  page,
+}) => {
+  const api = await apiFor(page);
+  const stamp = Date.now();
+  const cust = await api.post('/customers', {
+    name: `Credit customer ${stamp}`,
+    email: `credit-${stamp}@example.com`,
+  });
+  const jobFor = async (lines: unknown[]) => {
+    const q = await api.post('/quotes', { customerId: cust.id, title: `Job ${stamp}`, lines });
+    await api.post(`/quotes/${q.id}/send`);
+    await api.post(`/quotes/${q.id}/accept`, { acceptedOptions: [] });
+    const job = await api.post(`/quotes/${q.id}/convert`);
+    return api.post(`/jobs/${job.id}/invoices`, { source: 'quote', mode: 'whole' });
+  };
+  const credit = await jobFor([
+    { kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 10000 },
+    { kind: 'material', description: 'Rent payments', qtyMilli: 1000, unitPricePence: -25000 },
+  ]);
+  await page.goto(`/invoices/${credit.id}`);
+  await expect(page.getByRole('heading', { name: 'Draft Credit Note' })).toBeVisible();
+  await page.getByRole('button', { name: 'Issue Customer Credit…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Issue Customer Credit' })
+    .getByRole('button', {
+      name: 'Issue Credit',
+      exact: true,
+    })
+    .last()
+    .click();
+  await expect(page.getByRole('heading', { name: /^Credit Note CN-\d+$/ })).toBeVisible();
+
+  await page.goto(`/customers/${cust.id}`);
+  await expect(page.getByRole('list', { name: 'Customer credit' })).toContainText('£150.00 to use');
+
+  const next = await jobFor([
+    { kind: 'labour', description: 'Lights', qtyMilli: 1000, unitPricePence: 20000 },
+  ]);
+  await page.goto(`/invoices/${next.id}`);
+  await page.getByRole('button', { name: 'Approve Invoice…' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Approve Invoice' });
+  await expect(sheet).toContainText('customer credit of £150.00 comes off it');
+  await sheet.getByRole('button', { name: 'Approve', exact: true }).last().click();
+  await expect(page.getByText(/Customer credit CN-\d+ used/)).toBeVisible();
+  await expect.poll(async () => (await api.get(`/invoices/${next.id}`)).balancePence).toBe(5000);
 });
