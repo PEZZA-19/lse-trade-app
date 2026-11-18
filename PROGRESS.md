@@ -911,3 +911,9 @@ so You Owe is £0 there until they are.
    statement import and reconciliation, refunds.
 3. Answers needed: Q32 (Google moves: approve or apply), Q33, Q34 (opening bank balance), Q35
    (2027 budget), Q38, Q39, Q40.
+
+## Joe's decisions (18 Nov 2026, 10:02)
+- Google Calendar setup session with Joe: Friday 20 Nov 2026, 8pm Guernsey.
+- A move/delete made in Google Calendar should **apply straight away** in the app (no Approvals queue for these).
+- Credits must NOT come off an invoice that's already been sent/approved; they stay allocated to the client's account and come off their future invoices. If the related job is only at quote stage, the credit is irrelevant and can be ignored, but the app must ask for confirmation first.
+- A quote must never total less than £0 (block it with a clear message).
