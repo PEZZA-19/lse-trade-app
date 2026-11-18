@@ -13,7 +13,8 @@ test('owner reports: money, profit per job and time, from More', async ({ page, 
   await page.getByRole('button', { name: 'This Year' }).click();
   const jobs = page.getByRole('list', { name: 'Profit per job' });
   await expect(jobs).toContainText('Barn rewire and LED lighting');
-  await expect(jobs).toContainText(/\d+ h \d+ min: £[\d.,]+ at cost, £[\d.,]+ charge-out/);
+  await expect(jobs).toContainText(/Time at cost\s*\d+ h \d+ min · £[\d.,]+/);
+  await expect(jobs).toContainText('Charge-out');
   await expect(page.getByRole('list', { name: 'Time by person' })).toContainText('Joe');
   await jobs.getByRole('link', { name: /Barn rewire/ }).click();
   await expect(page).toHaveURL(/\/jobs\/[0-9a-f-]+$/);

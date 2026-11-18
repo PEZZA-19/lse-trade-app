@@ -3,7 +3,12 @@
   min-height: 100dvh;
 }
 .shell__main {
-  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--space-6));
+  /* Room for the fixed tab bar plus the iPhone home indicator, so the last line is never covered. */
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--space-12));
+  scroll-padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--space-4));
+}
+html {
+  scroll-padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--space-4));
 }
 .tabbar {
   position: fixed;
@@ -853,6 +858,24 @@ select.field__input {
 }
 
 /* Static preview only */
+.demo-banner__short {
+  display: none;
+}
+@media (max-width: 599px) {
+  .demo-banner {
+    padding: 2px var(--space-3) !important;
+    font: var(--text-caption) !important;
+  }
+  .demo-banner__long {
+    display: none;
+  }
+  .demo-banner__short {
+    display: inline;
+  }
+  .demo-banner button {
+    min-height: 24px !important;
+  }
+}
 .demo-banner {
   padding: var(--space-2) var(--space-4);
   background: var(--accent-soft);
@@ -1878,6 +1901,35 @@ select.field__input {
   font: var(--text-caption, 12px/1.2 system-ui);
   text-transform: none;
 }
+/* Profit per job: the figures as a tidy two-column grid that reads well on a phone. */
+.row__sub .report-figs,
+.report-figs {
+  display: grid;
+  white-space: normal;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px var(--space-3);
+  margin: var(--space-1) 0 0;
+  font: var(--text-footnote);
+}
+.report-figs > span {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.report-figs__k {
+  color: var(--label-2);
+}
+.report-figs__v {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (min-width: 700px) {
+  .report-figs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 /* Profit and time rows carry several figures: let the detail line wrap rather than truncate. */
 .report-list .row__sub {
   white-space: normal;
@@ -2665,5 +2717,50 @@ a.btn {
   }
   :root {
     color-scheme: light;
+  }
+}
+
+/* Reports on a phone: tighter cells so a single-column report fits without scrolling. */
+@media (max-width: 599px) {
+  .rpt {
+    padding: var(--space-4) var(--space-3);
+    margin-left: calc(-1 * var(--space-1));
+    margin-right: calc(-1 * var(--space-1));
+  }
+  .rpt__table {
+    font-size: 0.9375rem;
+  }
+  .rpt__table th,
+  .rpt__table td {
+    padding: var(--space-2) 6px;
+  }
+  .rpt__label {
+    min-width: 128px;
+  }
+  .rpt__head h2 {
+    font: var(--text-title3);
+  }
+  .rpt-control {
+    flex: 1 1 140px;
+  }
+  .rpt-control select,
+  .rpt-control input {
+    min-width: 0;
+    width: 100%;
+  }
+  .biz-card {
+    padding: var(--space-4);
+  }
+  .biz-figure {
+    font: var(--text-title1);
+  }
+  .page__actions .btn {
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+  }
+}
+@media (max-width: 599px) {
+  .hide-phone {
+    display: none;
   }
 }

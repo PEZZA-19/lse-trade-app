@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: Wednesday 11 November 2026, ~14:45 Europe/Guernsey (session 2, chunk 5: PDFs, supplier bills, suppliers, credit notes)._
+_Last updated: Wednesday 18 November 2026, early morning Europe/Guernsey (session 4: business overview and Xero-style reports)._
 
 Every session: read this file, [DESIGN.md](DESIGN.md) and
 [docs/REQUIREMENTS_FROM_REVIEWS.md](docs/REQUIREMENTS_FROM_REVIEWS.md) (lessons from competitor reviews:
@@ -659,8 +659,20 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     away, or wait in Approvals for you?
 33. Calendar events show the customer's phone number and site address so whoever is booked can get
     there. OK, or leave the phone out?
+34. Business overview: what was your bank balance on the day you'd like the app's records to start
+    (e.g. 1 Jan 2027)? It makes Bank and Cash and the Balance Sheet match your bank.
+35. Do you want a budget for 2027 (monthly income and materials targets) for Budget vs Actual?
 
-## Next session, top priority (Joe, 11 Nov 2026, late)
+## Next (after session 4)
+
+1. ~~Business overview and Xero-style reports~~ (done, session 4).
+2. Labour in every quote kit (see below).
+3. Minus (credit) lines on invoices, then re-import jobs 14, 79, 108, 110, 111 in the private demo.
+4. Two-way calendar sync.
+5. Later for the books: expenses/overheads and wages (so net profit is real), bank feed or bank
+   statement import and reconciliation, refunds.
+
+## Next session, top priority (Joe, 11 Nov 2026, late) — item 1 done in session 4
 
 1. **Business overview dashboard (Xero-style)** for admins, shown only with Accounts and Reports
    access (enforced on the API like every area): bank and cash position, money owed to the business
@@ -692,3 +704,50 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 3. Two-way calendar sync with Google Calendar and Outlook (Joe asked 11 Nov 2026); after 1 and 2.
 
 - Credits: Joe decided (11 Nov 2026) to ALLOW negative (minus) lines on invoices/quotes for credits (e.g. job 14 rent payments); totals net them off. Then re-import real jobs 14, 79, 108, 110, 111 so the private demo matches his Accounts sheet.
+
+## Done (session 4, Wed 18 Nov 2026: business overview and Xero-style reports)
+
+- **Books from the documents** (`packages/shared/src/ledger.ts`): a small fixed chart of accounts
+  (090 Bank, 610 Receivables, 800 Payables, 820 GST/VAT, 880 Drawings, 960/970 equity, 200 Sales:
+  labour, 210 Sales: materials and other, 310 Materials) and double-entry postings from issued
+  invoices, customer payments, approved credit notes (split pro rata across labour, materials and
+  tax), applied supplier bills and credit notes (home lines go to drawings) and supplier bill
+  payments, plus an opening bank balance. Every document's postings sum to zero, so the Balance
+  Sheet always balances (tested at many dates).
+- **Reports** (pure functions → one `ReportTable` model used by screen, CSV and print): Profit and
+  Loss (accrual) with a comparison column and Change; Balance Sheet (as at, retained vs current
+  year earnings, comparison date); Aged Receivables and Aged Payables (by days past due: current,
+  1-30, 31-60, 61-90, 90+, per contact); Cash Flow (cash basis, monthly columns up to 12 months,
+  opening and closing bank); Tax Summary (none charged today, Guernsey/Sark); Budget vs Actual
+  (monthly budgets per P&L account, positive variance = good); Account Transactions (running
+  balance; P&L accounts start each period at zero). Periods: this/last month, this/last quarter,
+  this/last year, year to date, custom; the year follows Settings (calendar year by default).
+  Comparison: previous period (whole months stay whole months; month/quarter-to-date step back by
+  their months; longer to-date periods compare with last year) or same period last year. Exports:
+  CSV (spreadsheet-safe) and Print / Save as PDF (print stylesheet hides the app chrome).
+- **API**: `GET /api/business` returns the inputs (issued documents only), job pipeline by stage
+  (count and line value) and quotes awaiting an answer; the app works the reports out with the
+  shared code, so date ranges and comparisons switch instantly and the offline demo matches.
+  Needs **Reports and Accounts** access (403 otherwise, tested); `PUT /api/business/opening` and
+  `PUT /api/business/budget` are admin-only; `GET/POST /api/supplier-bills/:id/payments` (owner
+  only, never more than is owed, not in the future, idempotent). Migration **0022**
+  (`supplier_bill_payments`, `business_books`, `budgets`, all RLS).
+- **Invoices**: approve takes an optional earlier `issueDate` (bringing in invoices already sent;
+  not future, at most a year back). The private demo uses Joe's own invoice dates, so overdue
+  figures match his Accounts sheet.
+- **Screens**: More › Business Overview and a sidebar "Business" item (hidden without both
+  areas): Bank and Cash (with Set Opening Balance), Owed to You and You Owe (stacked age bars),
+  Cash In and Out chart (bars in/out, bank balance line, drawn at real pixel size; hidden data table
+  for screen readers), Profit (year to date vs last year, this month), Job Pipeline (stage colours),
+  Unpaid Invoices, Bills to Pay, Reports. Report pages with period, comparison, as-at and account
+  pickers; account lines open Account Transactions. Budget sheet (12 months per account, "Same
+  Every Month"). Bill screen: Payments section with Record Payment.
+- **Phone polish** (Joe's iPhone 14 screenshots): compact demo banner on phones, more room above
+  the tab bar (plus scroll padding), "By Stage" and "Record Payment" labels (no ellipsis), Reports'
+  profit per job as a tidy figure grid, reports and overview checked at 390 px.
+- Screenshots `63-business-overview` (desktop light/dark, mobile) and `64-profit-and-loss`.
+
+Known limits: no wages/overheads/expenses yet (net profit is before them); no bank feed (bank =
+opening balance + recorded payments); supplier bills are recorded gross (no input tax); a refund
+of money already paid isn't modelled; the demo's real supplier bills stay drafts until applied,
+so You Owe is £0 there until they are.

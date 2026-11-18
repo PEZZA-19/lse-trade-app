@@ -127,11 +127,11 @@ export function ReportScreen() {
           <>
             {meta.kind === 'budget' && access.isAdmin && (
               <Button variant="plain" onClick={() => setBudget(true)}>
-                Edit Budget
+                <span className="hide-phone">Edit </span>Budget
               </Button>
             )}
             <Button variant="plain" onClick={() => void saveFile(tableCsv(table), fileName)}>
-              Export CSV
+              <span className="hide-phone">Export </span>CSV
             </Button>
             <Button
               variant="plain"

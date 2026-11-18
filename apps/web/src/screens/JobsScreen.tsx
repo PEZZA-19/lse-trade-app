@@ -107,7 +107,7 @@ export function JobsScreen() {
         options={[
           { value: 'active', label: 'Active' },
           { value: 'all', label: 'All' },
-          { value: 'stage', label: filterStage ? filterStage.name : 'Stage…' },
+          { value: 'stage', label: filterStage ? filterStage.name : 'By Stage' },
         ]}
       />
       <PendingCreates kind="job" />

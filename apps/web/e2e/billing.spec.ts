@@ -56,7 +56,7 @@ test('invoice a quoted job: draft, owner approves, marks sent, records payment; 
   await expect(page.getByText(`Invoice ${job.number} marked as sent`)).toBeVisible();
 
   // Part payment first, then the rest.
-  await page.getByRole('button', { name: 'Record Payment…' }).click();
+  await page.getByRole('button', { name: 'Record Payment', exact: true }).click();
   const pay = page.getByRole('dialog', { name: 'Record Payment' });
   await pay.getByLabel('Amount (£)').fill('50');
   await expect(pay.getByText(/£52.50 will still be owed/)).toBeVisible();
@@ -64,7 +64,7 @@ test('invoice a quoted job: draft, owner approves, marks sent, records payment; 
   await expect(page.getByText('£50.00 recorded · £52.50 still owed')).toBeVisible();
   expect((await api.get(`/jobs/${job.id}`)).stage.systemKey).not.toBe('complete');
 
-  await page.getByRole('button', { name: 'Record Payment…' }).click();
+  await page.getByRole('button', { name: 'Record Payment', exact: true }).click();
   await page
     .getByRole('dialog', { name: 'Record Payment' })
     .getByRole('button', { name: 'Record £52.50' })

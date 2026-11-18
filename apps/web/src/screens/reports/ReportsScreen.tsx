@@ -194,7 +194,46 @@ export function ReportsScreen() {
                     <LinkRow
                       to={`/jobs/${j.jobId}`}
                       title={`${j.number} · ${j.title}`}
-                      sub={`${j.quotedPence === null ? 'Not quoted, expected' : 'Quote'} ${formatPence(j.revenuePence)} · invoiced ${formatPence(j.invoicedPence)} · so far ${signed(j.profitPence)} · ${formatMinutes(j.minutes)}: ${formatPence(j.labourPence)} at cost, ${formatPence(j.chargeOutPence)} charge-out · materials ${formatPence(j.materialsCostPence)}`}
+                      sub={
+                        <span className="report-figs">
+                          <span>
+                            <span className="report-figs__k">
+                              {j.quotedPence === null ? 'Expected' : 'Quote'}
+                            </span>
+                            <span className="report-figs__v">{formatPence(j.revenuePence)}</span>
+                          </span>
+                          <span>
+                            <span className="report-figs__k">Invoiced</span>
+                            <span className="report-figs__v">{formatPence(j.invoicedPence)}</span>
+                          </span>
+                          <span>
+                            <span className="report-figs__k">So far</span>
+                            <span className="report-figs__v">{signed(j.profitPence)}</span>
+                          </span>
+                          <span>
+                            <span className="report-figs__k">Time at cost</span>
+                            <span className="report-figs__v">
+                              {j.minutes
+                                ? `${formatMinutes(j.minutes)} · ${formatPence(j.labourPence)}`
+                                : '—'}
+                            </span>
+                          </span>
+                          <span>
+                            <span className="report-figs__k">Materials</span>
+                            <span className="report-figs__v">
+                              {formatPence(j.materialsCostPence)}
+                            </span>
+                          </span>
+                          {j.minutes > 0 && (
+                            <span>
+                              <span className="report-figs__k">Charge-out</span>
+                              <span className="report-figs__v">
+                                {formatPence(j.chargeOutPence)}
+                              </span>
+                            </span>
+                          )}
+                        </span>
+                      }
                       meta={<Profit j={j} />}
                     />
                   </li>

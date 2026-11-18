@@ -55,7 +55,7 @@ test('owner sets a cost rate (base + on-costs) in Settings › Team; job and rep
   await page.goto('/reports');
   await page.getByRole('button', { name: 'This Year' }).click();
   await expect(page.getByText(/1 Jan 2026 –/)).toBeVisible(); // calendar year until 2027
-  await expect(page.getByRole('list', { name: 'Profit per job' })).toContainText('at cost');
+  await expect(page.getByRole('list', { name: 'Profit per job' })).toContainText('Charge-out');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export CSV' }).click();
   expect((await download).suggestedFilename()).toMatch(/^lse-reports-2026-01-01-to-.*\.csv$/);

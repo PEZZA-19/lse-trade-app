@@ -175,7 +175,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
           )}
           {isOwner && (inv.status === 'sent' || inv.status === 'part_paid') && (
             <Button block large onClick={() => setPaying(true)}>
-              Record Payment…
+              Record Payment
             </Button>
           )}
         </Section>

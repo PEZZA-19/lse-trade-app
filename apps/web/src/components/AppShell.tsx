@@ -162,9 +162,16 @@ function NoAccess({ area }: { area: AccessArea | null }) {
 function DemoBanner() {
   return (
     <div className="demo-banner" role="note">
-      {import.meta.env.VITE_HASH_ROUTER === '1'
-        ? 'Demo on this computer: sample jobs and customers, plus your own supplier bills. Nothing is sent; changes stay in this browser.'
-        : 'Preview with made-up sample data. Changes stay on this device.'}{' '}
+      <span className="demo-banner__long">
+        {import.meta.env.VITE_HASH_ROUTER === '1'
+          ? 'Demo on this computer: sample jobs and customers, plus your own supplier bills. Nothing is sent; changes stay in this browser.'
+          : 'Preview with made-up sample data. Changes stay on this device.'}
+      </span>
+      <span className="demo-banner__short">
+        {import.meta.env.VITE_HASH_ROUTER === '1'
+          ? 'Demo · nothing is sent'
+          : 'Preview · sample data'}
+      </span>{' '}
       <button
         type="button"
         onClick={async () => {

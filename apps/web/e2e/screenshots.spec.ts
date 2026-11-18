@@ -45,7 +45,7 @@ for (const vp of VIEWPORTS) {
       await shot(page, '11-job-history', vp.name, scheme);
 
       await page.goto('/jobs');
-      await page.getByRole('button', { name: 'Stage…' }).click();
+      await page.getByRole('button', { name: 'By Stage' }).click();
       await expect(page.getByRole('dialog', { name: 'Show stage' })).toBeVisible();
       await shot(page, '12-stage-picker', vp.name, scheme);
       await page.keyboard.press('Escape');
@@ -121,9 +121,9 @@ for (const vp of VIEWPORTS) {
       await page.keyboard.press('Escape');
       await page.goto('/invoices');
       await page.getByRole('link', { name: /Coupée View Hotel/ }).click();
-      await expect(page.getByRole('button', { name: 'Record Payment…' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Record Payment', exact: true })).toBeVisible();
       await shot(page, '23-invoice-part-paid', vp.name, scheme);
-      await page.getByRole('button', { name: 'Record Payment…' }).click();
+      await page.getByRole('button', { name: 'Record Payment', exact: true }).click();
       await expect(page.getByRole('dialog', { name: 'Record Payment' })).toBeVisible();
       await shot(page, '24-payment-sheet', vp.name, scheme);
       await page.keyboard.press('Escape');
