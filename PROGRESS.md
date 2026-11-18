@@ -986,7 +986,15 @@ using it doesn't change profit again; the books still balance. `POST /api/invoic
 
 Step 1 done: CSV import (migration 0029, `POST /api/bank/imports`, `GET /api/bank/transactions`).
 Reads Lloyds, Nationwide, Starling, Monzo, Barclays, HSBC (no headings) and similar; owner only;
-re-importing or overlapping statements adds nothing twice. No screen yet.
+re-importing or overlapping statements adds nothing twice.
+
+Step 2 done: matching. Each unmatched line lists up to 3 suggestions: customer payments (not cash),
+supplier bill payments and expenses with exactly the same amount and direction within 10 days,
+ranked by date and by names or numbers on the line ("strong" = a name/number and ≤ 5 days).
+`POST /api/bank/transactions/:id/match`, `PUT /api/bank/transactions/:id/status` (unmatched /
+ignored, e.g. transfers between your own accounts). One bank line per payment/expense. Anyone with
+Accounts access can import and match (same rule as expenses, Q44). Matching never changes the
+books. No screen yet (step 3).
 
 ## Next (after session 6)
 

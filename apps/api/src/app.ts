@@ -46,6 +46,8 @@ import {
   billPaymentCreate,
   expenseCreate,
   bankImportCreate,
+  bankLineStatus,
+  bankMatch,
   creditChoice,
   bankTxQuery,
   expenseQuery,
@@ -966,10 +968,22 @@ export function createApp(deps: AppDeps) {
     await c.var.tx((tx) => expenses.deleteExpense(tx, c.var.auth, id));
     return c.body(null, 204);
   });
-  // Bank statements (Accounts access to see; the owner imports and matches).
+  // Bank statements (anyone with Accounts access imports and matches).
   app.post('/api/bank/imports', async (c) => {
     const input = parse(bankImportCreate, await jsonBody(c.req));
     return c.json(await c.var.tx((tx) => bank.importStatement(tx, c.var.auth, input)), 201);
+  });
+  app.post('/api/bank/transactions/:id/match', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(bankMatch, await jsonBody(c.req));
+    await c.var.tx((tx) => bank.matchLine(tx, c.var.auth, id, input));
+    return c.body(null, 204);
+  });
+  app.put('/api/bank/transactions/:id/status', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(bankLineStatus, await jsonBody(c.req));
+    await c.var.tx((tx) => bank.setLineStatus(tx, c.var.auth, id, input.status));
+    return c.body(null, 204);
   });
   app.get('/api/bank/transactions', async (c) => {
     const q = parse(bankTxQuery, { status: c.req.query('status') });

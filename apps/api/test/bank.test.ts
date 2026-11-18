@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BankImportResultDto, BankTransactionDto } from '@lse/shared';
-import { client, clientFor, type Client } from './api-helpers';
+import { client, clientFor, seedCustomer, type Client } from './api-helpers';
 import { addMember, adminSql } from './helpers';
 
 const day = (offset: number) => {
@@ -22,7 +22,7 @@ const statement = () =>
 async function staff(c: Client) {
   const email = await addMember(c.tenantId, 'staff');
   const [u] = await adminSql<{ id: string }[]>`SELECT id FROM users WHERE email = ${email}`;
-  return clientFor(email, { tenantId: c.tenantId, userId: u!.id });
+  return { s: await clientFor(email, { tenantId: c.tenantId, userId: u!.id }), id: u!.id };
 }
 
 describe('bank statement import', () => {
@@ -86,11 +86,12 @@ describe('bank statement import', () => {
     ).toBe(0);
   });
 
-  it('only the owner imports; other businesses never see the lines', async () => {
+  it('Accounts access imports (not field workers); other businesses never see the lines', async () => {
     const c = await client();
-    const s = await staff(c);
+    const { s, id } = await staff(c);
+    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: [] });
     const r = await s.req('POST', '/api/bank/imports', { fileName: 'x.csv', csv: statement() });
-    expect([403]).toContain(r.status);
+    expect(r.status).toBe(403);
     await c.req('POST', '/api/bank/imports', { fileName: 'x.csv', csv: statement() });
     const other = await client();
     expect(
@@ -99,5 +100,140 @@ describe('bank statement import', () => {
     // The same statement in another business is its own copy, not a duplicate.
     const o = await other.req('POST', '/api/bank/imports', { fileName: 'x.csv', csv: statement() });
     expect(o.body).toMatchObject({ added: 5 });
+  });
+});
+
+const todayIso = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(new Date());
+
+/** A sent invoice for £450 with a £450 bank transfer recorded today. */
+async function paidInvoice(c: Client) {
+  await c.req('PATCH', '/api/settings', {
+    bankAccountName: 'Test Electrical',
+    bankSortCode: '400000',
+    bankAccountNumber: '12345678',
+  });
+  const cust = await seedCustomer(c);
+  const lines = [{ kind: 'labour', description: 'Rewire', qtyMilli: 1000, unitPricePence: 45000 }];
+  const q = (await c.req('POST', '/api/quotes', { customerId: cust.id, title: 'Rewire', lines }))
+    .body;
+  await c.req('POST', `/api/quotes/${q.id}/send`);
+  await c.req('POST', `/api/quotes/${q.id}/accept`, { acceptedOptions: [] });
+  const job = (await c.req('POST', `/api/quotes/${q.id}/convert`)).body;
+  const inv = (
+    await c.req('POST', `/api/jobs/${job.id}/invoices`, { source: 'quote', mode: 'whole' })
+  ).body;
+  await c.req('POST', `/api/invoices/${inv.id}/approve`);
+  await c.req('POST', `/api/invoices/${inv.id}/mark-sent`);
+  const paid = await c.req('POST', `/api/invoices/${inv.id}/payments`, {
+    amountPence: 45000,
+    paidOn: todayIso(),
+    method: 'bank_transfer',
+    reference: '',
+  });
+  expect(paid.status).toBe(201);
+  const pay = (await c.req('GET', `/api/invoices/${inv.id}`)).body.payments[0];
+  return {
+    cust,
+    inv: (await c.req('GET', `/api/invoices/${inv.id}`)).body,
+    payId: pay.id as string,
+  };
+}
+
+describe('bank matching', () => {
+  it('suggests the payment and the expense, matches once, unmatches, ignores', async () => {
+    const c = await client();
+    const { inv, payId } = await paidInvoice(c);
+    const fuel = (
+      await c.req('POST', '/api/expenses', {
+        date: todayIso(),
+        payee: 'Island Fuel',
+        account: '449',
+        amountPence: 6000,
+      })
+    ).body;
+    const csv = [
+      'Date,Description,Amount',
+      `${day(0)},FASTER PAYMENT ${inv.number},450.00`,
+      `${day(0)},ISLAND FUEL STN,-60.00`,
+      `${day(0)},TRANSFER TO SAVINGS,-1000.00`,
+    ].join('\n');
+    await c.req('POST', '/api/bank/imports', { fileName: 'm.csv', csv });
+    const list = (await c.req('GET', '/api/bank/transactions')).body as BankTransactionDto[];
+    const pay = list.find((x) => x.amountPence === 45000)!;
+    const out = list.find((x) => x.amountPence === -6000)!;
+    const transfer = list.find((x) => x.amountPence === -100000)!;
+    expect(pay.suggestions[0]).toMatchObject({ kind: 'payment', id: payId, strong: true });
+    expect(pay.suggestions[0]!.label).toMatch(/^Payment from .+ for /);
+    expect(out.suggestions[0]).toMatchObject({ kind: 'expense', id: fuel.id, strong: true });
+    expect(transfer.suggestions).toEqual([]);
+
+    expect(
+      (
+        await c.req('POST', `/api/bank/transactions/${pay.id}/match`, {
+          kind: 'payment',
+          id: payId,
+        })
+      ).status,
+    ).toBe(204);
+    // Wrong amount, already matched, or taken by another line: refused.
+    const wrong = await c.req('POST', `/api/bank/transactions/${out.id}/match`, {
+      kind: 'payment',
+      id: payId,
+    });
+    expect([409, 422]).toContain(wrong.status);
+    expect(
+      (
+        await c.req('POST', `/api/bank/transactions/${pay.id}/match`, {
+          kind: 'payment',
+          id: payId,
+        })
+      ).status,
+    ).toBe(409);
+    await c.req('POST', `/api/bank/transactions/${out.id}/match`, { kind: 'expense', id: fuel.id });
+    await c.req('PUT', `/api/bank/transactions/${transfer.id}/status`, { status: 'ignored' });
+
+    expect((await c.req('GET', '/api/bank/transactions')).body).toEqual([]);
+    const matched = (await c.req('GET', '/api/bank/transactions?status=matched'))
+      .body as BankTransactionDto[];
+    expect(matched.map((x) => x.matchedTo?.kind).sort()).toEqual(['expense', 'payment']);
+    expect(matched.find((x) => x.matchedTo?.kind === 'payment')!.matchedTo!.label).toMatch(
+      /^Payment from/,
+    );
+    // Unmatch: back in the list, and the payment is suggested again.
+    await c.req('PUT', `/api/bank/transactions/${pay.id}/status`, { status: 'unmatched' });
+    const again = (await c.req('GET', '/api/bank/transactions')).body as BankTransactionDto[];
+    expect(again).toHaveLength(1);
+    expect(again[0]!.suggestions[0]!.id).toBe(payId);
+    // A matched line can't be ignored without unmatching first.
+    const ign = await c.req('PUT', `/api/bank/transactions/${out.id}/status`, {
+      status: 'ignored',
+    });
+    expect(ign.status).toBe(409);
+  });
+
+  it('another business’s lines and payments can’t be matched', async () => {
+    const c = await client();
+    const { payId } = await paidInvoice(c);
+    const other = await client();
+    await other.req('POST', '/api/bank/imports', {
+      fileName: 'o.csv',
+      csv: `Date,Description,Amount\n${day(0)},X,450.00\n`,
+    });
+    const [line] = (await other.req('GET', '/api/bank/transactions')).body as BankTransactionDto[];
+    expect(line!.suggestions).toEqual([]);
+    const r = await other.req('POST', `/api/bank/transactions/${line!.id}/match`, {
+      kind: 'payment',
+      id: payId,
+    });
+    expect(r.status).toBe(404);
+    expect(
+      (
+        await c.req('POST', `/api/bank/transactions/${line!.id}/match`, {
+          kind: 'payment',
+          id: payId,
+        })
+      ).status,
+    ).toBe(404);
   });
 });

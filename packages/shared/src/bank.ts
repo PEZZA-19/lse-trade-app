@@ -325,8 +325,108 @@ export interface BankTransactionDto {
   balancePence: number | null;
   status: BankTxStatus;
   importedAt: string;
+  /** Unmatched lines: what it might be, best first. */
+  suggestions: BankMatchSuggestion[];
+  /** Matched lines: what it was matched to. */
+  matchedTo: BankMatchedTo | null;
 }
+
+export const bankLineStatus = z.object({ status: z.enum(['unmatched', 'ignored']) });
 
 export const bankTxQuery = z.object({
   status: z.enum(['unmatched', 'matched', 'ignored', 'all']).default('unmatched'),
 });
+
+/* -------------------------------- matching -------------------------------- */
+
+export type BankMatchKind = 'payment' | 'bill_payment' | 'expense';
+
+/** Something the app already recorded that a bank line could be. */
+export interface BankMatchCandidate {
+  kind: BankMatchKind;
+  id: string;
+  date: string;
+  /** As the bank would show it: customer payments in (> 0), supplier payments and expenses out (< 0). */
+  amountPence: number;
+  /** "Payment for INV-0012 · Ann Example" */
+  label: string;
+  /** Words that may appear on the bank line: names, invoice and bill numbers, references. */
+  words: string[];
+}
+
+export interface BankMatchSuggestion extends BankMatchCandidate {
+  score: number;
+  /** "Same amount · 2 days apart · mentions INV-0012" */
+  reason: string;
+  /** Sure enough to match in one tap (same amount, close date, and a name or number on the line). */
+  strong: boolean;
+}
+
+/** Up to this many days between the bank date and the app's date. */
+export const BANK_MATCH_DAYS = 10;
+
+const compact = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+const dayNo = (d: string) =>
+  Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 86_400_000;
+
+/** A word "appears" if its letters and digits appear in the bank line's (ignoring spaces, dashes). */
+function hits(line: string, words: string[]): string[] {
+  const hay = compact(line);
+  const out: string[] = [];
+  for (const w of words) {
+    const c = compact(w);
+    if (c.length < 3) continue;
+    // Numbers like INV-0012: also look for the digits alone (banks often drop the letters).
+    const digits = c.replace(/^[a-z]+/, '');
+    if (hay.includes(c) || (digits.length >= 3 && /^\d+$/.test(digits) && hay.includes(digits)))
+      out.push(w);
+    else {
+      // A name: any part of 4+ letters (e.g. the surname).
+      const part = w
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .find((p) => p.length >= 4 && hay.includes(p));
+      if (part) out.push(w);
+    }
+  }
+  return out;
+}
+
+/**
+ * The best matches for one bank line, best first. Only the same amount counts (in or out), within
+ * BANK_MATCH_DAYS; closer dates and names or numbers on the line rank higher.
+ */
+export function suggestMatches(
+  line: { date: string; amountPence: number; description: string; reference: string },
+  candidates: BankMatchCandidate[],
+  max = 3,
+): BankMatchSuggestion[] {
+  const text = `${line.description} ${line.reference}`;
+  const out: BankMatchSuggestion[] = [];
+  for (const c of candidates) {
+    if (c.amountPence !== line.amountPence) continue;
+    const days = Math.abs(dayNo(c.date) - dayNo(line.date));
+    if (days > BANK_MATCH_DAYS) continue;
+    const found = hits(text, c.words);
+    const score = 50 - days * 3 + Math.min(found.length, 2) * 25;
+    const when = days === 0 ? 'same day' : days === 1 ? '1 day apart' : `${days} days apart`;
+    out.push({
+      ...c,
+      score,
+      reason: ['Same amount', when, ...(found.length ? [`mentions ${found[0]}`] : [])].join(' · '),
+      strong: found.length > 0 && days <= 5,
+    });
+  }
+  return out.sort((a, b) => b.score - a.score || (a.date < b.date ? -1 : 1)).slice(0, max);
+}
+
+export const bankMatch = z.object({
+  kind: z.enum(['payment', 'bill_payment', 'expense']),
+  id: z.uuid(),
+});
+
+export interface BankMatchedTo {
+  kind: BankMatchKind;
+  id: string;
+  label: string;
+}

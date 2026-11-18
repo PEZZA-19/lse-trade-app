@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseBankAmount, parseBankCsv, parseBankDate, splitCsv } from '../src';
+import {
+  parseBankAmount,
+  parseBankCsv,
+  parseBankDate,
+  splitCsv,
+  suggestMatches,
+  type BankMatchCandidate,
+} from '../src';
 
 describe('bank CSV basics', () => {
   it('splits quoted cells, escaped quotes, CRLF and a BOM', () => {
@@ -133,5 +140,66 @@ describe('bank statement layouts', () => {
       'Date,Description,Amount\n18/11/2026,COSTA,-3.20\n19/11/2026,COSTA,-3.20\n',
     );
     expect(later.rows[0]!.fingerprint).toBe(a[0]);
+  });
+});
+
+describe('bank matching suggestions', () => {
+  const cand = (over: Partial<BankMatchCandidate>): BankMatchCandidate => ({
+    kind: 'payment',
+    id: 'p1',
+    date: '2026-11-16',
+    amountPence: 45_000,
+    label: 'Payment for INV-0012 · Ann Example',
+    words: ['INV-0012', 'Ann Example'],
+    ...over,
+  });
+  const line = {
+    date: '2026-11-18',
+    amountPence: 45_000,
+    description: 'A EXAMPLE 0012',
+    reference: '',
+  };
+
+  it('only the same amount, in the same direction, within 10 days', () => {
+    expect(suggestMatches(line, [cand({ amountPence: 45_001 })])).toEqual([]);
+    expect(suggestMatches(line, [cand({ amountPence: -45_000 })])).toEqual([]);
+    expect(suggestMatches(line, [cand({ date: '2026-11-01' })])).toEqual([]);
+    expect(suggestMatches(line, [cand({ date: '2026-11-28' })])).toHaveLength(1);
+  });
+
+  it('a name or number on the line makes it strong; closer dates rank first', () => {
+    const [s] = suggestMatches(line, [cand({})]);
+    expect(s).toMatchObject({
+      strong: true,
+      reason: 'Same amount · 2 days apart · mentions INV-0012',
+    });
+    const plain = suggestMatches({ ...line, description: 'FASTER PAYMENT' }, [cand({})]);
+    expect(plain[0]).toMatchObject({ strong: false, reason: 'Same amount · 2 days apart' });
+    const two = suggestMatches({ ...line, description: 'FASTER PAYMENT' }, [
+      cand({ id: 'far', date: '2026-11-10' }),
+      cand({ id: 'near', date: '2026-11-18' }),
+    ]);
+    expect(two.map((x) => x.id)).toEqual(['near', 'far']);
+    // A surname alone is enough.
+    expect(
+      suggestMatches({ ...line, description: 'EXAMPLE A' }, [cand({ words: ['Ann Example'] })])[0]!
+        .strong,
+    ).toBe(true);
+  });
+
+  it('money out matches supplier payments and expenses', () => {
+    const out = {
+      date: '2026-11-17',
+      amountPence: -12_050,
+      description: 'CEF GUERNSEY',
+      reference: '',
+    };
+    const r = suggestMatches(out, [
+      cand({ kind: 'bill_payment', id: 'b1', amountPence: -12_050, words: ['CEF', 'GUR/1'] }),
+      cand({ kind: 'expense', id: 'e1', amountPence: -12_050, words: ['Island fuel'] }),
+    ]);
+    expect(r.map((x) => x.id)).toEqual(['b1', 'e1']);
+    expect(r[0]!.strong).toBe(true);
+    expect(r[1]!.strong).toBe(false);
   });
 });
