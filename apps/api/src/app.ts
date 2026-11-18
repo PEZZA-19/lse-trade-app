@@ -78,6 +78,11 @@ import { MemoryBlobs, type BlobStore } from './lib/blobs';
 import * as access from './services/access';
 import * as calendar from './services/calendar';
 import * as calendarSync from './services/calendarSync';
+import {
+  CalendarApiError,
+  CalendarAuthError,
+  type GoogleCalendar,
+} from './services/googleCalendar';
 import * as jobDetail from './services/jobDetail';
 import * as enquiries from './services/enquiries';
 import * as proposals from './services/proposals';
@@ -123,8 +128,13 @@ export interface AppDeps {
   holdSeconds?: number;
   /** Job photo files (R2 in production once a bucket exists). Defaults to in-memory for dev and tests. */
   blobs?: BlobStore;
-  /** Two-way calendar sync adapters. None until the Google / Microsoft OAuth apps exist. */
+  /** Two-way calendar sync adapters (tests inject fakes). Defaults to Google when configured. */
   calendarAdapters?: calendarSync.CalendarAdapters;
+  /**
+   * Google Calendar sign-in and adapter: null/absent until a Google Cloud OAuth client and the
+   * token key are configured (docs/GOOGLE_CALENDAR_SETUP.md); the app then says "needs setting up".
+   */
+  google?: GoogleCalendar | null;
 }
 
 /** `If-Match: 7` or `If-Match: "7"` -> 7. Absent means "don't check" (online edits from the latest copy). */
@@ -1012,20 +1022,60 @@ export function createApp(deps: AppDeps) {
     return c.json(await c.var.tx((tx) => calendar.revoke(tx, c.var.auth, scope)));
   });
   // Two-way calendar sync: each person connects their own calendar.
-  const calendarAdapters = deps.calendarAdapters ?? {};
+  const google = deps.google ?? null;
+  const calendarAdapters: calendarSync.CalendarAdapters =
+    deps.calendarAdapters ?? (google ? { google } : {});
   app.get('/api/calendar-sync', async (c) =>
     c.json(await c.var.tx((tx) => calendarSync.status(tx, c.var.auth, calendarAdapters))),
   );
+  const needsSetup = () =>
+    new AppError(
+      503,
+      'not_configured',
+      `${CALENDAR_PROVIDER_LABELS.google} needs setting up first: a one-off Google Cloud sign-in client for this app (see docs/GOOGLE_CALENDAR_SETUP.md).`,
+    );
+  // Step 1: the app asks where to send the person; the screen then goes to Google.
   app.post('/api/calendar-sync/connect/:provider', async (c) => {
-    const provider = parse(calendarProvider, c.req.param('provider'));
-    if (!calendarAdapters[provider])
-      throw new AppError(
-        503,
-        'not_configured',
-        `Connecting ${CALENDAR_PROVIDER_LABELS[provider]} needs setting up first (an app registration with ${provider === 'google' ? 'Google' : 'Microsoft'}).`,
+    parse(calendarProvider, c.req.param('provider'));
+    if (!google) throw needsSetup();
+    return c.json(await c.var.tx((tx) => calendarSync.startGoogleConnect(tx, c.var.auth, google)));
+  });
+  // Step 2: Google sends the browser back here (a top-level GET, so the session cookie comes too).
+  // Always ends on the Calendar screen with a plain result, never a JSON page.
+  app.get('/api/calendar-sync/google/callback', async (c) => {
+    const back = (q: Record<string, string>) =>
+      c.redirect(
+        `${(deps.auth.appOrigin ?? '').replace(/\/$/, '')}/calendar?${new URLSearchParams(q)}`,
       );
-    // The OAuth redirect goes here once the app registration exists.
-    throw new AppError(503, 'not_configured', 'Calendar sign-in is not switched on yet.');
+    if (!google) return back({ calendar_error: 'Google Calendar needs setting up first.' });
+    const err = c.req.query('error');
+    if (err)
+      return back({
+        calendar_error:
+          err === 'access_denied'
+            ? 'You didn’t allow access in Google, so nothing was connected.'
+            : 'Google didn’t finish the sign-in. Tap Connect to try again.',
+      });
+    const code = c.req.query('code');
+    const state = c.req.query('state');
+    if (!code || !state)
+      return back({
+        calendar_error: 'Google didn’t finish the sign-in. Tap Connect to try again.',
+      });
+    try {
+      const r = await c.var.tx((tx) =>
+        calendarSync.finishGoogleConnect(tx, c.var.auth, google, { code, state }),
+      );
+      return back({ connected: 'google', ...(r.accountEmail ? { account: r.accountEmail } : {}) });
+    } catch (e) {
+      const known =
+        e instanceof AppError || e instanceof CalendarAuthError || e instanceof CalendarApiError;
+      return back({
+        calendar_error: known
+          ? (e as Error).message
+          : 'Connecting Google Calendar failed. Please try again.',
+      });
+    }
   });
   app.post('/api/calendar-sync/run', async (c) =>
     c.json(

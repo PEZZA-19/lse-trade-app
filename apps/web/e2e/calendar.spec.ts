@@ -8,7 +8,8 @@ test('More › Calendar: private link, subscribe links, copy, regenerate (old li
   page,
 }) => {
   await page.goto('/more');
-  await page.getByRole('link', { name: /Calendar/ }).click();
+  // The More list row (wide screens also have a sidebar link to the same place).
+  await page.getByRole('link', { name: /^Calendar Your jobs/ }).click();
   await expect(page.getByRole('heading', { name: 'Calendar', level: 1 })).toBeVisible();
   // Owner: their own jobs and (as admin) all jobs.
   await expect(page.getByText('Your jobs', { exact: true })).toBeVisible();
@@ -72,13 +73,17 @@ test('More › Calendar: private link, subscribe links, copy, regenerate (old li
   expect((await page.context().request.fetch(second)).status()).toBe(404);
 });
 
-test('More › Calendar: two-way sync says plainly that Google and Outlook need setting up', async ({
+test('More › Calendar: two-way Google Calendar sync says plainly it needs setting up', async ({
   page,
 }) => {
   await page.goto('/calendar');
-  const list = page.getByRole('list', { name: 'Connected calendars' });
+  const list = page.getByRole('list', { name: 'Google Calendar' });
   await expect(list.getByText('Google Calendar')).toBeVisible();
-  await expect(list.getByText('Outlook (Microsoft 365)')).toBeVisible();
-  await expect(list.getByText('Needs setting up')).toHaveCount(2);
-  await expect(page.getByText(/comes back here as a change to approve/)).toBeVisible();
+  await expect(list.getByText('Needs setting up')).toHaveCount(1);
+  await expect(page.getByText(/Outlook \(Microsoft 365\)/)).toHaveCount(0);
+  await expect(page.getByText(/Google Calendar needs setting up first/)).toBeVisible();
+  // Coming back from Google with a problem says so once and tidies the address.
+  await page.goto('/calendar?calendar_error=Google%20didn%E2%80%99t%20allow%20access.');
+  await expect(page.getByText('Google didn’t allow access.')).toBeVisible();
+  await expect(page).toHaveURL(/\/calendar$/);
 });

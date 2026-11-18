@@ -7,6 +7,7 @@ import { APP_URL } from './env';
 import { ConsoleMailer } from './lib/mailer';
 import { AiGateway } from './ai/gateway';
 import { FakeProvider } from './ai/fake';
+import { googleFromEnv } from './services/googleCalendar';
 
 // Same file Wrangler reads for local vars.
 if (existsSync('.dev.vars')) {
@@ -32,8 +33,14 @@ mailer.sendMagicLink = async (mail) => {
   writeFileSync(DEV_LINK_FILE, `${mail.to} ${mail.link}\n`, { mode: 0o600 });
 };
 
+// Google Calendar sync only when GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and CALENDAR_TOKEN_KEY are
+// set (e.g. in .dev.vars); otherwise the app says "needs setting up".
+const { google, missing } = await googleFromEnv(process.env, appOrigin);
+if (!google) console.log(`Google Calendar sync: needs setting up (missing ${missing.join(', ')})`);
+
 const app = createApp({
   getSql: () => sql,
+  google,
   auth: {
     mailer,
     appOrigin,

@@ -1,5 +1,5 @@
 /**
- * Two-way calendar sync (Google Calendar, Microsoft 365), the provider-free part: what each side
+ * Two-way calendar sync (Google Calendar only for now: Joe, 18 Nov 2026), the provider-free part: what each side
  * should do, worked out from the app's appointments, the links we keep to calendar events, and the
  * changes a calendar reports. The API runs the plans through a provider adapter.
  *
@@ -10,13 +10,15 @@
  */
 import { z } from 'zod';
 
-export const CALENDAR_PROVIDERS = ['google', 'microsoft'] as const;
+/** Google Calendar only for now (Joe, 18 Nov 2026); the plans below don't depend on the provider. */
+export const CALENDAR_PROVIDERS = ['google'] as const;
 export type CalendarProvider = (typeof CALENDAR_PROVIDERS)[number];
 export const calendarProvider = z.enum(CALENDAR_PROVIDERS);
 export const CALENDAR_PROVIDER_LABELS: Record<CalendarProvider, string> = {
   google: 'Google Calendar',
-  microsoft: 'Outlook (Microsoft 365)',
 };
+/** The calendar the app makes in the person's account and writes to (never their own calendars). */
+export const SYNC_CALENDAR_NAME = 'LSE jobs';
 
 /** An appointment as the sync sees it (no money, same as the one-way feed). */
 export interface SyncAppointment {
@@ -32,7 +34,7 @@ export interface SyncAppointment {
 
 /** What we write to the calendar for one appointment. */
 export interface CalendarEventBody {
-  /** Our appointment id, stored on the event (Google private extended property, Graph extended property). */
+  /** Our appointment id, stored on the event (Google private extended property `lseId`). */
   lseId: string;
   title: string;
   startsAt: string;
@@ -228,11 +230,13 @@ export interface CalendarConnectionDto {
   calendarName: string;
   status: 'connected' | 'needs_reconnect';
   lastSyncedAt: string | null;
+  /** Why the last sync failed, in plain English (null when it went fine). */
+  lastError: string | null;
   linkedEvents: number;
 }
 
 export interface CalendarSyncStatusDto {
-  /** Which providers this installation can connect to (OAuth app set up). */
+  /** Which providers this installation can connect to (Google OAuth client set up). */
   available: Record<CalendarProvider, boolean>;
   connections: CalendarConnectionDto[];
 }
@@ -242,4 +246,6 @@ export interface CalendarSyncResultDto {
   updated: number;
   deleted: number;
   proposals: number;
+  /** Calendars that couldn't be synced this time, and why. */
+  problems?: string[];
 }

@@ -46,13 +46,13 @@ export const useCalendarSync = (enabled = true) =>
     enabled,
   });
 
-/** Starts the sign-in with Google or Microsoft (says so plainly when it isn't set up yet). */
+/** Starts the sign-in with Google (says so plainly when it isn't set up yet). */
 export function useConnectCalendar() {
   return useMutation({
     mutationFn: (provider: CalendarProvider) =>
-      api<{ redirect: string }>('POST', `/calendar-sync/connect/${provider}`),
+      api<{ url: string }>('POST', `/calendar-sync/connect/${provider}`),
     onSuccess: (r) => {
-      if (r?.redirect) window.location.assign(r.redirect);
+      if (r?.url) window.location.assign(r.url);
     },
   });
 }

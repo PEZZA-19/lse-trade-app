@@ -3,9 +3,9 @@
  * provider adapter. App → calendar writes events to the person's "LSE jobs" calendar; calendar →
  * app turns moves and deletes into proposals in Approvals (never silent changes).
  *
- * The Google and Microsoft adapters need an OAuth app each (Google Cloud project, Azure app
- * registration), which don't exist yet; until they do, `available` is false for both and the
- * Connect buttons say so. Tests use a fake adapter.
+ * Google Calendar only for now (Joe, 18 Nov 2026). The Google adapter and sign-in live in
+ * googleCalendar.ts and need a Google Cloud OAuth client (docs/GOOGLE_CALENDAR_SETUP.md); until it
+ * is configured `available.google` is false and the app says "needs setting up". Tests use fakes.
  */
 import {
   CALENDAR_PROVIDER_LABELS,
@@ -23,11 +23,14 @@ import {
   type PullProposal,
   type RemoteChange,
 } from '@lse/shared';
-import type { Tx } from '../db/client';
-import { notFound } from '../lib/errors';
+import { withTenant, type Sql, type Tx } from '../db/client';
+import { pkceChallenge } from '../lib/sealed';
+import { randomToken, sha256Hex } from '../lib/crypto';
+import { AppError, notFound } from '../lib/errors';
 import { iso, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { feedRows } from './calendar';
+import { CalendarAuthError, type GoogleCalendar } from './googleCalendar';
 
 export interface CalendarConnection {
   id: string;
@@ -70,10 +73,11 @@ export async function status(
       calendarName: string;
       status: 'connected' | 'needs_reconnect';
       lastSyncedAt: Date | null;
+      lastError: string | null;
       linked: string;
     }[]
   >`
-    SELECT c.id, c.provider, c.account_email, c.calendar_name, c.status, c.last_synced_at,
+    SELECT c.id, c.provider, c.account_email, c.calendar_name, c.status, c.last_synced_at, c.last_error,
            (SELECT count(*) FROM calendar_event_links l WHERE l.connection_id = c.id) AS linked
       FROM calendar_connections c WHERE c.user_id = ${auth.userId} ORDER BY c.provider`;
   const connections: CalendarConnectionDto[] = rows.map((r) => ({
@@ -83,6 +87,7 @@ export async function status(
     calendarName: r.calendarName,
     status: r.status,
     lastSyncedAt: iso(r.lastSyncedAt),
+    lastError: r.lastError,
     linkedEvents: Number(r.linked),
   }));
   const available = Object.fromEntries(CALENDAR_PROVIDERS.map((p) => [p, !!adapters[p]])) as Record<
@@ -101,6 +106,8 @@ export async function connect(
     accountEmail: string | null;
     calendarId: string;
     tokenEnc: string;
+    /** True when this is a new calendar replacing an earlier one (drops the old event links). */
+    calendarChanged?: boolean;
   },
 ): Promise<string> {
   const [row] = await tx<{ id: string }[]>`
@@ -108,8 +115,12 @@ export async function connect(
     VALUES (${auth.tenantId}, ${auth.userId}, ${input.provider}, ${input.accountEmail}, ${input.calendarId}, ${input.tokenEnc})
     ON CONFLICT (tenant_id, user_id, provider) DO UPDATE
       SET account_email = EXCLUDED.account_email, calendar_id = EXCLUDED.calendar_id,
-          token_enc = EXCLUDED.token_enc, status = 'connected', sync_token = NULL
+          token_enc = EXCLUDED.token_enc, status = 'connected', sync_token = NULL, last_error = NULL
     RETURNING id`;
+  // A different calendar (e.g. the old one was deleted): its event links mean nothing there, so
+  // the next sync puts every booking into the new calendar.
+  if (input.calendarChanged)
+    await tx`DELETE FROM calendar_event_links WHERE connection_id = ${row!.id}`;
   await audit(tx, auth, 'calendar_connected', 'calendar_connection', row!.id, {
     provider: input.provider,
   });
@@ -257,7 +268,8 @@ async function syncOne(
     if (op.op === 'create') result.created++;
     else result.updated++;
   }
-  await tx`UPDATE calendar_connections SET sync_token = ${nextSyncToken}, last_synced_at = now() WHERE id = ${conn.id}`;
+  await tx`UPDATE calendar_connections SET sync_token = ${nextSyncToken}, last_synced_at = now(), last_error = NULL
+            WHERE id = ${conn.id}`;
   return result;
 }
 
@@ -271,15 +283,37 @@ export async function syncMine(
   const conns = await tx<CalendarConnection[]>`
     SELECT id, user_id, provider, calendar_id, token_enc, sync_token
       FROM calendar_connections WHERE user_id = ${auth.userId} AND status = 'connected'`;
-  const total: CalendarSyncResultDto = { created: 0, updated: 0, deleted: 0, proposals: 0 };
+  const total: CalendarSyncResultDto = {
+    created: 0,
+    updated: 0,
+    deleted: 0,
+    proposals: 0,
+    problems: [],
+  };
   for (const c of conns) {
     const adapter = adapters[c.provider];
     if (!adapter) continue;
-    const r = await syncOne(tx, auth, c, adapter, appOrigin);
-    total.created += r.created;
-    total.updated += r.updated;
-    total.deleted += r.deleted;
-    total.proposals += r.proposals;
+    try {
+      // A savepoint, so one calendar failing half-way doesn't undo what the others did.
+      const r = await tx.savepoint((sp) =>
+        syncOne(sp as unknown as Tx, auth, c, adapter, appOrigin),
+      );
+      total.created += r.created;
+      total.updated += r.updated;
+      total.deleted += r.deleted;
+      total.proposals += r.proposals;
+    } catch (e) {
+      const reconnect = e instanceof CalendarAuthError;
+      const message = (
+        e instanceof Error && (reconnect || e.name === 'CalendarApiError')
+          ? e.message
+          : 'The sync failed; it will try again later.'
+      ).slice(0, 500);
+      await tx`UPDATE calendar_connections
+                  SET last_error = ${message}, status = ${reconnect ? 'needs_reconnect' : 'connected'}
+                WHERE id = ${c.id}`;
+      total.problems!.push(message);
+    }
   }
   await audit(tx, auth, 'calendar_synced', 'user', auth.userId, { ...total });
   return total;
@@ -313,4 +347,80 @@ export async function applyChange(tx: Tx, auth: Auth, payload: CalendarChangePay
 export async function discardChange(tx: Tx, payload: CalendarChangePayload) {
   await tx`UPDATE calendar_event_links SET app_hash = '' WHERE connection_id = ${payload.connectionId}
              AND appointment_id = ${payload.change.appointmentId}`;
+}
+
+/* ------------------------- Google sign-in (OAuth + PKCE) ------------------------- */
+
+/** Starts the Google sign-in: a one-off state and PKCE verifier, and the URL to send them to. */
+export async function startGoogleConnect(tx: Tx, auth: Auth, google: GoogleCalendar) {
+  const state = randomToken(32);
+  const verifier = randomToken(48); // 64 characters, within PKCE's 43..128
+  await tx`DELETE FROM calendar_oauth_states WHERE user_id = ${auth.userId} OR expires_at < now()`;
+  await tx`INSERT INTO calendar_oauth_states (state_hash, tenant_id, user_id, provider, code_verifier)
+           VALUES (${await sha256Hex(state)}, ${auth.tenantId}, ${auth.userId}, 'google', ${verifier})`;
+  return { url: google.authUrl(state, await pkceChallenge(verifier)) };
+}
+
+/**
+ * Google sent them back with a code: check the state is theirs and fresh, swap the code for tokens
+ * (with the PKCE verifier), make (or reuse) the "LSE jobs" calendar, seal the refresh token, save.
+ */
+export async function finishGoogleConnect(
+  tx: Tx,
+  auth: Auth,
+  google: GoogleCalendar,
+  q: { code: string; state: string },
+): Promise<{ connectionId: string; accountEmail: string | null }> {
+  const [st] = await tx<{ codeVerifier: string }[]>`
+    DELETE FROM calendar_oauth_states
+     WHERE state_hash = ${await sha256Hex(q.state)} AND user_id = ${auth.userId}
+       AND provider = 'google' AND expires_at > now()
+    RETURNING code_verifier`;
+  if (!st)
+    throw new AppError(
+      400,
+      'calendar_state',
+      'That Google sign-in has expired or wasn’t started here. Tap Connect again.',
+    );
+  const t = await google.exchange(q.code, st.codeVerifier);
+  const [prev] = await tx<{ calendarId: string }[]>`
+    SELECT calendar_id FROM calendar_connections WHERE user_id = ${auth.userId} AND provider = 'google'`;
+  const reuse = prev && (await google.calendarExists(t.accessToken, prev.calendarId));
+  const calendarId = reuse ? prev.calendarId : await google.createCalendar(t.accessToken);
+  const connectionId = await connect(tx, auth, {
+    provider: 'google',
+    accountEmail: t.email,
+    calendarId,
+    tokenEnc: await google.sealToken(t.refreshToken, auth.userId),
+    calendarChanged: !!prev && !reuse,
+  });
+  return { connectionId, accountEmail: t.email };
+}
+
+/* --------------------------------- schedule --------------------------------- */
+
+/**
+ * Workers cron: syncs everyone whose calendar is due (not synced for `every`), each in their own
+ * business's transaction as that person. One failing doesn't stop the others.
+ */
+export async function syncDue(
+  sql: Sql,
+  adapters: CalendarAdapters,
+  appOrigin: string | null,
+  every = '15 minutes',
+): Promise<{ synced: number; failed: number }> {
+  const due = await sql<{ tenantId: string; userId: string; role: Auth['role'] }[]>`
+    SELECT tenant_id, user_id, role FROM calendar_sync_due(${every}::interval)`;
+  let synced = 0;
+  let failed = 0;
+  for (const d of due) {
+    try {
+      const auth: Auth = { tenantId: d.tenantId, userId: d.userId, role: d.role };
+      await withTenant(sql, auth, (tx) => syncMine(tx, auth, adapters, appOrigin));
+      synced++;
+    } catch {
+      failed++;
+    }
+  }
+  return { synced, failed };
 }

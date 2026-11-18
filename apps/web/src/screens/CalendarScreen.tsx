@@ -1,13 +1,12 @@
 import {
   buildIcs,
-  CALENDAR_PROVIDER_LABELS,
-  CALENDAR_PROVIDERS,
   calendarLinks,
   feedEvents,
   type AppointmentListItemDto,
   type CalendarFeedDto,
 } from '@lse/shared';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { api } from '../api/client';
 import {
   useCalendarFeeds,
@@ -245,111 +244,120 @@ function DemoCalendar() {
 }
 
 const TWO_WAY_NOTE =
-  'Two-way: your booked jobs go into an “LSE jobs” calendar in your Google or Outlook account, and if someone moves or deletes one there, it comes back here as a change to approve (nothing changes by itself).';
+  'Two-way: your booked jobs go into an “LSE jobs” calendar in your Google account, and if someone moves or deletes one there, it comes back here as a change to approve (nothing changes by itself). The app only sees that one calendar, not the rest of your Google Calendar. It syncs by itself every 15 minutes.';
 
-/** Two-way sync with Google Calendar or Outlook, per person. */
+/** Two-way sync with Google Calendar, per person. */
 function TwoWaySection() {
   const status = useCalendarSync(!DEMO);
   const connect = useConnectCalendar();
   const run = useRunCalendarSync();
   const disconnect = useDisconnectCalendar();
   const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const returned = params.get('connected') ?? params.get('calendar_error');
+  const told = useRef<string | null>(null);
+  // Back from Google's sign-in page: say how it went once, then tidy the address bar.
+  useEffect(() => {
+    if (!returned || told.current === returned) return;
+    told.current = returned;
+    const error = params.get('calendar_error');
+    if (error) toast.show(error, { tone: 'error' });
+    else
+      toast.show(
+        `Google Calendar connected${params.get('account') ? ` (${params.get('account')})` : ''}`,
+      );
+    setParams({}, { replace: true });
+  }, [returned, params, setParams, toast]);
   if (DEMO)
     return (
-      <Section header="Two-way sync" footer={TWO_WAY_NOTE}>
+      <Section header="Two-way sync with Google Calendar" footer={TWO_WAY_NOTE}>
         <p className="section__footer" style={{ marginTop: 0 }}>
-          Needs the app online and a one-off setup with Google and Microsoft, so it isn’t in this
-          demo.
+          Needs the app online and a one-off setup with Google, so it isn’t in this demo.
         </p>
       </Section>
     );
   const s = status.data;
-  const connected = new Map((s?.connections ?? []).map((c) => [c.provider, c]));
+  const c = s?.connections.find((x) => x.provider === 'google');
+  const notSetUp = s?.available.google === false;
+  const problem = c?.lastError ?? (c?.status === 'needs_reconnect' ? 'Connect again.' : null);
   return (
     <Section
-      header="Two-way sync"
+      header="Two-way sync with Google Calendar"
       footer={
         connect.error ? (
           <span role="alert" style={{ color: 'var(--red)' }}>
             {connect.error.message}
           </span>
+        ) : notSetUp ? (
+          'Google Calendar needs setting up first: a one-off job for whoever runs the app (see docs/GOOGLE_CALENDAR_SETUP.md). Until then, use the calendar link above.'
         ) : (
           TWO_WAY_NOTE
         )
       }
     >
-      <List label="Connected calendars">
-        {CALENDAR_PROVIDERS.map((p) => {
-          const c = connected.get(p);
-          if (c)
-            return (
-              <li key={p}>
-                <KeyValueRow
-                  label={CALENDAR_PROVIDER_LABELS[p]}
-                  value={
-                    c.status === 'needs_reconnect'
-                      ? 'Sign in again'
-                      : `${c.linkedEvents} ${c.linkedEvents === 1 ? 'job' : 'jobs'}${c.lastSyncedAt ? ` · ${formatDayShort(new Date(c.lastSyncedAt))}` : ''}`
-                  }
-                />
-              </li>
-            );
-          return (
-            <li key={p}>
-              <KeyValueRow
-                label={CALENDAR_PROVIDER_LABELS[p]}
-                value={
-                  s?.available[p] === false ? (
-                    <span style={{ color: 'var(--label-2)' }}>Needs setting up</span>
-                  ) : (
-                    <Button
-                      variant="plain"
-                      onClick={() => connect.mutate(p)}
-                      loading={connect.isPending && connect.variables === p}
-                    >
-                      Connect
-                    </Button>
-                  )
-                }
-              />
-            </li>
-          );
-        })}
-      </List>
-      {!!s?.connections.length && (
-        <div className="button-stack">
-          <Button
-            block
-            onClick={() =>
-              run.mutate(undefined, {
-                onSuccess: (r) =>
-                  toast.show(
-                    r.proposals
-                      ? `${r.proposals} calendar ${r.proposals === 1 ? 'change' : 'changes'} to approve`
-                      : `Calendar up to date (${r.created + r.updated + r.deleted} changed)`,
-                  ),
-                onError: (e) => toast.show(e.message, { tone: 'error' }),
-              })
+      <List label="Google Calendar">
+        <li>
+          <KeyValueRow
+            label={c ? `Google · ${c.accountEmail ?? c.calendarName}` : 'Google Calendar'}
+            value={
+              notSetUp ? (
+                <span style={{ color: 'var(--label-2)' }}>Needs setting up</span>
+              ) : !c || c.status === 'needs_reconnect' ? (
+                <Button
+                  variant="plain"
+                  onClick={() => connect.mutate('google')}
+                  loading={connect.isPending}
+                >
+                  {c ? 'Connect Again' : 'Connect'}
+                </Button>
+              ) : (
+                `${c.linkedEvents} ${c.linkedEvents === 1 ? 'job' : 'jobs'}${c.lastSyncedAt ? ` · ${formatDayShort(new Date(c.lastSyncedAt))}` : ''}`
+              )
             }
-            loading={run.isPending}
-          >
-            Sync Now
-          </Button>
-          {s.connections.map((c) => (
+          />
+        </li>
+        {problem && (
+          <li>
+            <p role="alert" className="section__footer" style={{ color: 'var(--red)', margin: 0 }}>
+              {problem}
+            </p>
+          </li>
+        )}
+      </List>
+      {c && (
+        <div className="button-stack">
+          {c.status !== 'needs_reconnect' && (
             <Button
-              key={c.id}
-              variant="destructive"
               block
               onClick={() =>
-                disconnect.mutate(c.id, {
-                  onSuccess: () =>
-                    toast.show(`${CALENDAR_PROVIDER_LABELS[c.provider]} disconnected`),
+                run.mutate(undefined, {
+                  onSuccess: (r) =>
+                    r.problems?.length
+                      ? toast.show(r.problems[0]!, { tone: 'error' })
+                      : toast.show(
+                          r.proposals
+                            ? `${r.proposals} calendar ${r.proposals === 1 ? 'change' : 'changes'} to approve`
+                            : `Calendar up to date (${r.created + r.updated + r.deleted} changed)`,
+                        ),
+                  onError: (e) => toast.show(e.message, { tone: 'error' }),
                 })
               }
+              loading={run.isPending}
             >
-              Disconnect {CALENDAR_PROVIDER_LABELS[c.provider]}
+              Sync Now
             </Button>
-          ))}
+          )}
+          <Button
+            variant="destructive"
+            block
+            onClick={() =>
+              disconnect.mutate(c.id, {
+                onSuccess: () => toast.show('Google Calendar disconnected'),
+              })
+            }
+          >
+            Disconnect Google Calendar
+          </Button>
         </div>
       )}
     </Section>

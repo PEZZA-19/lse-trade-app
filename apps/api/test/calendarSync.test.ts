@@ -49,10 +49,10 @@ describe('two-way calendar sync', () => {
   it('says which calendars can be connected; nothing is connected at first', async () => {
     const c = await client();
     const s = (await c.req('GET', '/api/calendar-sync')).body;
-    expect(s).toEqual({ available: { google: true, microsoft: false }, connections: [] });
+    expect(s).toEqual({ available: { google: true }, connections: [] });
+    // Google Calendar only: Outlook isn't offered.
     const ms = await c.req('POST', '/api/calendar-sync/connect/microsoft');
-    expect(ms.status).toBe(503);
-    expect(ms.body.error.code).toBe('not_configured');
+    expect(ms.status).toBe(422);
   });
 
   it('pushes appointments, ignores its own echo, turns a calendar move into a proposal', async () => {
@@ -60,7 +60,7 @@ describe('two-way calendar sync', () => {
     const { job, appt } = await bookedJob(c);
     await connectGoogle(c);
     const first = (await c.req('POST', '/api/calendar-sync/run')).body;
-    expect(first).toEqual({ created: 1, updated: 0, deleted: 0, proposals: 0 });
+    expect(first).toEqual({ created: 1, updated: 0, deleted: 0, proposals: 0, problems: [] });
     const ev = fakeCalendar.live().find((e) => e.lseId === appt.id)!;
     expect(ev.title).toBe(`Job ${job.number}: Barn rewire`);
     // Running again: our own write echoes back, nothing to do.
@@ -69,6 +69,7 @@ describe('two-way calendar sync', () => {
       updated: 0,
       deleted: 0,
       proposals: 0,
+      problems: [],
     });
 
     // Moved in Google: a proposal, and the app doesn't change yet.

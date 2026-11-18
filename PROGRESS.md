@@ -654,9 +654,9 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     Accounts access (field workers, subcontractors). Done: the API takes every money field out of
     what it sends them and refuses changes to priced job lines; the job screen shows no prices,
     totals or Add Material.
-32. Calendar: the one-way link is live now (More › Calendar). For two-way sync (design note above),
-    which first, Google or Microsoft 365? And should a move made in Google/Outlook apply straight
-    away, or wait in Approvals for you?
+32. PART ANSWERED 18 Nov 2026 by Joe: two-way sync is **Google Calendar only** (built in session 5).
+    Still open: a move made in Google currently waits in Approvals for you. Keep it that way, or
+    apply straight away?
 33. Calendar events show the customer's phone number and site address so whoever is booked can get
     there. OK, or leave the phone out?
 34. Business overview: what was your bank balance on the day you'd like the app's records to start
@@ -664,10 +664,10 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 35. Do you want a budget for 2027 (monthly income and materials targets) for Budget vs Actual?
 36. ANSWERED 18 Nov 2026 by Joe: a job that comes to less than £0 is a **customer credit**, used on
     that customer's next invoice (not a refund). Done in session 5 (see below).
-37. Two-way calendar sync needs two one-off setups in your name: a Google Cloud project (so the app
-    can ask to use a "LSE jobs" calendar in your Google account; Google reviews the request) and a
-    Microsoft (Azure) app registration for Outlook. Shall I prepare step-by-step instructions, and
-    which do you use day to day: Google, Outlook, or both?
+37. ANSWERED 18 Nov 2026: Google only, no Microsoft. The step-by-step setup is in
+    `docs/GOOGLE_CALENDAR_SETUP.md` (about 20 minutes: Google Cloud project, consent screen, OAuth
+    client, three secrets). The app only asks for non-sensitive scopes, so Google doesn't need to
+    review it. Nothing has been created in your Google account. Say when you'd like to do it.
 38. Labour on kits uses the business charge-out rate. Should it use a named person's rate when the
     job is assigned to them (ties in with Q28)?
 
@@ -677,8 +677,8 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 2. ~~Labour in every quote kit~~ (done, session 4).
 3. ~~Minus (credit) lines on invoices and quotes; private demo re-imported~~ (done, session 4;
    see Q36 for jobs that come to less than £0).
-4. Two-way calendar sync: the engine is done (session 4); next is the Google and Microsoft sign-in
-   and adapters, once the app registrations exist (Q38), then push notifications so it runs by itself.
+4. ~~Two-way calendar sync~~: engine (session 4), Google sign-in, adapter and 15-minute schedule
+   (session 5). Waiting on the one-off Google setup (Q37, `docs/GOOGLE_CALENDAR_SETUP.md`).
 5. Later for the books: expenses/overheads and wages (so net profit is real), bank feed or bank
    statement import and reconciliation, refunds.
 
@@ -859,3 +859,41 @@ so You Owe is £0 there until they are.
 - Shared `kitAddLines` (used by the picker) decides the lines. **Tests**: shared (4: items only with
   labour off, both, labour only, nothing to add) and e2e (items only by switching labour off;
   labour-only kit adds just the labour line). Existing kit labour e2e unchanged and passing.
+
+### Two-way sync with Google Calendar only (Joe's decision)
+
+- **Outlook/Microsoft removed** from two-way sync: the providers list is just `google`, the screen
+  shows one Google Calendar row, and migration `0026_google_calendar.sql` narrows the database check
+  to Google. (The one-way calendar link still has its "Add to Outlook" button: that's a plain
+  subscription link and needs no setup.)
+- **Sign-in (OAuth)**: More › Calendar › Connect asks the API for a Google address (authorization
+  code + PKCE S256, `access_type=offline`, `prompt=consent`), the browser goes to Google and comes
+  back to `GET /api/calendar-sync/google/callback`, which checks the one-off state (stored hashed,
+  10 minutes, only for the same person who started it; PKCE verifier kept server-side), exchanges the
+  code, insists the calendar permission was ticked, then sends the browser back to `/calendar` with
+  a plain message either way.
+- **Narrow permission**: `calendar.app.created` + `openid email`: the app makes its own **“LSE
+  jobs”** calendar (Europe/Guernsey) and can only touch that one. Non-sensitive, so no Google review.
+- **Tokens encrypted at rest**: only the refresh token is stored, sealed with AES-GCM using the
+  Worker secret `CALENDAR_TOKEN_KEY` (32 random bytes) and bound to the person, so it can't be
+  swapped between people. Access tokens live in memory only (`apps/api/src/lib/sealed.ts`).
+- **Google adapter** (`services/googleCalendar.ts`): create/check the calendar, put/delete events
+  (put falls back to insert if Google lost the event), incremental reads with `syncToken` and
+  paging, a full re-read when Google says the token has expired (410), refreshes access tokens
+  (one retry on 401). If access is removed in Google, the connection shows **Connect Again** with
+  the reason; if the LSE jobs calendar was deleted, reconnecting makes a new one and refills it.
+  One person's problem never stops the others syncing.
+- **"Needs setting up"**: until `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
+  `CALENDAR_TOKEN_KEY` are all set, the screen says so plainly and Connect answers 503
+  `not_configured`. A malformed key stops the Worker loudly rather than storing tokens badly.
+- **Runs by itself**: the Worker's minute cron syncs every connected calendar that's due, every 15
+  minutes (`calendar_sync_due` database function); **Sync Now** still works.
+- **Setup steps for Joe**: `docs/GOOGLE_CALENDAR_SETUP.md`. Nothing was created in any Google
+  account.
+- **Tests**: `apps/api/test/googleCalendar.test.ts` (9) against a faked Google
+  (`src/dev/fakeGoogle.ts`: token endpoint with PKCE checks, calendars, events, sync tokens, paging,
+  410s, revoked access): not set up, missing/bad settings, sealing (tamper, wrong key, wrong person,
+  PKCE S256), full connect flow, someone else's/replayed/denied/no-calendar-permission sign-ins,
+  push + echo + paging + Google move/delete as approvals + app move pushed out, expired sync token,
+  revoked access → Connect Again → reconnect, deleted calendar → new one, the schedule. Existing
+  calendar sync tests updated; e2e: "Needs setting up" and the back-from-Google message.

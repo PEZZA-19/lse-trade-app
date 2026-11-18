@@ -175,8 +175,10 @@ test('offline create: a job and a customer are saved on the device, then made on
   await expect(pendingJobs.getByText('Waiting')).toBeVisible();
 
   // A new customer, still offline (in-app navigation: no page load needed).
-  await page.getByRole('link', { name: 'More' }).click();
-  await page.getByRole('link', { name: 'Customers' }).click();
+  // Phones reach Customers through More; wide screens have it in the sidebar.
+  const more = page.getByRole('link', { name: 'More' });
+  if (await more.isVisible()) await more.click();
+  await page.getByRole('link', { name: 'Customers' }).first().click();
   await page.getByRole('button', { name: 'Add customer' }).first().click();
   await page.getByLabel('Name', { exact: true }).fill(name);
   await page.getByRole('button', { name: 'Add', exact: true }).click();
