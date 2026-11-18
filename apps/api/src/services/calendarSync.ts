@@ -1,7 +1,7 @@
 /**
  * Two-way calendar sync: runs the shared plans (packages/shared/src/calendarSync.ts) against a
  * provider adapter. App → calendar writes events to the person's "LSE jobs" calendar; calendar →
- * app turns moves and deletes into proposals in Approvals (never silent changes).
+ * app applies moves and deletes straight away and logs them with Undo (Joe, 18 Nov 2026).
  *
  * Google Calendar only for now (Joe, 18 Nov 2026). The Google adapter and sign-in live in
  * googleCalendar.ts and need a Google Cloud OAuth client (docs/GOOGLE_CALENDAR_SETUP.md); until it
@@ -22,6 +22,10 @@ import {
   type EventLink,
   type PullProposal,
   type RemoteChange,
+  type SyncAppointment,
+  type CalendarActivityDto,
+  bodyHash,
+  eventBody,
 } from '@lse/shared';
 import { withTenant, type Sql, type Tx } from '../db/client';
 import { pkceChallenge } from '../lib/sealed';
@@ -30,6 +34,8 @@ import { AppError, notFound } from '../lib/errors';
 import { iso, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { feedRows } from './calendar';
+import { lockJob } from './jobs';
+import { applyEvent } from './stages';
 import { CalendarAuthError, type GoogleCalendar } from './googleCalendar';
 
 export interface CalendarConnection {
@@ -155,52 +161,93 @@ async function loadLinks(tx: Tx, connectionId: string): Promise<EventLink[]> {
   }));
 }
 
-function proposalText(p: PullProposal, provider: CalendarProvider, job: string) {
+function activityText(p: PullProposal, provider: CalendarProvider, job: string) {
   const where = CALENDAR_PROVIDER_LABELS[provider];
-  const clash = p.conflict
-    ? ' It was also changed in the app since the last sync; approving replaces that change.'
-    : '';
+  const clash = p.conflict ? ' It had also been changed in the app since the last sync.' : '';
   if (p.type === 'cancel')
     return {
       title: `${job}: deleted in ${where}`,
-      summary: `The event for ${job} was deleted in ${where}. Approve to remove the appointment from the app too; discard to keep it (it goes back into the calendar).${clash}`,
+      detail: `The appointment was removed from the app.${clash}`,
     };
   return {
     title: `${job}: moved in ${where}`,
-    summary: `${job} was moved in ${where} to ${slotText(p.startsAt, p.endsAt)} (was ${slotText(p.fromStartsAt, p.fromEndsAt)}). Approve to move the appointment; discard to put the event back.${clash}`,
+    detail: `Now ${slotText(p.startsAt, p.endsAt)} (was ${slotText(p.fromStartsAt, p.fromEndsAt)}).${clash}`,
   };
 }
 
-/** Writes or refreshes the waiting proposal for an appointment (one per appointment). */
-async function propose(
+interface ApptSnapshot {
+  jobId: string;
+  userId: string | null;
+  startsAt: string;
+  endsAt: string;
+  createdAt: string;
+  enquiryIds: string[];
+}
+
+/**
+ * Applies a move or delete made in the calendar to the app straight away (Joe, 18 Nov 2026) and
+ * logs it with what it replaced, so it can be undone from the Calendar screen.
+ */
+async function applyFromCalendar(
   tx: Tx,
   auth: Auth,
   conn: CalendarConnection,
   p: PullProposal,
   job: string,
-): Promise<void> {
-  const payload: CalendarChangePayload = {
-    provider: conn.provider,
-    connectionId: conn.id,
-    change: p,
+  appOrigin: string | null,
+  appt: SyncAppointment | undefined,
+): Promise<boolean> {
+  const [a] = await tx<
+    { jobId: string; userId: string | null; startsAt: Date; endsAt: Date; createdAt: Date }[]
+  >`SELECT job_id, user_id, starts_at, ends_at, created_at FROM appointments WHERE id = ${p.appointmentId}`;
+  if (!a) return false;
+  await lockJob(tx, a.jobId);
+  const enquiries = await tx<{ id: string }[]>`
+    SELECT id FROM enquiries WHERE appointment_id = ${p.appointmentId}`;
+  const before: ApptSnapshot = {
+    jobId: a.jobId,
+    userId: a.userId,
+    startsAt: new Date(a.startsAt).toISOString(),
+    endsAt: new Date(a.endsAt).toISOString(),
+    createdAt: new Date(a.createdAt).toISOString(),
+    enquiryIds: enquiries.map((e) => e.id),
   };
-  const { title, summary } = proposalText(p, conn.provider, job);
-  const updated = await tx`
-    UPDATE proposals SET payload = ${tx.json(payload as never)}, title = ${title.slice(0, 200)},
-           summary = ${summary.slice(0, 1000)}, updated_at = now(), version = version + 1
-     WHERE kind = 'calendar_change' AND source_id = ${p.appointmentId} AND status = 'pending'
-     RETURNING id`;
-  if (updated.length) return;
-  const [row] = await tx<{ id: string }[]>`
-    INSERT INTO proposals (tenant_id, agent, kind, title, summary, payload, source_type, source_id)
-    VALUES (${auth.tenantId}, 'calendar-sync', 'calendar_change', ${title.slice(0, 200)}, ${summary.slice(0, 1000)},
-            ${tx.json(payload as never)}, 'appointment', ${p.appointmentId})
-    RETURNING id`;
-  await tx`INSERT INTO proposal_events (tenant_id, proposal_id, event, by_user, data)
-           VALUES (${auth.tenantId}, ${row!.id}, 'created', ${auth.userId}, ${tx.json({ agent: 'calendar-sync' })})`;
+  const { title, detail } = activityText(p, conn.provider, job);
+  if (p.type === 'cancel') {
+    await tx`DELETE FROM appointments WHERE id = ${p.appointmentId}`;
+    await applyEvent(tx, auth, a.jobId, 'appointment_deleted');
+    // The event is gone in the calendar; Undo puts the appointment back and the next sync re-adds it.
+    await tx`DELETE FROM calendar_event_links WHERE connection_id = ${conn.id} AND appointment_id = ${p.appointmentId}`;
+  } else {
+    await tx`UPDATE appointments SET starts_at = ${p.startsAt}, ends_at = ${p.endsAt}, updated_at = now()
+              WHERE id = ${p.appointmentId}`;
+    // The calendar already shows the new times: record them so the push has nothing to send.
+    const hash = appt
+      ? bodyHash(eventBody({ ...appt, startsAt: p.startsAt, endsAt: p.endsAt }, appOrigin))
+      : '';
+    await tx`UPDATE calendar_event_links SET remote_starts_at = ${p.startsAt}, remote_ends_at = ${p.endsAt},
+                    app_hash = ${hash}, synced_at = now()
+              WHERE connection_id = ${conn.id} AND appointment_id = ${p.appointmentId}`;
+  }
+  await tx`
+    INSERT INTO calendar_activity (tenant_id, user_id, provider, appointment_id, job_id, kind, title, detail, before, after, conflict)
+    VALUES (${auth.tenantId}, ${auth.userId}, ${conn.provider}, ${p.appointmentId}, ${a.jobId},
+            ${p.type === 'cancel' ? 'deleted' : 'moved'}, ${title.slice(0, 200)}, ${detail.slice(0, 1000)},
+            ${tx.json(before as never)},
+            ${p.type === 'move' ? tx.json({ startsAt: p.startsAt, endsAt: p.endsAt } as never) : null},
+            ${p.conflict})`;
+  await audit(
+    tx,
+    auth,
+    `appointment_${p.type === 'move' ? 'moved' : 'removed'}_from_calendar`,
+    'appointment',
+    p.appointmentId,
+    { provider: conn.provider, conflict: p.conflict },
+  );
+  return true;
 }
 
-/** One connection: calendar changes first (as proposals), then the app's changes out. */
+/** One connection: calendar changes first (applied straight away), then the app's changes out. */
 async function syncOne(
   tx: Tx,
   auth: Auth,
@@ -220,22 +267,26 @@ async function syncOne(
     assignee: r.assignee,
   }));
   const jobOf = new Map(rows.map((r) => [r.id, `Job ${r.jobNumber}`]));
-  const result: CalendarSyncResultDto = { created: 0, updated: 0, deleted: 0, proposals: 0 };
+  const result: CalendarSyncResultDto = { created: 0, updated: 0, deleted: 0, applied: 0 };
 
-  // Calendar → app.
+  // Calendar → app, straight away.
   let links = await loadLinks(tx, conn.id);
   const { changes, nextSyncToken } = await adapter.changes(conn, conn.syncToken);
+  const byId = new Map(appts.map((a) => [a.id, a]));
   for (const p of planPull(changes, links, appts, appOrigin)) {
-    await propose(tx, auth, conn, p, jobOf.get(p.appointmentId) ?? 'A job');
-    result.proposals++;
-    if (p.type === 'cancel')
-      // The event is gone; if the proposal is discarded the next sync makes a new one.
-      await tx`DELETE FROM calendar_event_links WHERE connection_id = ${conn.id} AND appointment_id = ${p.appointmentId}`;
-    else
-      await tx`UPDATE calendar_event_links SET remote_starts_at = ${p.startsAt}, remote_ends_at = ${p.endsAt}
-                WHERE connection_id = ${conn.id} AND appointment_id = ${p.appointmentId}`;
+    const job = jobOf.get(p.appointmentId) ?? 'A job';
+    if (await applyFromCalendar(tx, auth, conn, p, job, appOrigin, byId.get(p.appointmentId)))
+      result.applied++;
+    if (p.type === 'move')
+      byId.set(p.appointmentId, {
+        ...byId.get(p.appointmentId)!,
+        startsAt: p.startsAt,
+        endsAt: p.endsAt,
+      });
+    else byId.delete(p.appointmentId);
   }
-  // Appointments waiting on a calendar proposal aren't pushed (that would undo the move).
+  const current = [...byId.values()];
+  // Older calendar proposals still waiting in Approvals (before 18 Nov 2026) aren't pushed.
   const waiting = new Set(
     (
       await tx<{ sourceId: string }[]>`
@@ -246,7 +297,7 @@ async function syncOne(
   // App → calendar.
   links = await loadLinks(tx, conn.id);
   const ops = planPush(
-    appts.filter((a) => !waiting.has(a.id)),
+    current.filter((a) => !waiting.has(a.id)),
     links.filter((l) => !waiting.has(l.appointmentId)),
     appOrigin,
   );
@@ -287,7 +338,7 @@ export async function syncMine(
     created: 0,
     updated: 0,
     deleted: 0,
-    proposals: 0,
+    applied: 0,
     problems: [],
   };
   for (const c of conns) {
@@ -301,7 +352,7 @@ export async function syncMine(
       total.created += r.created;
       total.updated += r.updated;
       total.deleted += r.deleted;
-      total.proposals += r.proposals;
+      total.applied += r.applied;
     } catch (e) {
       const reconnect = e instanceof CalendarAuthError;
       const message = (
@@ -319,7 +370,7 @@ export async function syncMine(
   return total;
 }
 
-/** Approving a calendar proposal: move the appointment, or remove it. */
+/** Approving an older calendar proposal (made before changes applied straight away). */
 export async function applyChange(tx: Tx, auth: Auth, payload: CalendarChangePayload) {
   const c = payload.change;
   if (c.type === 'move') {
@@ -347,6 +398,110 @@ export async function applyChange(tx: Tx, auth: Auth, payload: CalendarChangePay
 export async function discardChange(tx: Tx, payload: CalendarChangePayload) {
   await tx`UPDATE calendar_event_links SET app_hash = '' WHERE connection_id = ${payload.connectionId}
              AND appointment_id = ${payload.change.appointmentId}`;
+}
+
+/* ------------------------ changes from the calendar, with Undo ------------------------ */
+
+interface ActivityRow {
+  id: string;
+  provider: CalendarProvider;
+  appointmentId: string;
+  jobId: string | null;
+  kind: 'moved' | 'deleted';
+  title: string;
+  detail: string;
+  before: ApptSnapshot;
+  after: { startsAt: string; endsAt: string } | null;
+  conflict: boolean;
+  createdAt: Date;
+  undoneAt: Date | null;
+  latest: boolean;
+  nowStartsAt: Date | null;
+  nowEndsAt: Date | null;
+}
+
+const ACTIVITY_SELECT = (tx: Tx, auth: Auth, id: string | null) => tx<ActivityRow[]>`
+  SELECT a.id, a.provider, a.appointment_id, a.job_id, a.kind, a.title, a.detail, a.before, a.after,
+         a.conflict, a.created_at, a.undone_at,
+         NOT EXISTS (SELECT 1 FROM calendar_activity b
+                      WHERE b.appointment_id = a.appointment_id AND b.created_at > a.created_at) AS latest,
+         p.starts_at AS now_starts_at, p.ends_at AS now_ends_at
+    FROM calendar_activity a LEFT JOIN appointments p ON p.id = a.appointment_id
+   WHERE a.user_id = ${auth.userId} ${id ? tx`AND a.id = ${id}` : tx``}
+   ORDER BY a.created_at DESC
+   LIMIT 30`;
+
+/** Undo only the latest change to an appointment, and only while the app still matches it. */
+function undoable(r: ActivityRow): boolean {
+  if (r.undoneAt || !r.latest) return false;
+  if (r.kind === 'deleted') return r.nowStartsAt === null;
+  return (
+    !!r.after &&
+    r.nowStartsAt !== null &&
+    new Date(r.nowStartsAt).toISOString() === new Date(r.after.startsAt).toISOString() &&
+    new Date(r.nowEndsAt!).toISOString() === new Date(r.after.endsAt).toISOString()
+  );
+}
+
+const activityDto = (r: ActivityRow): CalendarActivityDto => ({
+  id: r.id,
+  provider: r.provider,
+  appointmentId: r.appointmentId,
+  jobId: r.jobId,
+  kind: r.kind,
+  title: r.title,
+  detail: r.detail,
+  conflict: r.conflict,
+  createdAt: iso(r.createdAt)!,
+  undoneAt: iso(r.undoneAt),
+  canUndo: undoable(r),
+});
+
+/** The last 30 changes made in this person's calendar and applied to the app. */
+export async function listActivity(tx: Tx, auth: Auth): Promise<CalendarActivityDto[]> {
+  return (await ACTIVITY_SELECT(tx, auth, null)).map(activityDto);
+}
+
+/**
+ * Undo: a move goes back to the old times, a delete puts the appointment back (same job, person,
+ * times and enquiry). The next sync puts the app's version back into the calendar.
+ */
+export async function undoActivity(tx: Tx, auth: Auth, id: string): Promise<CalendarActivityDto> {
+  const [r] = await ACTIVITY_SELECT(tx, auth, id);
+  if (!r) throw notFound('Calendar change');
+  if (r.undoneAt) throw new AppError(409, 'already_undone', 'That change has already been undone.');
+  if (!undoable(r))
+    throw new AppError(
+      409,
+      'changed_since',
+      'The appointment has changed since then, so this can’t be undone. Change it on the job instead.',
+    );
+  const b = r.before;
+  await lockJob(tx, b.jobId);
+  if (r.kind === 'moved') {
+    await tx`UPDATE appointments SET starts_at = ${b.startsAt}, ends_at = ${b.endsAt}, updated_at = now()
+              WHERE id = ${r.appointmentId}`;
+  } else {
+    const [job] = await tx`SELECT 1 FROM jobs WHERE id = ${b.jobId}`;
+    if (!job) throw new AppError(409, 'changed_since', 'The job has been deleted since then.');
+    const [person] = b.userId
+      ? await tx`SELECT 1 FROM memberships WHERE tenant_id = ${auth.tenantId} AND user_id = ${b.userId}`
+      : [true];
+    await tx`
+      INSERT INTO appointments (id, tenant_id, job_id, user_id, starts_at, ends_at, created_at)
+      VALUES (${r.appointmentId}, ${auth.tenantId}, ${b.jobId}, ${person ? b.userId : null},
+              ${b.startsAt}, ${b.endsAt}, ${b.createdAt})`;
+    if (b.enquiryIds.length)
+      await tx`UPDATE enquiries SET appointment_id = ${r.appointmentId}
+                WHERE id = ANY(${b.enquiryIds}::uuid[]) AND appointment_id IS NULL`;
+    await applyEvent(tx, auth, b.jobId, 'appointment_created');
+  }
+  // Make the next sync send the app's version to the calendar.
+  await tx`UPDATE calendar_event_links SET app_hash = '' WHERE appointment_id = ${r.appointmentId}`;
+  await tx`UPDATE calendar_activity SET undone_at = now(), undone_by = ${auth.userId} WHERE id = ${id}`;
+  await audit(tx, auth, 'calendar_change_undone', 'appointment', r.appointmentId, { kind: r.kind });
+  const [after] = await ACTIVITY_SELECT(tx, auth, id);
+  return activityDto(after!);
 }
 
 /* ------------------------- Google sign-in (OAuth + PKCE) ------------------------- */

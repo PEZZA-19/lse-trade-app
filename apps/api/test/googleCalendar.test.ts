@@ -208,14 +208,14 @@ describe('Google Calendar: sign-in and sync (faked Google)', () => {
     expect((await s.req('GET', '/api/calendar-sync')).body.connections).toEqual([]);
   });
 
-  it('pushes bookings, reads changes incrementally (paged), turns a Google move into a proposal', async () => {
+  it('pushes bookings, reads changes incrementally (paged), applies a Google move and delete straight away', async () => {
     const s = await setup();
     await connect(s);
     const a = await book(s, 24);
     const b = await book(s, 48);
     const c = await book(s, 72);
     const run1 = (await s.req('POST', '/api/calendar-sync/run')).body;
-    expect(run1).toMatchObject({ created: 3, proposals: 0, problems: [] });
+    expect(run1).toMatchObject({ created: 3, applied: 0, problems: [] });
     const calId = [...s.fake.calendars.keys()][0]!;
     const live = s.fake.live(calId);
     expect(live).toHaveLength(3);
@@ -226,7 +226,7 @@ describe('Google Calendar: sign-in and sync (faked Google)', () => {
 
     // Our own writes echo back (3 events over 2 pages): nothing to approve.
     const run2 = (await s.req('POST', '/api/calendar-sync/run')).body;
-    expect(run2).toMatchObject({ created: 0, updated: 0, proposals: 0 });
+    expect(run2).toMatchObject({ created: 0, updated: 0, applied: 0 });
     const lists = s.fake.requests.filter((r) => r.startsWith('GET') && r.endsWith('/events'));
     expect(lists.length).toBeGreaterThanOrEqual(3);
 
@@ -236,17 +236,21 @@ describe('Google Calendar: sign-in and sync (faked Google)', () => {
     s.fake.remove(calId, evB.id);
     s.fake.addAllDay(calId, h(100).slice(0, 10));
     const run3 = (await s.req('POST', '/api/calendar-sync/run')).body;
-    expect(run3.proposals).toBe(2);
+    expect(run3.applied).toBe(2);
     const props = (await s.req('GET', '/api/proposals')).body;
-    const cal = (props.items ?? props).filter(
-      (p: { kind: string }) => p.kind === 'calendar_change',
-    );
+    expect(
+      (props.items ?? props).filter((p: { kind: string }) => p.kind === 'calendar_change'),
+    ).toEqual([]);
+    const cal = (await s.req('GET', '/api/calendar-sync/activity')).body;
     expect(cal.map((p: { title: string }) => p.title).sort()).toEqual(
       [
         `Job ${a.job.number}: moved in Google Calendar`,
         `Job ${b.job.number}: deleted in Google Calendar`,
       ].sort(),
     );
+    // Nothing to send back for A (Google already shows it), and the hand-made event is ignored.
+    const run3b = (await s.req('POST', '/api/calendar-sync/run')).body;
+    expect(run3b).toMatchObject({ created: 0, updated: 0, deleted: 0, applied: 0 });
     // Moving C in the app goes out as an update.
     const moved = await s.req('PATCH', `/api/appointments/${c.appt.id}`, {
       startsAt: h(80),
@@ -267,7 +271,7 @@ describe('Google Calendar: sign-in and sync (faked Google)', () => {
     s.fake.expireTokensBefore = 10_000;
     s.fake.expireAccessTokens();
     const r = (await s.req('POST', '/api/calendar-sync/run')).body;
-    expect(r).toMatchObject({ created: 0, proposals: 0, problems: [] });
+    expect(r).toMatchObject({ created: 0, applied: 0, problems: [] });
 
     s.fake.revokeAll();
     const r2 = (await s.req('POST', '/api/calendar-sync/run')).body;

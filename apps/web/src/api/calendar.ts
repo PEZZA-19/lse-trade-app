@@ -1,4 +1,5 @@
 import type {
+  CalendarActivityDto,
   CalendarFeedDto,
   CalendarProvider,
   CalendarSyncResultDto,
@@ -38,6 +39,7 @@ export function useRevokeFeed() {
 /* --------------------------- two-way calendar sync ------------------------- */
 
 const syncKey = ['calendar-sync'] as const;
+const activityKey = ['calendar-sync', 'activity'] as const;
 
 export const useCalendarSync = (enabled = true) =>
   useQuery({
@@ -61,9 +63,14 @@ export function useRunCalendarSync() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api<CalendarSyncResultDto>('POST', '/calendar-sync/run'),
-    onSuccess: () => {
+    onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: syncKey });
-      void qc.invalidateQueries({ queryKey: ['proposals'] });
+      void qc.invalidateQueries({ queryKey: activityKey });
+      // Moves and deletes from Google change appointments straight away.
+      if (r.applied) {
+        void qc.invalidateQueries({ queryKey: ['jobs'] });
+        void qc.invalidateQueries({ queryKey: ['schedule'] });
+      }
     },
   });
 }
@@ -73,5 +80,26 @@ export function useDisconnectCalendar() {
   return useMutation({
     mutationFn: (id: string) => api<null>('DELETE', `/calendar-sync/${id}`),
     onSuccess: () => void qc.invalidateQueries({ queryKey: syncKey }),
+  });
+}
+
+/** Moves and deletes made in Google Calendar, applied straight away (newest first). */
+export const useCalendarActivity = (enabled = true) =>
+  useQuery({
+    queryKey: activityKey,
+    queryFn: () => api<CalendarActivityDto[]>('GET', '/calendar-sync/activity'),
+    enabled,
+  });
+
+export function useUndoCalendarChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<CalendarActivityDto>('POST', `/calendar-sync/activity/${id}/undo`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['calendar-sync'] });
+      void qc.invalidateQueries({ queryKey: ['jobs'] });
+      void qc.invalidateQueries({ queryKey: ['schedule'] });
+    },
   });
 }

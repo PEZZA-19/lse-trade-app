@@ -1084,6 +1084,23 @@ export function createApp(deps: AppDeps) {
       ),
     ),
   );
+  // Moves and deletes made in Google, applied straight away, with Undo.
+  app.get('/api/calendar-sync/activity', async (c) =>
+    c.json(await c.var.tx((tx) => calendarSync.listActivity(tx, c.var.auth))),
+  );
+  app.post('/api/calendar-sync/activity/:id/undo', async (c) => {
+    const id = uuidParam(c);
+    const r = await c.var.tx((tx) => calendarSync.undoActivity(tx, c.var.auth, id));
+    // Put the app's version back into Google now if we can; otherwise the 15-minute sync does it.
+    try {
+      await c.var.tx((tx) =>
+        calendarSync.syncMine(tx, c.var.auth, calendarAdapters, deps.auth.appOrigin),
+      );
+    } catch {
+      /* the scheduled sync will try again */
+    }
+    return c.json(r);
+  });
   app.delete('/api/calendar-sync/:id', async (c) => {
     const id = uuidParam(c);
     await c.var.tx((tx) => calendarSync.disconnect(tx, c.var.auth, id));

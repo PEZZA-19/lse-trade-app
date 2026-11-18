@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '../api/client';
 import {
+  useCalendarActivity,
   useCalendarFeeds,
   useCalendarSync,
   useConnectCalendar,
@@ -16,6 +17,7 @@ import {
   useRegenerateFeed,
   useRevokeFeed,
   useRunCalendarSync,
+  useUndoCalendarChange,
 } from '../api/calendar';
 import { useMe } from '../api/hooks';
 import { useToast } from '../components/Toast';
@@ -244,7 +246,7 @@ function DemoCalendar() {
 }
 
 const TWO_WAY_NOTE =
-  'Two-way: your booked jobs go into an “LSE jobs” calendar in your Google account, and if someone moves or deletes one there, it comes back here as a change to approve (nothing changes by itself). The app only sees that one calendar, not the rest of your Google Calendar. It syncs by itself every 15 minutes.';
+  'Two-way: your booked jobs go into an “LSE jobs” calendar in your Google account, and if someone moves or deletes one there, the app updates straight away. Each change is listed below with Undo. The app only sees that one calendar, not the rest of your Google Calendar. It syncs by itself every 15 minutes.';
 
 /** Two-way sync with Google Calendar, per person. */
 function TwoWaySection() {
@@ -335,8 +337,8 @@ function TwoWaySection() {
                     r.problems?.length
                       ? toast.show(r.problems[0]!, { tone: 'error' })
                       : toast.show(
-                          r.proposals
-                            ? `${r.proposals} calendar ${r.proposals === 1 ? 'change' : 'changes'} to approve`
+                          r.applied
+                            ? `${r.applied} ${r.applied === 1 ? 'change' : 'changes'} from Google Calendar applied`
                             : `Calendar up to date (${r.created + r.updated + r.deleted} changed)`,
                         ),
                   onError: (e) => toast.show(e.message, { tone: 'error' }),
@@ -360,6 +362,53 @@ function TwoWaySection() {
           </Button>
         </div>
       )}
+      {c && <CalendarActivity />}
     </Section>
+  );
+}
+
+/** Changes made in Google Calendar and applied here, newest first, each with Undo. */
+function CalendarActivity() {
+  const activity = useCalendarActivity();
+  const undo = useUndoCalendarChange();
+  const toast = useToast();
+  const items = activity.data ?? [];
+  if (!items.length) return null;
+  return (
+    <>
+      <h3 className="section__header" style={{ marginTop: 'var(--space-4)' }}>
+        Changes from Google Calendar
+      </h3>
+      <List label="Changes from Google Calendar">
+        {items.slice(0, 10).map((a) => (
+          <li key={a.id}>
+            <div className="row">
+              <div className="row__main">
+                <span className="row__title">{a.title}</span>
+                <span className="row__sub" style={{ whiteSpace: 'normal' }}>
+                  {a.undoneAt ? 'Undone. ' : ''}
+                  {a.detail} · {formatDayShort(new Date(a.createdAt))}
+                </span>
+              </div>
+              {a.canUndo && (
+                <Button
+                  variant="plain"
+                  aria-label={`Undo: ${a.title}`}
+                  loading={undo.isPending && undo.variables === a.id}
+                  onClick={() =>
+                    undo.mutate(a.id, {
+                      onSuccess: () => toast.show('Undone. Google Calendar is being put back too.'),
+                      onError: (e) => toast.show(e.message, { tone: 'error' }),
+                    })
+                  }
+                >
+                  Undo
+                </Button>
+              )}
+            </div>
+          </li>
+        ))}
+      </List>
+    </>
   );
 }

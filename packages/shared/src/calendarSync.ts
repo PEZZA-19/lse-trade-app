@@ -4,9 +4,9 @@
  * changes a calendar reports. The API runs the plans through a provider adapter.
  *
  * Rules (PROGRESS.md design note): the app writes only to its own "LSE jobs" calendar; events made
- * by hand in that calendar are ignored; a move or delete made in the calendar never changes the app
- * silently — it becomes a proposal in Approvals that Joe applies or discards. If both sides changed
- * since the last sync, the app's version stays and the proposal says so.
+ * by hand in that calendar are ignored; a move or delete made in the calendar updates the app
+ * straight away (Joe, 18 Nov 2026) and is logged on the Calendar screen with Undo. If both sides
+ * changed since the last sync, the calendar's change wins and the log says so.
  */
 import { z } from 'zod';
 
@@ -148,13 +148,13 @@ export type PullProposal =
       fromEndsAt: string;
       startsAt: string;
       endsAt: string;
-      /** The app changed it too since the last sync: applying would overwrite that. */
+      /** The app changed it too since the last sync: applying overwrites that. */
       conflict: boolean;
     }
   | { type: 'cancel'; appointmentId: string; remoteId: string; conflict: boolean };
 
 /**
- * Calendar → app: proposals for linked events that were moved or deleted in the calendar.
+ * Calendar → app: changes to apply for linked events that were moved or deleted in the calendar.
  * Our own writes echo back with the times we wrote, so they produce nothing.
  */
 export function planPull(
@@ -245,7 +245,26 @@ export interface CalendarSyncResultDto {
   created: number;
   updated: number;
   deleted: number;
-  proposals: number;
+  /** Moves and deletes made in the calendar, applied to the app straight away (Joe, 18 Nov 2026). */
+  applied: number;
   /** Calendars that couldn't be synced this time, and why. */
   problems?: string[];
+}
+
+/** A change made in the calendar and applied to the app, with Undo (Calendar screen). */
+export interface CalendarActivityDto {
+  id: string;
+  provider: CalendarProvider;
+  appointmentId: string;
+  jobId: string | null;
+  kind: 'moved' | 'deleted';
+  /** "Job 112: moved in Google Calendar". */
+  title: string;
+  /** "Now Thu 19 Nov, 09:00–11:00 (was Wed 18 Nov, 09:00–11:00)." */
+  detail: string;
+  conflict: boolean;
+  createdAt: string;
+  undoneAt: string | null;
+  /** Only the latest change to an appointment, while the app still matches it, can be undone. */
+  canUndo: boolean;
 }
