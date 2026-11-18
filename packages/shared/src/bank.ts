@@ -13,6 +13,7 @@
  *   while two identical coffees on one day both stay.
  */
 import { z } from 'zod';
+import { EXPENSE_ACCOUNT_CODES } from './ledger';
 
 export interface BankCsvRow {
   /** Line in the file, from 1, for messages. */
@@ -430,3 +431,13 @@ export interface BankMatchedTo {
   id: string;
   label: string;
 }
+
+/** Money out on the bank that the app doesn't have yet: record it as an expense and match it. */
+export const bankLineExpense = z.object({
+  account: z.enum(EXPENSE_ACCOUNT_CODES),
+  payee: z.string().trim().min(1, 'Who was it paid to?').max(200),
+  description: z.string().trim().max(500).default(''),
+  taxPence: z.number().int().min(0).max(100_000_000_00).default(0),
+  memberUserId: z.uuid().nullish(),
+});
+export type BankLineExpense = z.input<typeof bankLineExpense>;

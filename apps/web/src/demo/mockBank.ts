@@ -6,6 +6,7 @@ import {
   BANK_MATCH_DAYS,
   accountByCode,
   bankImportCreate,
+  bankLineExpense,
   bankLineStatus,
   bankMatch,
   formatPence,
@@ -17,6 +18,7 @@ import {
   type BankTransactionDto,
   type BankTxStatus,
   type BusinessDto,
+  type ExpenseDto,
 } from '@lse/shared';
 import type { BusinessCtx } from './mockBusiness';
 
@@ -86,7 +88,11 @@ function candidatesFrom(books: BusinessDto, from: string, to: string): BankMatch
 }
 
 export function bankRoute(
-  c: BusinessCtx & { books: () => BusinessDto; db: { bank?: DemoBankLine[] } },
+  c: BusinessCtx & {
+    books: () => BusinessDto;
+    addExpense: (input: unknown) => ExpenseDto;
+    db: { bank?: DemoBankLine[] };
+  },
   method: string,
   seg: string[],
   query: URLSearchParams | undefined,
@@ -196,6 +202,15 @@ export function bankRoute(
       c.fail(409, 'taken', 'That is already matched to another bank line.');
     Object.assign(line, { status: 'matched', matchKind: to.kind, matchId: to.id });
     return null;
+  }
+  if (method === 'POST' && sub === 'expense' && line) {
+    const input = c.parse(bankLineExpense, body);
+    if (line.status !== 'unmatched')
+      c.fail(409, 'already_matched', 'This bank line is already matched or ignored.');
+    if (line.amountPence >= 0) c.fail(422, 'money_in', 'Only money going out can be an expense.');
+    const e = c.addExpense({ ...input, date: line.date, amountPence: -line.amountPence });
+    Object.assign(line, { status: 'matched', matchKind: 'expense', matchId: e.id });
+    return e;
   }
   if (method === 'PUT' && sub === 'status' && line) {
     const { status } = c.parse(bankLineStatus, body);

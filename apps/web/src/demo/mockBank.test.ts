@@ -47,4 +47,22 @@ describe('demo bank statements (mirror the server)', () => {
       await send<BankTransactionDto[]>('GET', '/bank/transactions?status=unmatched'),
     ).toHaveLength(1);
   });
+
+  it('adds a money-out line as an expense, matched', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+      new Date(),
+    );
+    const [y, m, d] = today.split('-');
+    await send('POST', '/bank/imports', {
+      fileName: 'f.csv',
+      csv: `Date,Description,Amount\n${d}/${m}/${y},CONDOR FERRIES,-86.50\n`,
+    });
+    const [line] = await send<BankTransactionDto[]>('GET', '/bank/transactions?status=unmatched');
+    const e = await send<ExpenseDto>('POST', `/bank/transactions/${line!.id}/expense`, {
+      account: '493',
+      payee: 'Condor Ferries',
+    });
+    expect(e).toMatchObject({ amountPence: 8650, date: today, account: '493' });
+    expect(await send('GET', '/bank/transactions?status=unmatched')).toEqual([]);
+  });
 });

@@ -1,5 +1,6 @@
 import type {
   BankImportResultDto,
+  BankLineExpense,
   BankMatchKind,
   BankTransactionDto,
   BillPaymentCreate,
@@ -132,5 +133,19 @@ export function useBankLineAction() {
         ? api<null>('POST', `/bank/transactions/${a.id}/match`, a.match)
         : api<null>('PUT', `/bank/transactions/${a.id}/status`, { status: a.status }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: bankKey }),
+  });
+}
+
+/** Money out on the bank recorded as an expense and matched in one go. */
+export function useExpenseFromBankLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & Omit<BankLineExpense, never>) =>
+      api<ExpenseDto>('POST', `/bank/transactions/${id}/expense`, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: bankKey });
+      void qc.invalidateQueries({ queryKey: expensesKey });
+      void qc.invalidateQueries({ queryKey: businessKey });
+    },
   });
 }

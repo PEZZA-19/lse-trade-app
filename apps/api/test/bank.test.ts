@@ -237,3 +237,47 @@ describe('bank matching', () => {
     ).toBe(404);
   });
 });
+
+describe('bank line to expense', () => {
+  it('records a money-out line as an expense with its date and amount, matched; refuses money in', async () => {
+    const c = await client();
+    await c.req('POST', '/api/bank/imports', {
+      fileName: 'e.csv',
+      csv: `Date,Description,Amount\n${day(-1)},CONDOR FERRIES,-86.50\n${day(-1)},SOMEONE,20.00\n`,
+    });
+    const list = (await c.req('GET', '/api/bank/transactions')).body as BankTransactionDto[];
+    const out = list.find((l) => l.amountPence < 0)!;
+    const inn = list.find((l) => l.amountPence > 0)!;
+    const r = await c.req('POST', `/api/bank/transactions/${out.id}/expense`, {
+      account: '493',
+      payee: 'Condor Ferries',
+    });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(r.body).toMatchObject({ account: '493', amountPence: 8650, date: out.date });
+    const matched = (await c.req('GET', '/api/bank/transactions?status=matched'))
+      .body as BankTransactionDto[];
+    expect(matched[0]!.matchedTo).toMatchObject({ kind: 'expense', id: r.body.id });
+    expect(
+      (
+        await c.req('POST', `/api/bank/transactions/${out.id}/expense`, {
+          account: '493',
+          payee: 'X',
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await c.req('POST', `/api/bank/transactions/${inn.id}/expense`, {
+          account: '493',
+          payee: 'X',
+        })
+      ).status,
+    ).toBe(422);
+    const tax = await c.req('POST', `/api/bank/transactions/${inn.id}/expense`, {
+      account: '493',
+      payee: 'X',
+      taxPence: -1,
+    });
+    expect(tax.status).toBe(422);
+  });
+});

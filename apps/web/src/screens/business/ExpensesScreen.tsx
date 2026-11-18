@@ -6,10 +6,17 @@ import {
   presetRange,
   WAGES_ACCOUNT,
   type ExpenseAccountCode,
+  type BankTransactionDto,
   type ExpenseDto,
 } from '@lse/shared';
 import { useMemo, useState } from 'react';
-import { useBusiness, useAddExpense, useDeleteExpense, useExpenses } from '../../api/business';
+import {
+  useBusiness,
+  useAddExpense,
+  useDeleteExpense,
+  useExpenseFromBankLine,
+  useExpenses,
+} from '../../api/business';
 import { useAccess, useMembers } from '../../api/hooks';
 import { canSee } from '@lse/shared';
 import { IconBusiness } from '../../components/icons';
@@ -30,6 +37,9 @@ import { ConfirmSheet } from '../invoices/InvoiceSheets';
 import { money, shortDate } from './format';
 
 const name = (code: string) => accountByCode(code)?.name ?? code;
+/** "CONDOR FERRIES LTD" → "Condor Ferries Ltd" (bank lines are often in capitals). */
+const titleCase = (s: string) =>
+  s === s.toUpperCase() ? s.toLowerCase().replace(/\b[a-z]/g, (ch) => ch.toUpperCase()) : s;
 
 /**
  * Business › Expenses and Wages: overheads that aren't supplier bills (insurance, fuel, phone,
@@ -158,16 +168,28 @@ export function ExpensesScreen() {
   );
 }
 
-function AddExpenseSheet(props: { today: string; onClose: () => void }) {
+/**
+ * Add an expense or wages. From a bank line (`fromBank`), the date and amount are the bank's and
+ * it's matched to that line when saved.
+ */
+export function AddExpenseSheet(props: {
+  today: string;
+  onClose: () => void;
+  fromBank?: BankTransactionDto;
+}) {
+  const fromBank = props.fromBank;
   const add = useAddExpense();
+  const addFromBank = useExpenseFromBankLine();
   const members = useMembers();
   const toast = useToast();
-  const [date, setDate] = useState(props.today);
+  const [date, setDate] = useState(fromBank?.date ?? props.today);
   const [account, setAccount] = useState<ExpenseAccountCode>('449');
-  const [payee, setPayee] = useState('');
+  const [payee, setPayee] = useState(fromBank ? titleCase(fromBank.description) : '');
   const [memberId, setMemberId] = useState('');
   const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(
+    fromBank ? (Math.abs(fromBank.amountPence) / 100).toFixed(2) : '',
+  );
   const [tax, setTax] = useState('');
   const wages = account === WAGES_ACCOUNT;
   const pence = parsePounds(amount);
@@ -186,6 +208,27 @@ function AddExpenseSheet(props: { today: string; onClose: () => void }) {
   const ready = !!who && pence !== null && pence > 0 && !problem && !!date;
   const save = () => {
     if (!ready || pence === null) return;
+    const done = {
+      onSuccess: () => {
+        toast.show(`${wages ? 'Wages' : 'Expense'} added · ${money(pence)}`);
+        props.onClose();
+      },
+      onError: (e: Error) => toast.show(e.message, { tone: 'error' }),
+    };
+    if (fromBank) {
+      addFromBank.mutate(
+        {
+          id: fromBank.id,
+          account,
+          payee: who,
+          description: description.trim(),
+          taxPence: taxPence ?? 0,
+          memberUserId: wages && memberId ? memberId : null,
+        },
+        done,
+      );
+      return;
+    }
     add.mutate(
       {
         date,
@@ -211,7 +254,12 @@ function AddExpenseSheet(props: { today: string; onClose: () => void }) {
       title={wages ? 'Add Wages' : 'Add Expense'}
       onClose={props.onClose}
       action={
-        <Button variant="plain" onClick={save} disabled={!ready} loading={add.isPending}>
+        <Button
+          variant="plain"
+          onClick={save}
+          disabled={!ready}
+          loading={add.isPending || addFromBank.isPending}
+        >
           Add
         </Button>
       }
@@ -255,6 +303,7 @@ function AddExpenseSheet(props: { today: string; onClose: () => void }) {
           type="date"
           value={date}
           max={props.today}
+          readOnly={!!fromBank}
           onChange={(e) => setDate(e.target.value)}
         />
         <TextField
@@ -262,6 +311,7 @@ function AddExpenseSheet(props: { today: string; onClose: () => void }) {
           inputMode="decimal"
           placeholder="0.00"
           value={amount}
+          readOnly={!!fromBank}
           onChange={(e) => setAmount(e.target.value)}
           error={problem ?? undefined}
         />

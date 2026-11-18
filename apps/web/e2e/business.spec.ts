@@ -105,6 +105,7 @@ test('bank statement: import a CSV, match a line to an expense, unmatch, ignore'
     'Date,Description,Amount',
     `${d}/${m}/${y},FUEL ${stamp} STATION,-${pounds}`,
     `${d}/${m}/${y},TRANSFER ${stamp},-5.00`,
+    `${d}/${m}/${y},FERRY ${stamp},-12.34`,
     'nonsense,row,1',
   ].join('\n');
   await page.getByLabel('Bank statement CSV file').setInputFiles({
@@ -112,8 +113,8 @@ test('bank statement: import a CSV, match a line to an expense, unmatch, ignore'
     mimeType: 'text/csv',
     buffer: Buffer.from(csv),
   });
-  await expect(page.getByText('2 bank lines imported')).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Last import' })).toContainText('Line 4 skipped');
+  await expect(page.getByText('3 bank lines imported')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Last import' })).toContainText('Line 5 skipped');
 
   const lines = page.getByRole('list', { name: 'Bank lines' });
   await expect(lines).toContainText(`FUEL ${stamp} STATION`);
@@ -122,6 +123,15 @@ test('bank statement: import a CSV, match a line to an expense, unmatch, ignore'
     .click();
   await expect(page.getByText('Matched', { exact: true }).last()).toBeVisible();
   await expect(page.getByText(`FUEL ${stamp} STATION`)).toHaveCount(0);
+  // Money out the app doesn't have: add it as an expense from the line (date and amount are the bank's).
+  await page.getByRole('button', { name: `Add FERRY ${stamp} as an expense` }).click();
+  const sheet = page.getByRole('dialog', { name: 'Add Expense' });
+  await expect(sheet.getByLabel('Paid to')).toHaveValue(`Ferry ${stamp}`);
+  await expect(sheet.getByLabel('Amount (£)')).toHaveValue('12.34');
+  await sheet.getByLabel('What for').selectOption({ label: 'Travel and ferries' });
+  await sheet.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText('Expense added · £12.34')).toBeVisible();
+  await expect(page.getByText(`FERRY ${stamp}`)).toHaveCount(0);
   await page.getByRole('button', { name: `Ignore TRANSFER ${stamp}` }).click();
   await expect(page.getByText(`TRANSFER ${stamp}`)).toHaveCount(0);
 

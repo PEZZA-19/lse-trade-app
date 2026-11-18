@@ -167,7 +167,17 @@ export function businessRoute(
 ): unknown {
   const [a, id, sub] = seg;
   if (a === 'bank')
-    return bankRoute({ ...c, books: () => demoBusiness(c) }, method, seg, query, body);
+    return bankRoute(
+      {
+        ...c,
+        books: () => demoBusiness(c),
+        addExpense: (input) => businessRoute(c, 'POST', ['expenses'], input) as ExpenseDto,
+      },
+      method,
+      seg,
+      query,
+      body,
+    );
   if (a === 'business') {
     if (method === 'GET' && !id) return demoBusiness(c);
     if (method === 'PUT' && id === 'opening') {

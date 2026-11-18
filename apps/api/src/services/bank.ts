@@ -15,12 +15,14 @@ import {
   type BankMatchKind,
   type BankTransactionDto,
   type BankTxStatus,
+  type ExpenseDto,
 } from '@lse/shared';
 import type { Tx } from '../db/client';
 import { AppError, conflict, notFound } from '../lib/errors';
 import { iso, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { today } from './invoices';
+import { createExpense } from './expenses';
 
 export async function importStatement(
   tx: Tx,
@@ -294,4 +296,32 @@ export async function setLineStatus(
       was: line.status,
     },
   );
+}
+
+/** Records a money-out bank line as an expense (same date and amount) and matches it, in one go. */
+export async function expenseFromLine(
+  tx: Tx,
+  auth: Auth,
+  id: string,
+  input: {
+    account: ExpenseDto['account'];
+    payee: string;
+    description: string;
+    taxPence: number;
+    memberUserId?: string | null;
+  },
+): Promise<ExpenseDto> {
+  const line = await lockLine(tx, id);
+  if (line.status !== 'unmatched')
+    throw conflict('already_matched', 'This bank line is already matched or ignored.');
+  if (line.amountPence >= 0)
+    throw new AppError(422, 'money_in', 'Only money going out can be an expense.');
+  const amountPence = -line.amountPence;
+  if (input.taxPence > amountPence)
+    throw new AppError(422, 'validation_failed', 'The tax can’t be more than the amount.', {
+      fields: { taxPence: 'More than the amount' },
+    });
+  const e = await createExpense(tx, auth, { ...input, date: line.date, amountPence });
+  await matchLine(tx, auth, id, { kind: 'expense', id: e.id });
+  return e;
 }

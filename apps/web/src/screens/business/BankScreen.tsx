@@ -18,6 +18,7 @@ import {
   Section,
   Segmented,
 } from '../../components/ui';
+import { AddExpenseSheet } from './ExpensesScreen';
 import { money, shortDate } from './format';
 
 type Tab = 'unmatched' | 'matched' | 'ignored';
@@ -36,6 +37,10 @@ export function BankScreen() {
   const toast = useToast();
   const file = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<BankImportResultDto | null>(null);
+  const [expenseFor, setExpenseFor] = useState<BankTransactionDto | null>(null);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+    new Date(),
+  );
   const back = { label: 'Business', to: '/business' };
 
   const onFile = async (f: File | undefined) => {
@@ -162,10 +167,20 @@ export function BankScreen() {
         >
           <List label="Bank lines">
             {lines.data.map((l) => (
-              <BankLine key={l.id} l={l} canEdit={canEdit} busy={act.isPending} run={run} />
+              <BankLine
+                key={l.id}
+                l={l}
+                canEdit={canEdit}
+                busy={act.isPending}
+                run={run}
+                onExpense={setExpenseFor}
+              />
             ))}
           </List>
         </Section>
+      )}
+      {expenseFor && (
+        <AddExpenseSheet today={today} fromBank={expenseFor} onClose={() => setExpenseFor(null)} />
       )}
     </Page>
   );
@@ -176,10 +191,12 @@ function BankLine({
   canEdit,
   busy,
   run,
+  onExpense,
 }: {
   l: BankTransactionDto;
   canEdit: boolean;
   busy: boolean;
+  onExpense: (l: BankTransactionDto) => void;
   run: (a: Parameters<ReturnType<typeof useBankLineAction>['mutate']>[0], done: string) => void;
 }) {
   const inn = l.amountPence > 0;
@@ -223,7 +240,7 @@ function BankLine({
             <span className="row__sub" style={{ whiteSpace: 'normal' }}>
               {inn
                 ? 'No payment in the app matches. Record the payment on its invoice, then it’ll be suggested.'
-                : 'Nothing in the app matches. Add it as an expense or a supplier bill payment, then it’ll be suggested.'}
+                : 'Nothing in the app matches. Add it as an expense, or record the supplier bill payment, then it’ll be suggested.'}
             </span>
           )}
         </span>
@@ -232,6 +249,16 @@ function BankLine({
             {inn ? '+' : '−'}
             {money(Math.abs(l.amountPence))}
           </span>
+          {canEdit && l.status === 'unmatched' && !inn && (
+            <Button
+              variant="plain"
+              disabled={busy}
+              aria-label={`Add ${l.description} as an expense`}
+              onClick={() => onExpense(l)}
+            >
+              Add as Expense
+            </Button>
+          )}
           {canEdit && l.status === 'unmatched' && (
             <Button
               variant="plain"
