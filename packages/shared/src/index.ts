@@ -25,3 +25,4 @@ export * from './access';
 export * from './ics';
 export * from './ledger';
 export * from './calendarSync';
+export * from './bank';

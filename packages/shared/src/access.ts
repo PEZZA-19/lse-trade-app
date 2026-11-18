@@ -72,7 +72,7 @@ export interface MemberAccessDto extends Access {
 
 /** Which area an API path belongs to (null: open to everyone signed in). */
 export function areaForPath(method: string, path: string): AccessArea | null {
-  if (/^\/api\/(invoices|credit-notes|supplier-bills|suppliers|expenses)(\/|$)/.test(path))
+  if (/^\/api\/(invoices|credit-notes|supplier-bills|suppliers|expenses|bank)(\/|$)/.test(path))
     return 'financials';
   if (/^\/api\/jobs\/[^/]+\/(invoices|invoicing)$/.test(path)) return 'financials';
   // The business overview and Xero-style reports: Reports here, and Accounts checked by the route.

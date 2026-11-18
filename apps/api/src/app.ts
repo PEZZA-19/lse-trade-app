@@ -45,6 +45,8 @@ import {
   invoiceApprove,
   billPaymentCreate,
   expenseCreate,
+  bankImportCreate,
+  bankTxQuery,
   expenseQuery,
   budgetUpdate,
   openingBalanceUpdate,
@@ -109,6 +111,7 @@ import * as billRead from './services/billRead';
 import * as reports from './services/reports';
 import * as business from './services/business';
 import * as expenses from './services/expenses';
+import * as bank from './services/bank';
 import * as team from './services/team';
 import { AiGateway } from './ai/gateway';
 
@@ -940,6 +943,15 @@ export function createApp(deps: AppDeps) {
     const id = uuidParam(c);
     await c.var.tx((tx) => expenses.deleteExpense(tx, c.var.auth, id));
     return c.body(null, 204);
+  });
+  // Bank statements (Accounts access to see; the owner imports and matches).
+  app.post('/api/bank/imports', async (c) => {
+    const input = parse(bankImportCreate, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => bank.importStatement(tx, c.var.auth, input)), 201);
+  });
+  app.get('/api/bank/transactions', async (c) => {
+    const q = parse(bankTxQuery, { status: c.req.query('status') });
+    return c.json(await c.var.tx((tx) => bank.listTransactions(tx, q.status)));
   });
   app.get('/api/supplier-bills/:id/payments', async (c) => {
     const id = uuidParam(c);
