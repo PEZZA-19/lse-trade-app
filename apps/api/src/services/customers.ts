@@ -13,6 +13,7 @@ import { isoNN, type Auth } from '../lib/types';
 import { canSee } from '@lse/shared';
 import { accessOf } from './access';
 import { audit } from './audit';
+import { availableCredits } from './invoices';
 import { listJobs } from './jobs';
 import { listQuotes } from './quotes';
 
@@ -95,6 +96,7 @@ export async function getCustomer(tx: Tx, id: string, auth?: Auth): Promise<Cust
     contacts: [...contacts],
     quotes: quotes.items,
     jobs: jobs.items,
+    credits: !auth || canSee(accessOf(auth), 'financials') ? await availableCredits(tx, id) : [],
   };
 }
 

@@ -346,7 +346,8 @@ export async function markSent(tx: Tx, auth: Auth, id: string): Promise<QuoteDet
   if (!lines.length) throw invalid('Add at least one line before sending');
   // Never record a £0 quote as sent (a known trap in other apps: see docs/REQUIREMENTS_FROM_REVIEWS.md, M8/A4).
   const totals = quoteTotals(lines.map(priced), { markupBp: rev.defaultMarkupBp }, []);
-  if (totals.corePence <= 0) throw invalid('This quote totals £0. Add prices before sending.');
+  // Below £0 is allowed (e.g. rent payments outweigh the work): the job becomes a customer credit.
+  if (totals.corePence === 0) throw invalid('This quote totals £0. Add prices before sending.');
   // Pre-send completeness check: the customer must be able to see who it's from and how to reply.
   await assertReadyToSendQuote(tx);
   await tx`UPDATE quote_revisions SET sent_at = now() WHERE id = ${rev.id}`;

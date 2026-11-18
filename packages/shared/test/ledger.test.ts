@@ -400,3 +400,43 @@ describe('minus (credit) lines on an invoice', () => {
     expect(p.reduce((s, x) => s + x.pence, 0)).toBe(0);
   });
 });
+
+describe('customer credit (a job below £0) used on a later invoice', () => {
+  const credit = { ...inv('cr', '2027-03-01', null, 10_000, -15_000), number: 'CN-0001' };
+  const later = inv('4', '2027-03-10', '2027-03-24', 20_000, 20_000);
+  const b = (): BooksInput => ({
+    ...books(),
+    invoices: [...books().invoices, credit, later],
+    creditUses: [
+      { id: 'u1', creditId: 'cr', invoiceId: '4', date: '2027-03-10', amountPence: 15_000 },
+    ],
+  });
+
+  it('posts as negative sales and receivable; the use itself moves nothing in the books', () => {
+    const ps = postings(b()).filter((p) => p.sourceId === 'cr');
+    expect(ps.find((p) => p.account === '610')!.pence).toBe(-15_000);
+    expect(ps.reduce((s, p) => s + p.pence, 0)).toBe(0);
+    expect(ps[0]!.description).toBe('Customer credit for job 122');
+    expect(postings(b()).filter((p) => p.sourceId === 'u1')).toEqual([]);
+  });
+
+  it('before the use the credit is a negative open item; after, the invoice owes less', () => {
+    const before = openInvoices(b(), '2027-03-05');
+    expect(before.find((x) => x.id === 'cr')!.duePence).toBe(-15_000);
+    const after = openInvoices(b(), '2027-03-31');
+    expect(after.find((x) => x.id === 'cr')).toBeUndefined();
+    expect(after.find((x) => x.id === '4')!.duePence).toBe(5_000);
+    const o = overview({
+      ...b(),
+      today: '2027-03-05',
+      yearStart: '01-01',
+      yearEffectiveFrom: '2027-01-01',
+      pipeline: [],
+      openQuotes: { count: 0, valuePence: 0 },
+    });
+    expect(o.owedToYou.creditPence).toBe(15_000);
+    const bs = balanceSheet(b(), '2027-03-31', '01-01');
+    const v = (l: string) => bs.rows.find((r) => r.label === l)!.values[0];
+    expect(v('Net assets')).toBe(v('Total equity'));
+  });
+});

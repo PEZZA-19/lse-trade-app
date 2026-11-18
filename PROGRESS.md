@@ -662,9 +662,8 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 34. Business overview: what was your bank balance on the day you'd like the app's records to start
     (e.g. 1 Jan 2027)? It makes Bank and Cash and the Balance Sheet match your bank.
 35. Do you want a budget for 2027 (monthly income and materials targets) for Budget vs Actual?
-36. Jobs 14 (rent payments) and 108 (supplier credit) come to less than £0, which means you owe the
-    customer. The app won't approve an invoice for £0 or less. Should these be a credit note or a
-    refund to the customer instead, or carried forward onto their next invoice?
+36. ANSWERED 18 Nov 2026 by Joe: a job that comes to less than £0 is a **customer credit**, used on
+    that customer's next invoice (not a refund). Done in session 5 (see below).
 37. Two-way calendar sync needs two one-off setups in your name: a Google Cloud project (so the app
     can ask to use a "LSE jobs" calendar in your Google account; Google reviews the request) and a
     Microsoft (Azure) app registration for Outlook. Shall I prepare step-by-step instructions, and
@@ -808,6 +807,41 @@ so You Owe is £0 there until they are.
   a schedule so it runs without "Sync Now", token encryption key handling in the Worker.
 
 ## Joe's decisions (18 Nov 2026, 06:20)
+
 - Jobs 14 and 108 (totals below £0): treat as a **credit** for the customer (customer credit balance / credit note style, applied to their next invoice), not a refund.
 - Kit labour: keep it **optional** per kit; a kit can be items only, labour only, or both. Don't force a labour line when a kit is added.
 - Calendar: two-way sync with **Google Calendar** only for now (no Outlook). Build the Google sign-in/connection next.
+
+## Done (session 5, Wed 18 Nov 2026)
+
+### Customer credit (Q36, Joe's decision)
+
+- A draft invoice that comes to **less than £0** (e.g. job 14: rent payments bigger than the work)
+  shows **Issue Customer Credit…** instead of Approve. Issuing it (owner only) gives it the next
+  **credit note number** (CN-0001…, shared with credit notes so the sequence has no gaps; the job's
+  invoice numbers aren't used up), status **Customer credit**, no due date, nothing to send or pay,
+  and moves the job to Complete if nothing else is owed. Exactly £0 still can't be approved. A quote
+  may now be sent when it comes to less than £0 (exactly £0 is still refused), so such a job can
+  go quote → job → credit.
+- When the owner approves that customer's **next invoice**, the credit comes off it automatically:
+  oldest credit first, never more than the invoice owes, and only credits issued on or before the
+  invoice date. Recorded in `credit_uses` (migration **0025**; the app's database user can only
+  insert, never change or delete). An invoice fully covered by credit is settled when marked sent.
+- **Shown** on the customer (Customer credit section: CN number and what's left, hidden from people
+  who can't see money), on the credit (Used on invoice …, Credit left), on the invoice (Customer
+  credit CN-0001 used −£…, Balance due) and its PDF; the approve sheet says how much comes off. The
+  credit's PDF is titled **Credit Note**, "Credit to you", no bank details, and says it comes off the
+  next invoice and isn't paid out.
+- **Books**: the credit posts like an invoice with minus amounts (sales down, Accounts receivable
+  down). Using it moves nothing in the books (receivable to receivable); it only changes what is
+  owed on each, so Aged Receivables, the overview and Account Transactions stay consistent and the
+  Balance Sheet balances. An unused credit is a negative item in Aged Receivables; the overview's
+  Owed to You is net of it and says "£x customer credit to use".
+- **Demo** mirrors all of it (`mockBilling`, `mockBusiness`, customer detail).
+- **Tests**: API `customerCredit.test.ts` (6: CN numbering, owner only, no send/pay/credit note,
+  job complete, customer view and field-worker view, PDF wording, next invoices oldest first and
+  partial, fully covered → paid on send, P&L/Balance Sheet/aged/overview figures, £0 still blocked,
+  other business can't see it, earlier-dated invoice doesn't use a later credit, grants); shared
+  ledger (2) and `planCreditUse` (1); demo `mockCredit.test.ts` (1).
+- **Private demo**: real jobs 14 and 108 are now issued as customer credits (were left without an
+  invoice).

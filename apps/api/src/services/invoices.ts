@@ -8,9 +8,11 @@ import {
   invoiceNumber,
   invoiceTotals,
   percentOf,
+  planCreditUse,
   readiness,
   statusAfterPayment,
   type CreditNoteSummaryDto,
+  type CreditUseDto,
   type InvoiceDetailDto,
   type InvoiceLineDto,
   type InvoiceLineKind,
@@ -49,6 +51,7 @@ interface InvoiceRow {
   jobId: string;
   jobNumber: string;
   jobTitle: string;
+  customerId: string;
   customerName: string;
   status: InvoiceStatus;
   source: 'job' | 'quote';
@@ -64,6 +67,7 @@ interface InvoiceRow {
   totalPence: string;
   paidPence: string;
   creditedPence: string;
+  creditUsedPence: string;
   approvedByName: string | null;
   approvedAt: Date | null;
   sentByName: string | null;
@@ -73,10 +77,10 @@ interface InvoiceRow {
 }
 
 const SELECT_INVOICE = `
-  SELECT v.id, v.number, v.job_id, j.number AS job_number, j.title AS job_title, c.name AS customer_name,
+  SELECT v.id, v.number, v.job_id, j.number AS job_number, j.title AS job_title, c.id AS customer_id, c.name AS customer_name,
          v.status, v.source, v.quote_mode, v.quote_id, v.quote_amount_pence, v.issue_date::text AS issue_date,
          v.due_date::text AS due_date, v.terms_days, v.notes, v.subtotal_pence, v.tax_pence, v.total_pence,
-         v.paid_pence, v.credited_pence, ua.name AS approved_by_name, v.approved_at, us.name AS sent_by_name, v.sent_at,
+         v.paid_pence, v.credited_pence, v.credit_used_pence, ua.name AS approved_by_name, v.approved_at, us.name AS sent_by_name, v.sent_at,
          v.created_at, v.version
     FROM invoices v
     JOIN jobs j ON j.id = v.job_id
@@ -104,7 +108,9 @@ function toSummary(r: InvoiceRow, todayIso: string): InvoiceSummaryDto {
     totalPence: total,
     paidPence: paid,
     creditedPence: credited,
-    balancePence: total - paid - credited,
+    // A customer credit: what is left to use, as a negative amount.
+    balancePence:
+      r.status === 'credit' ? total + Number(r.creditUsedPence) : total - paid - credited,
     createdAt: isoNN(r.createdAt),
     version: r.version,
   };
@@ -192,6 +198,7 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
   >`
     SELECT id, number, status, issue_date::text AS issue_date, reason, amount_pence
       FROM credit_notes WHERE invoice_id = ${id} ORDER BY created_at`;
+  const uses = await creditUsesFor(tx, id);
   const [quote] = r.quoteId
     ? await tx<{ number: string }[]>`SELECT number FROM quotes WHERE id = ${r.quoteId}`
     : [];
@@ -203,8 +210,9 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
   const blockers: string[] = [];
   if (r.status === 'draft') {
     for (const m of readiness(settings).invoice.missing) blockers.push(m.label);
-    if (!to.email) blockers.push('Bill payer email');
-    if (Number(r.totalPence) <= 0) blockers.push('An amount to invoice');
+    // A job that comes to less than £0 is issued as a customer credit: nothing to email or pay.
+    if (!to.email && Number(r.totalPence) > 0) blockers.push('Bill payer email');
+    if (Number(r.totalPence) === 0) blockers.push('An amount to invoice');
   }
   return {
     ...toSummary(r, t),
@@ -231,10 +239,99 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
       createdAt: isoNN(p.createdAt),
     })),
     creditNotes: creditNotes.map((c) => ({ ...c, amountPence: Number(c.amountPence) })),
+    creditsApplied: uses.filter((u) => u.invoiceId === id),
+    creditUses: uses.filter((u) => u.creditId === id),
+    creditToUsePence:
+      r.status === 'draft' && Number(r.totalPence) > 0
+        ? Math.min(
+            Number(r.totalPence),
+            (await availableCredits(tx, r.customerId)).reduce((a, c) => a + c.remainingPence, 0),
+          )
+        : 0,
     nextNumber:
-      r.status === 'draft' ? invoiceNumber(r.jobNumber, (jc?.invoiceCount ?? 0) + 1) : null,
+      r.status !== 'draft'
+        ? null
+        : Number(r.totalPence) < 0
+          ? await nextCreditNumber(tx)
+          : invoiceNumber(r.jobNumber, (jc?.invoiceCount ?? 0) + 1),
     approvalBlockers: blockers,
   };
+}
+
+/* ---------------------------- customer credit ----------------------------- */
+
+/** Every use of a customer credit that touches this invoice (as the credit or as the invoice). */
+async function creditUsesFor(tx: Tx, id: string): Promise<CreditUseDto[]> {
+  const rows = await tx<(Omit<CreditUseDto, 'amountPence'> & { amountPence: string })[]>`
+    SELECT u.id, u.credit_invoice_id AS credit_id, cr.number AS credit_number, u.invoice_id,
+           iv.number AS invoice_number, u.applied_on::text AS applied_on, u.amount_pence
+      FROM credit_uses u
+      JOIN invoices cr ON cr.id = u.credit_invoice_id
+      JOIN invoices iv ON iv.id = u.invoice_id
+     WHERE u.credit_invoice_id = ${id} OR u.invoice_id = ${id}
+     ORDER BY u.applied_on, u.created_at`;
+  return rows.map((u) => ({ ...u, amountPence: Number(u.amountPence) }));
+}
+
+/** The CN number issuing a customer credit now would take (credit notes share the sequence). */
+async function nextCreditNumber(tx: Tx): Promise<string | null> {
+  const [seq] = await tx<{ prefix: string; padding: number; nextValue: string }[]>`
+    SELECT prefix, padding, next_value FROM number_sequences WHERE kind = 'credit_note'`;
+  if (!seq) return null;
+  const v = String(Number(seq.nextValue));
+  return seq.prefix + v.padStart(Math.max(seq.padding, v.length), '0');
+}
+
+/** A customer's credit still to use, oldest first (locked, so two approvals can't both use it). */
+export async function availableCredits(
+  tx: Tx,
+  customerId: string,
+  lock = false,
+  /** Only credits issued on or before this date (an invoice dated earlier can't use a later credit). */
+  asOf?: string,
+): Promise<{ id: string; number: string; issueDate: string; remainingPence: number }[]> {
+  const rows = await tx<{ id: string; number: string; issueDate: string; remaining: string }[]>`
+    SELECT v.id, v.number, v.issue_date::text AS issue_date,
+           (-v.total_pence - v.credit_used_pence) AS remaining
+      FROM invoices v JOIN jobs j ON j.id = v.job_id
+     WHERE j.customer_id = ${customerId} AND v.status = 'credit'
+       AND -v.total_pence - v.credit_used_pence > 0
+       AND (${asOf ?? null}::date IS NULL OR v.issue_date <= ${asOf ?? null}::date)
+     ORDER BY v.issue_date, v.number
+     ${lock ? tx`FOR UPDATE OF v` : tx``}`;
+  return rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    issueDate: r.issueDate,
+    remainingPence: Number(r.remaining),
+  }));
+}
+
+/**
+ * Uses the customer's credit on an invoice just approved: oldest credit first, up to what the
+ * invoice owes. Dated the invoice's issue date. Returns the amount taken off.
+ */
+async function applyCredits(
+  tx: Tx,
+  auth: Auth,
+  invoiceId: string,
+  customerId: string,
+  owedPence: number,
+  date: string,
+): Promise<number> {
+  const plan = planCreditUse(await availableCredits(tx, customerId, true, date), owedPence);
+  let used = 0;
+  for (const p of plan) {
+    await tx`INSERT INTO credit_uses (tenant_id, credit_invoice_id, invoice_id, amount_pence, applied_on, created_by)
+             VALUES (${auth.tenantId}, ${p.creditId}, ${invoiceId}, ${p.amountPence}, ${date}::date, ${auth.userId})`;
+    await tx`UPDATE invoices SET credit_used_pence = credit_used_pence + ${p.amountPence} WHERE id = ${p.creditId}`;
+    used += p.amountPence;
+  }
+  if (used) {
+    await tx`UPDATE invoices SET credited_pence = credited_pence + ${used} WHERE id = ${invoiceId}`;
+    await audit(tx, auth, 'use_credit', 'invoice', invoiceId, { uses: plan });
+  }
+  return used;
 }
 
 /* ------------------------------- creation -------------------------------- */
@@ -433,7 +530,10 @@ export async function createInvoice(
           taxRateBp: tax,
         }));
     };
-    if (q.remainingPence <= 0) throw invalid(`Quote ${q.number} is already fully invoiced.`);
+    // A quote that comes to less than £0 (credits outweigh the work) is invoiced whole, once,
+    // and becomes a customer credit on approval.
+    if (q.invoicedPence === 0 ? q.totalPence === 0 : q.remainingPence <= 0)
+      throw invalid(`Quote ${q.number} is already fully invoiced.`);
     switch (input.mode) {
       case 'whole':
         if (q.invoicedPence > 0)
@@ -564,22 +664,42 @@ export async function approve(
         missing: detail.approvalBlockers,
       },
     );
-  const [{ n }] = (await tx`
-    UPDATE jobs SET invoice_count = invoice_count + 1 WHERE id = ${job.id} RETURNING invoice_count AS n`) as unknown as [
-    { n: number },
-  ];
   const t = issueDate ?? (await today(tx));
   if (issueDate) {
     const problem = approveDateProblem(issueDate, await today(tx));
     if (problem)
       throw new AppError(422, 'validation_failed', problem, { fields: { issueDate: problem } });
   }
+  if (detail.totalPence < 0) {
+    // Less than £0: issued as a customer credit (CN number), used on the customer's next invoices.
+    const [num] = await tx<
+      { formatted: string }[]
+    >`SELECT formatted FROM allocate_number('credit_note')`;
+    await tx`
+      UPDATE invoices SET status = 'credit', number = ${num!.formatted}, issue_date = ${t}::date,
+             due_date = NULL, approved_by = ${auth.userId}, approved_at = now()
+       WHERE id = ${id}`;
+    await audit(tx, auth, 'issue_credit', 'invoice', id, {
+      number: num!.formatted,
+      amountPence: -detail.totalPence,
+    });
+    await completeJobIfSettled(tx, auth, job.id);
+    return getInvoice(tx, id);
+  }
+  const [{ n }] = (await tx`
+    UPDATE jobs SET invoice_count = invoice_count + 1 WHERE id = ${job.id} RETURNING invoice_count AS n`) as unknown as [
+    { n: number },
+  ];
   const number = invoiceNumber(job.number, n);
   await tx`
     UPDATE invoices SET status = 'approved', number = ${number}, issue_date = ${t}::date,
            due_date = ${addDaysIso(t, detail.termsDays)}::date, approved_by = ${auth.userId}, approved_at = now()
      WHERE id = ${id}`;
   await audit(tx, auth, 'approve', 'invoice', id, { number });
+  const [own] = await tx<
+    { customerId: string }[]
+  >`SELECT customer_id FROM jobs WHERE id = ${job.id}`;
+  await applyCredits(tx, auth, id, own!.customerId, detail.totalPence, t);
   return getInvoice(tx, id);
 }
 
@@ -594,8 +714,13 @@ export async function markSent(tx: Tx, auth: Auth, id: string): Promise<InvoiceD
         ? 'Approve the invoice before sending it.'
         : 'This invoice has already been sent.',
     );
-  await tx`UPDATE invoices SET status = 'sent', sent_by = ${auth.userId}, sent_at = now() WHERE id = ${id}`;
+  // Fully covered by customer credit: nothing left to pay, so it is settled once sent.
+  const [b] = await tx<{ total: string; paid: string; credited: string }[]>`
+    SELECT total_pence AS total, paid_pence AS paid, credited_pence AS credited FROM invoices WHERE id = ${id}`;
+  const status = statusAfterPayment(Number(b!.total), Number(b!.paid), Number(b!.credited));
+  await tx`UPDATE invoices SET status = ${status}, sent_by = ${auth.userId}, sent_at = now() WHERE id = ${id}`;
   await audit(tx, auth, 'mark_sent', 'invoice', id);
+  if (status === 'paid') await completeJobIfSettled(tx, auth, cur.jobId);
   return getInvoice(tx, id);
 }
 
@@ -651,7 +776,7 @@ export async function recordPayment(
 export async function isSettled(tx: Tx, jobId: string): Promise<boolean> {
   const job = await lockJob(tx, jobId);
   const [s] = await tx<{ total: number; unpaid: number }[]>`
-    SELECT count(*)::int AS total, count(*) FILTER (WHERE status <> 'paid')::int AS unpaid
+    SELECT count(*)::int AS total, count(*) FILTER (WHERE status NOT IN ('paid', 'credit'))::int AS unpaid
       FROM invoices WHERE job_id = ${jobId}`;
   if (!s!.total || s!.unpaid) return false;
   const q = await quoteState(tx, job);

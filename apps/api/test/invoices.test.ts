@@ -445,7 +445,7 @@ describe('minus (credit) lines', () => {
     expect((await pay(c, inv.body.id, 33000)).body.status).toBe('paid');
   });
 
-  it('a draft invoice can take a minus line, but not one that makes the total zero or less', async () => {
+  it('a draft invoice can take a minus line, but not one that makes the total exactly zero (below zero is a customer credit)', async () => {
     const c = await client();
     await ready(c);
     const { job } = await timedJob(c);
@@ -472,7 +472,7 @@ describe('minus (credit) lines', () => {
           kind: 'adjustment',
           description: 'Too much',
           qtyMilli: 1000,
-          unitPricePence: -inv.totalPence,
+          unitPricePence: -inv.subtotalPence,
         },
       ],
     });

@@ -91,6 +91,30 @@ export function CustomerScreen() {
         </List>
       </Section>
 
+      {(c.credits ?? []).length > 0 && (
+        <Section
+          header="Customer credit"
+          footer="Comes off their next invoice automatically when you approve it. Not paid out."
+        >
+          <List label="Customer credit">
+            {c.credits.map((cr) => (
+              <li key={cr.id}>
+                <LinkRow
+                  to={`/invoices/${cr.id}`}
+                  title={`Credit note ${cr.number}`}
+                  sub={`Issued ${cr.issueDate}`}
+                  meta={
+                    <span className="num" style={{ color: 'var(--green)' }}>
+                      {formatPence(cr.remainingPence)} to use
+                    </span>
+                  }
+                />
+              </li>
+            ))}
+          </List>
+        </Section>
+      )}
+
       <Section header="Sites">
         <List>
           {c.sites.map((s) => (

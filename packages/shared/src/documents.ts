@@ -182,6 +182,8 @@ export function invoiceDocument(
   extra: { siteAddress?: string | null } = {},
 ): BusinessDocument {
   const draft = inv.status === 'draft';
+  // A job that came to less than £0: a customer credit note, used on their next invoice.
+  const credit = inv.status === 'credit' || (draft && inv.totalPence < 0);
   const number = inv.number ?? 'Draft';
   const sections: DocSection[] = [];
   for (const g of INVOICE_GROUPS) {
@@ -207,11 +209,31 @@ export function invoiceDocument(
   if (inv.taxPence !== 0)
     totals.push({ label: 'Tax', value: formatPence(inv.taxPence), pence: inv.taxPence });
   totals.push({
-    label: 'Total',
-    value: formatPence(inv.totalPence),
-    pence: inv.totalPence,
+    label: credit ? 'Credit to you' : 'Total',
+    value: formatPence(credit ? -inv.totalPence : inv.totalPence),
+    pence: credit ? -inv.totalPence : inv.totalPence,
     strong: true,
   });
+  for (const u of inv.creditsApplied ?? [])
+    totals.push({
+      label: `Credit ${u.creditNumber} used`,
+      value: formatPence(-u.amountPence),
+      pence: -u.amountPence,
+    });
+  if (credit && (inv.creditUses ?? []).length) {
+    for (const u of inv.creditUses)
+      totals.push({
+        label: `Used on invoice ${u.invoiceNumber}`,
+        value: formatPence(-u.amountPence),
+        pence: -u.amountPence,
+      });
+    totals.push({
+      label: 'Credit left',
+      value: formatPence(-inv.balancePence),
+      pence: -inv.balancePence,
+      strong: true,
+    });
+  }
   if (inv.paidPence > 0)
     totals.push({ label: 'Paid', value: formatPence(-inv.paidPence), pence: -inv.paidPence });
   for (const cn of inv.creditNotes ?? [])
@@ -221,7 +243,7 @@ export function invoiceDocument(
         value: formatPence(-cn.amountPence),
         pence: -cn.amountPence,
       });
-  if (inv.paidPence > 0 || (inv.creditedPence ?? 0) > 0) {
+  if (!credit && (inv.paidPence > 0 || (inv.creditedPence ?? 0) > 0)) {
     totals.push({
       label: 'Balance due',
       value: formatPence(inv.balancePence),
@@ -230,7 +252,11 @@ export function invoiceDocument(
     });
   }
   const meta: BusinessDocument['meta'] = [];
-  if (inv.issueDate) meta.push({ label: 'Invoice date', value: formatDocDate(inv.issueDate) });
+  if (inv.issueDate)
+    meta.push({
+      label: credit ? 'Credit note date' : 'Invoice date',
+      value: formatDocDate(inv.issueDate),
+    });
   if (inv.dueDate) meta.push({ label: 'Due date', value: formatDocDate(inv.dueDate) });
   meta.push({ label: 'Job', value: inv.jobNumber });
   if (inv.quoteNumber) meta.push({ label: 'Quote', value: inv.quoteNumber });
@@ -238,7 +264,7 @@ export function invoiceDocument(
   if (inv.billTo.email) billLines.push(inv.billTo.email);
   return {
     kind: 'invoice',
-    title: 'Invoice',
+    title: credit ? 'Credit Note' : 'Invoice',
     number,
     draftLabel: draft ? 'Draft: not approved' : null,
     business: businessBlock(s),
@@ -248,10 +274,14 @@ export function invoiceDocument(
     siteLines: splitLines(extra.siteAddress),
     sections,
     totals,
-    payment: paymentBlock(s, `INV ${number}`),
+    payment: credit ? null : paymentBlock(s, `INV ${number}`),
     notes: inv.notes,
-    terms: s.invoiceTerms ?? inv.termsText ?? DEFAULT_INVOICE_TERMS(inv.termsDays),
-    fileName: draft ? `Invoice draft (job ${inv.jobNumber}).pdf` : `Invoice ${number}.pdf`,
+    terms: credit
+      ? 'This credit will be taken off your next invoice from us. It is not paid out.'
+      : (s.invoiceTerms ?? inv.termsText ?? DEFAULT_INVOICE_TERMS(inv.termsDays)),
+    fileName: draft
+      ? `${credit ? 'Credit note' : 'Invoice'} draft (job ${inv.jobNumber}).pdf`
+      : `${credit ? 'Credit note' : 'Invoice'} ${number}.pdf`,
   };
 }
 

@@ -76,6 +76,7 @@ import {
   billingRoute,
   freshBilling,
   today as billingToday,
+  availableCredits,
   type BillingCtx,
   type BillingDb,
 } from './mockBilling';
@@ -482,6 +483,7 @@ const customerDetail = (c: CustomerDto): CustomerDetailDto => ({
     .filter((j) => j.customerId === c.id)
     .sort((a, b) => b.seq - a.seq)
     .map(jobSummary),
+  credits: availableCredits(billingCtx(), c.id),
 });
 const byUpdated = (a: { updatedAt: string }, b: { updatedAt: string }) =>
   b.updatedAt.localeCompare(a.updatedAt);
@@ -986,7 +988,8 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       if (sub === 'send') {
         transition(['draft'], `Only a draft can be sent; this quote is ${quote.status}.`);
         if (!r.lines.length) fail(422, 'validation_failed', 'Add at least one line before sending');
-        if (revTotals({ ...r, acceptedOptions: [] }).corePence <= 0)
+        // Below £0 is allowed: the job becomes a customer credit.
+        if (revTotals({ ...r, acceptedOptions: [] }).corePence === 0)
           fail(422, 'validation_failed', 'This quote totals £0. Add prices before sending.');
         const ready = readiness(settingsDto()).quote;
         if (!ready.ready)

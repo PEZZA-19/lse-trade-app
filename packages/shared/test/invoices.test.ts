@@ -76,3 +76,22 @@ describe('invoiceCreate', () => {
     expect(invoiceCreate.safeParse({ source: 'quote', mode: 'deposit' }).success).toBe(false);
   });
 });
+
+describe('planCreditUse', () => {
+  it('oldest credit first, never more than owed or than a credit has left', async () => {
+    const { planCreditUse } = await import('../src');
+    const credits = [
+      { id: 'a', remainingPence: 3000 },
+      { id: 'b', remainingPence: 0 },
+      { id: 'c', remainingPence: 5000 },
+    ];
+    expect(planCreditUse(credits, 6000)).toEqual([
+      { creditId: 'a', amountPence: 3000 },
+      { creditId: 'c', amountPence: 3000 },
+    ]);
+    expect(planCreditUse(credits, 2000)).toEqual([{ creditId: 'a', amountPence: 2000 }]);
+    expect(planCreditUse(credits, 0)).toEqual([]);
+    expect(planCreditUse(credits, -100)).toEqual([]);
+    expect(planCreditUse([], 1000)).toEqual([]);
+  });
+});

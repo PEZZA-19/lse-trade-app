@@ -2,7 +2,18 @@ import { z } from 'zod';
 import { lineTotal, type Pence } from './money';
 import type { CreditNoteSummaryDto } from './creditNotes';
 
-export const INVOICE_STATUSES = ['draft', 'approved', 'sent', 'part_paid', 'paid'] as const;
+/**
+ * 'credit': a job that came to less than £0 (e.g. rent payments taken off the work), issued as a
+ * customer credit note (CN number) and used up against the customer's next invoices. Never a refund.
+ */
+export const INVOICE_STATUSES = [
+  'draft',
+  'approved',
+  'sent',
+  'part_paid',
+  'paid',
+  'credit',
+] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 /** What the app shows: the stored status, or "overdue" worked out from the due date. */
 export type InvoiceDisplayStatus = InvoiceStatus | 'overdue';
@@ -13,6 +24,7 @@ export const INVOICE_STATUS_LABELS: Record<InvoiceDisplayStatus, string> = {
   sent: 'Sent',
   part_paid: 'Part paid',
   paid: 'Paid',
+  credit: 'Customer credit',
   overdue: 'Overdue',
 };
 
@@ -169,6 +181,41 @@ export function statusAfterPayment(
   return paidPence > 0 ? 'part_paid' : 'sent';
 }
 
+/* ---------------------------- customer credit ---------------------------- */
+
+/** One use of a customer credit against an invoice. */
+export interface CreditUseDto {
+  id: string;
+  /** The customer credit (an issued invoice with status 'credit'). */
+  creditId: string;
+  creditNumber: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  appliedOn: string;
+  amountPence: Pence;
+}
+
+/**
+ * How much of each available credit goes on an invoice: oldest credit first, never more than the
+ * invoice still owes or the credit has left. Shared by the server and the offline demo.
+ */
+export function planCreditUse(
+  credits: { id: string; remainingPence: Pence }[],
+  owedPence: Pence,
+): { creditId: string; amountPence: Pence }[] {
+  const out: { creditId: string; amountPence: Pence }[] = [];
+  let left = Math.max(0, owedPence);
+  for (const c of credits) {
+    if (left <= 0) break;
+    const take = Math.min(left, Math.max(0, c.remainingPence));
+    if (take > 0) {
+      out.push({ creditId: c.id, amountPence: take });
+      left -= take;
+    }
+  }
+  return out;
+}
+
 export const DEFAULT_INVOICE_TERMS = (days: number) =>
   `Payment is due within ${days} days of the invoice date. Overdue balances may be charged interest at 5% per month.`;
 
@@ -212,7 +259,10 @@ export interface InvoiceSummaryDto {
   paidPence: Pence;
   /** Taken off by approved credit notes. */
   creditedPence: Pence;
-  /** total − paid − credited. */
+  /**
+   * total − paid − credited. For a customer credit (status 'credit') it is the credit still to
+   * use, as a negative amount (total + used).
+   */
   balancePence: Pence;
   createdAt: string;
   version: number;
@@ -233,6 +283,12 @@ export interface InvoiceDetailDto extends InvoiceSummaryDto {
   lines: InvoiceLineDto[];
   payments: PaymentDto[];
   creditNotes: CreditNoteSummaryDto[];
+  /** Customer credits taken off this invoice (shown on it and on its PDF). */
+  creditsApplied: CreditUseDto[];
+  /** Drafts: the customer's credit that approving would take off (0 if none). */
+  creditToUsePence: Pence;
+  /** A customer credit: where it has been used so far. */
+  creditUses: CreditUseDto[];
   /** Drafts: the number approving it now would give (another approval first would take it). */
   nextNumber: string | null;
   /** Why it can't be approved yet (settings or bill-to details missing). */

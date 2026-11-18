@@ -43,6 +43,18 @@ export interface CustomerDetailDto extends CustomerDto {
   contacts: ContactDto[];
   quotes: QuoteSummaryDto[];
   jobs: JobSummaryDto[];
+  /**
+   * Customer credit still to use (jobs that came to less than £0), oldest first; it comes off
+   * their next invoices. Empty for people who can't see money.
+   */
+  credits: CustomerCreditDto[];
+}
+
+export interface CustomerCreditDto {
+  id: string;
+  number: string;
+  issueDate: string;
+  remainingPence: number;
 }
 
 export interface QuoteLineDto {

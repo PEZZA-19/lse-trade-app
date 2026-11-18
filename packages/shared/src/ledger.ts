@@ -77,6 +77,18 @@ export interface LedgerCredit {
   /** Gross (inc. tax); split across sales and tax in the invoice's own proportions. */
   amountPence: number;
 }
+/**
+ * A customer credit (a job that came to less than £0, issued as a credit note) used against a
+ * later invoice. Both sit in Accounts receivable, so it moves nothing in the books; it only
+ * changes what is still owed on each (aged receivables, overview).
+ */
+export interface LedgerCreditUse {
+  id: string;
+  creditId: string;
+  invoiceId: string;
+  date: string;
+  amountPence: number;
+}
 export interface LedgerBill {
   id: string;
   supplierId: string;
@@ -116,6 +128,8 @@ export interface BooksInput {
   invoices: LedgerInvoice[];
   payments: LedgerPayment[];
   credits: LedgerCredit[];
+  /** Customer credits used against later invoices (optional: none if left out). */
+  creditUses?: LedgerCreditUse[];
   bills: LedgerBill[];
   billPayments: LedgerBillPayment[];
   budgets: LedgerBudget[];
@@ -185,7 +199,12 @@ export function postings(b: BooksInput): Posting[] {
         sourceId: i.id,
         reference: i.number ?? 'Invoice',
         contact: i.customerName,
-        description: i.jobNumber ? `Invoice for job ${i.jobNumber}` : 'Invoice',
+        description:
+          i.totalPence < 0
+            ? `Customer credit${i.jobNumber ? ` for job ${i.jobNumber}` : ''}`
+            : i.jobNumber
+              ? `Invoice for job ${i.jobNumber}`
+              : 'Invoice',
       },
       [
         ['610', i.totalPence],
@@ -658,13 +677,22 @@ export interface OpenItem {
   duePence: number;
   daysOverdue: number;
 }
-/** Invoices with something still owed at the date (payments and credit notes on or before it). */
+/**
+ * Invoices with something still owed at the date (payments and credit notes on or before it).
+ * A customer credit not yet used is a negative item (the business owes the customer).
+ */
 export function openInvoices(b: BooksInput, asAt: string): OpenItem[] {
   const settled = new Map<string, number>();
   for (const p of b.payments)
     if (p.date <= asAt) settled.set(p.invoiceId, (settled.get(p.invoiceId) ?? 0) + p.amountPence);
   for (const c of b.credits)
     if (c.date <= asAt) settled.set(c.invoiceId, (settled.get(c.invoiceId) ?? 0) + c.amountPence);
+  // A customer credit used on an invoice: less owed on the invoice, less credit left.
+  for (const u of b.creditUses ?? [])
+    if (u.date <= asAt) {
+      settled.set(u.invoiceId, (settled.get(u.invoiceId) ?? 0) + u.amountPence);
+      settled.set(u.creditId, (settled.get(u.creditId) ?? 0) - u.amountPence);
+    }
   return b.invoices
     .filter((i) => i.issueDate <= asAt)
     .map((i) => ({
@@ -1019,11 +1047,15 @@ export interface OverviewDto {
   bankPence: number;
   hasOpening: boolean;
   owedToYou: {
+    /** Net of customer credits not yet used, so it matches Accounts receivable. */
     totalPence: number;
     overduePence: number;
+    /** Items with something owed (customer credits aren't counted). */
     count: number;
     overdueCount: number;
     buckets: number[];
+    /** Customer credits not yet used (what the business owes customers), as a positive amount. */
+    creditPence: number;
   };
   youOwe: {
     totalPence: number;
@@ -1055,11 +1087,12 @@ export function overview(d: BusinessDto): OverviewDto {
     return {
       totalPence: xs.reduce((s, x) => s + x.duePence, 0),
       overduePence: over.reduce((s, x) => s + x.duePence, 0),
-      count: xs.length,
-      overdueCount: over.length,
+      count: xs.filter((x) => x.duePence > 0).length,
+      overdueCount: over.filter((x) => x.duePence > 0).length,
       buckets,
     };
   };
+  const credits = recv.filter((x) => x.duePence < 0).reduce((s, x) => s - x.duePence, 0);
   const monthStart = `${today.slice(0, 7)}-01`;
   const from12 = addMonths(monthStart, -11);
   return {
@@ -1067,7 +1100,7 @@ export function overview(d: BusinessDto): OverviewDto {
     year: ytd,
     bankPence: balances(ps, upTo(today)).get('090') ?? 0,
     hasOpening: !!d.opening,
-    owedToYou: summary(recv),
+    owedToYou: { ...summary(recv), creditPence: credits },
     youOwe: summary(pay),
     cash: monthlyCash(d, { from: from12, to: today }).months,
     profit: {

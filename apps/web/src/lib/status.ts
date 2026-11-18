@@ -38,6 +38,7 @@ export const INVOICE_STATUS: Record<InvoiceDisplayStatus, { label: string; tone:
   sent: { label: 'Sent', tone: 'blue' },
   part_paid: { label: 'Part paid', tone: 'orange' },
   paid: { label: 'Paid', tone: 'green' },
+  credit: { label: 'Customer credit', tone: 'teal' },
   overdue: { label: 'Overdue', tone: 'red' },
 };
 
@@ -48,6 +49,7 @@ export const todayIso = () =>
 export function dueLabel(inv: { status: string; dueDate: string | null }, today = todayIso()) {
   if (inv.status === 'draft') return 'Not approved yet';
   if (inv.status === 'paid') return 'Paid';
+  if (inv.status === 'credit') return 'Comes off their next invoice';
   if (!inv.dueDate) return '';
   const days = Math.round((Date.parse(today) - Date.parse(inv.dueDate)) / 86_400_000);
   if (days > 0) return `${days} ${days === 1 ? 'day' : 'days'} overdue`;

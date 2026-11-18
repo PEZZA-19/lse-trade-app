@@ -92,6 +92,12 @@ export function BusinessScreen() {
                 <span className="biz-bad">{money(o.owedToYou.overduePence)} overdue</span>
               </>
             )}
+            {o.owedToYou.creditPence > 0 && (
+              <>
+                {' · '}
+                <span>{money(o.owedToYou.creditPence)} customer credit to use</span>
+              </>
+            )}
           </p>
           <AgeBar buckets={o.owedToYou.buckets} label="Owed to you by age" />
         </article>

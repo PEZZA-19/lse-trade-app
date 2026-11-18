@@ -95,6 +95,16 @@ export function demoBusiness(c: BusinessCtx): BusinessDto {
           amountPence: n.amountPence,
         })),
     ),
+    // Each use appears on both the credit and the invoice it went on; count it once.
+    creditUses: details.flatMap((d) =>
+      d.creditsApplied.map((u) => ({
+        id: u.id,
+        creditId: u.creditId,
+        invoiceId: u.invoiceId,
+        date: u.appliedOn,
+        amountPence: u.amountPence,
+      })),
+    ),
     bills: bills.map((b) => ({
       id: b.id,
       supplierId: b.supplierId,

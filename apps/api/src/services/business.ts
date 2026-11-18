@@ -67,6 +67,11 @@ export async function getBusiness(tx: Tx): Promise<BusinessDto> {
   >`
     SELECT id, invoice_id, number, issue_date::text AS date, amount_pence
       FROM credit_notes WHERE status = 'approved'`;
+  const creditUses = await tx<
+    { id: string; creditId: string; invoiceId: string; date: string; amountPence: string }[]
+  >`
+    SELECT id, credit_invoice_id AS credit_id, invoice_id, applied_on::text AS date, amount_pence
+      FROM credit_uses ORDER BY applied_on, created_at`;
   const bills = await tx<
     {
       id: string;
@@ -135,6 +140,7 @@ export async function getBusiness(tx: Tx): Promise<BusinessDto> {
     })),
     payments: payments.map((p) => ({ ...p, amountPence: n(p.amountPence) })),
     credits: credits.map((c) => ({ ...c, amountPence: n(c.amountPence) })),
+    creditUses: creditUses.map((u) => ({ ...u, amountPence: n(u.amountPence) })),
     bills: bills.map((b) => ({ ...b, totalPence: n(b.totalPence), homePence: n(b.homePence) })),
     billPayments: billPayments.map((p) => ({ ...p, amountPence: n(p.amountPence) })),
     budgets: budgets.map((b) => ({ ...b, amountPence: n(b.amountPence) })),

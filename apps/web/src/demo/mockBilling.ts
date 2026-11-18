@@ -10,6 +10,7 @@ import {
   creditBlocker,
   creditNoteCreate,
   displayStatus,
+  planCreditUse,
   formatPence,
   invoiceCreate,
   invoiceNumber,
@@ -30,6 +31,7 @@ import {
   importChanges,
   statusAfterPayment,
   type CreditNoteDto,
+  type CreditUseDto,
   type InvoiceDetailDto,
   type InvoiceLineKind,
   type InvoiceStatus,
@@ -110,6 +112,15 @@ export interface DemoCredit {
   createdAt: string;
   version: number;
 }
+/** A customer credit (an invoice with status 'credit') used on a later invoice. */
+export interface DemoCreditUse {
+  id: string;
+  creditId: string;
+  invoiceId: string;
+  appliedOn: string;
+  amountPence: number;
+  createdAt: string;
+}
 export interface BillingDb {
   items: Item[];
   history: (PriceHistoryDto & { itemId: string })[];
@@ -119,6 +130,7 @@ export interface BillingDb {
   /** timesheet id -> invoice id */
   billed: Record<string, string>;
   invoiceCount: Record<string, number>;
+  creditUses?: DemoCreditUse[];
   suppliers?: DemoSupplier[];
   bills?: DemoBill[];
 }
@@ -402,6 +414,9 @@ function summary(c: BillingCtx, i: Invoice): InvoiceSummaryDto {
   const credited = (i.credits ?? [])
     .filter((x) => x.status === 'approved')
     .reduce((a, x) => a + x.amountPence, 0);
+  const uses = c.b.creditUses ?? [];
+  const usedOn = uses.filter((u) => u.invoiceId === i.id).reduce((a, u) => a + u.amountPence, 0);
+  const usedOf = uses.filter((u) => u.creditId === i.id).reduce((a, u) => a + u.amountPence, 0);
   return {
     id: i.id,
     number: i.number,
@@ -417,8 +432,8 @@ function summary(c: BillingCtx, i: Invoice): InvoiceSummaryDto {
     dueDate: i.dueDate,
     totalPence: t,
     paidPence: paid,
-    creditedPence: credited,
-    balancePence: t - paid - credited,
+    creditedPence: credited + usedOn,
+    balancePence: i.status === 'credit' ? t + usedOf : t - paid - credited - usedOn,
     createdAt: i.createdAt,
     version: i.version,
   };
@@ -437,9 +452,19 @@ function detail(c: BillingCtx, i: Invoice): InvoiceDetailDto {
   const blockers: string[] = [];
   if (i.status === 'draft') {
     for (const m of c.readiness().invoice.missing) blockers.push(m.label);
-    if (!to.email) blockers.push('Bill payer email');
-    if (t.totalPence <= 0) blockers.push('An amount to invoice');
+    if (!to.email && t.totalPence > 0) blockers.push('Bill payer email');
+    if (t.totalPence === 0) blockers.push('An amount to invoice');
   }
+  const useDto = (u: DemoCreditUse): CreditUseDto => ({
+    id: u.id,
+    creditId: u.creditId,
+    creditNumber: getInvoice(c, u.creditId).number ?? '',
+    invoiceId: u.invoiceId,
+    invoiceNumber: getInvoice(c, u.invoiceId).number ?? '',
+    appliedOn: u.appliedOn,
+    amountPence: u.amountPence,
+  });
+  const uses = c.b.creditUses ?? [];
   return {
     ...summary(c, i),
     quoteNumber: i.quoteId ? (c.quote(i.quoteId)?.number ?? null) : null,
@@ -468,8 +493,21 @@ function detail(c: BillingCtx, i: Invoice): InvoiceDetailDto {
       reason: x.reason,
       amountPence: x.amountPence,
     })),
+    creditsApplied: uses.filter((u) => u.invoiceId === i.id).map(useDto),
+    creditUses: uses.filter((u) => u.creditId === i.id).map(useDto),
+    creditToUsePence:
+      i.status === 'draft' && t.totalPence > 0
+        ? Math.min(
+            t.totalPence,
+            availableCredits(c, j.customerId).reduce((a, x) => a + x.remainingPence, 0),
+          )
+        : 0,
     nextNumber:
-      i.status === 'draft' ? invoiceNumber(j.number, (c.b.invoiceCount[i.jobId] ?? 0) + 1) : null,
+      i.status !== 'draft'
+        ? null
+        : t.totalPence < 0
+          ? c.creditNumber(false)
+          : invoiceNumber(j.number, (c.b.invoiceCount[i.jobId] ?? 0) + 1),
     approvalBlockers: blockers,
   };
 }
@@ -546,7 +584,7 @@ function createInvoice(c: BillingCtx, jobId: string, input: z.output<typeof invo
         'This job did not come from a quote, so invoice its time and materials instead.',
       );
     mode = input.mode;
-    if (q.remainingPence <= 0)
+    if (q.invoicedPence === 0 ? q.totalPence === 0 : q.remainingPence <= 0)
       c.fail(422, 'validation_failed', `Quote ${q.number} is already fully invoiced.`);
     const quoteLines = () =>
       j.lines
@@ -628,9 +666,39 @@ function createInvoice(c: BillingCtx, jobId: string, input: z.output<typeof invo
   return inv;
 }
 
+/** A customer's credit still to use, oldest first. */
+export function availableCredits(c: BillingCtx, customerId: string, asOf?: string) {
+  return c.b.invoices
+    .filter((i) => i.status === 'credit' && c.job(i.jobId).customerId === customerId)
+    .filter((i) => !asOf || (i.issueDate ?? '') <= asOf)
+    .map((i) => ({
+      id: i.id,
+      number: i.number ?? '',
+      issueDate: i.issueDate ?? '',
+      remainingPence: -summary(c, i).balancePence,
+    }))
+    .filter((x) => x.remainingPence > 0)
+    .sort((a, z) => (a.issueDate < z.issueDate ? -1 : a.issueDate > z.issueDate ? 1 : 0));
+}
+/** Uses the customer's credit on an invoice just approved (as the server does). */
+function applyCredits(c: BillingCtx, inv: Invoice, date: string) {
+  const owed = summary(c, inv).balancePence;
+  const plan = planCreditUse(availableCredits(c, c.job(inv.jobId).customerId, date), owed);
+  c.b.creditUses ??= [];
+  for (const p of plan)
+    c.b.creditUses.push({
+      id: c.uid(),
+      creditId: p.creditId,
+      invoiceId: inv.id,
+      appliedOn: date,
+      amountPence: p.amountPence,
+      createdAt: c.now(),
+    });
+}
+
 function settled(c: BillingCtx, jobId: string) {
   const mine = c.b.invoices.filter((i) => i.jobId === jobId);
-  if (!mine.length || mine.some((i) => i.status !== 'paid')) return false;
+  if (!mine.length || mine.some((i) => i.status !== 'paid' && i.status !== 'credit')) return false;
   const q = quoteState(c, jobId);
   return q ? q.remainingPence <= 0 : unbilled(c, jobId).length === 0;
 }
@@ -824,9 +892,22 @@ export function billingRoute(
         const problem = approveDateProblem(issueDate, today());
         if (problem) c.fail(422, 'validation_failed', problem, { fields: { issueDate: problem } });
       }
+      const t = issueDate ?? today();
+      if (d.totalPence < 0) {
+        // Less than £0: a customer credit (CN number), used on the customer's next invoices.
+        Object.assign(inv, {
+          status: 'credit',
+          number: c.creditNumber(true),
+          issueDate: t,
+          dueDate: null,
+          approvedAt: c.now(),
+        });
+        inv.version += 1;
+        if (settled(c, inv.jobId)) c.completeJob(inv.jobId);
+        return detail(c, inv);
+      }
       const n = (c.b.invoiceCount[inv.jobId] ?? 0) + 1;
       c.b.invoiceCount[inv.jobId] = n;
-      const t = issueDate ?? today();
       Object.assign(inv, {
         status: 'approved',
         number: invoiceNumber(c.job(inv.jobId).number, n),
@@ -835,6 +916,7 @@ export function billingRoute(
         approvedAt: c.now(),
       });
       inv.version += 1;
+      applyCredits(c, inv, t);
       return detail(c, inv);
     }
     if (method === 'POST' && sub === 'mark-sent') {
@@ -846,8 +928,12 @@ export function billingRoute(
             ? 'Approve the invoice before sending it.'
             : 'This invoice has already been sent.',
         );
-      Object.assign(inv, { status: 'sent', sentAt: c.now() });
+      // Fully covered by customer credit: nothing left to pay, so it is settled once sent.
+      const s = summary(c, inv);
+      const sentStatus = statusAfterPayment(s.totalPence, s.paidPence, s.creditedPence);
+      Object.assign(inv, { status: sentStatus, sentAt: c.now() });
       inv.version += 1;
+      if (sentStatus === 'paid' && settled(c, inv.jobId)) c.completeJob(inv.jobId);
       return detail(c, inv);
     }
     if (method === 'POST' && sub === 'payments') {

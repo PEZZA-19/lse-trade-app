@@ -81,6 +81,15 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   const [editing, setEditing] = useState<number | 'new' | null>(null);
   const st = INVOICE_STATUS[inv.displayStatus];
   const draft = inv.status === 'draft';
+  /** A job that came to less than £0: a customer credit, used on their next invoice. */
+  const isCredit = inv.status === 'credit' || (draft && inv.totalPence < 0);
+  const docName = isCredit
+    ? inv.number
+      ? `Credit Note ${inv.number}`
+      : 'Draft Credit Note'
+    : inv.number
+      ? `Invoice ${inv.number}`
+      : 'Draft Invoice';
   const [crediting, setCrediting] = useState(false);
   const [creditId, setCreditId] = useState<string | null>(null);
   const [creditPreview, setCreditPreview] = useState<{
@@ -90,8 +99,9 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   } | null>(null);
   const canCredit = !creditBlocker(inv);
   /** Something has come off: show what's still owed rather than the total. */
-  const owing = inv.status !== 'paid' && inv.balancePence !== inv.totalPence && !draft;
+  const owing = !isCredit && inv.status !== 'paid' && inv.balancePence !== inv.totalPence && !draft;
   const lines = toInput(inv);
+  const creditToUse = inv.creditToUsePence;
 
   const saveLines = (next: InvoiceLineInput[]) =>
     update.mutate(
@@ -107,7 +117,9 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
       onSuccess: (r) => {
         toast.show(
           action === 'approve'
-            ? `Approved · Invoice ${r.number}`
+            ? r.status === 'credit'
+              ? `Issued · Credit note ${r.number}`
+              : `Approved · Invoice ${r.number}`
             : `Invoice ${r.number} marked as sent`,
         );
         setConfirm(null);
@@ -121,7 +133,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
 
   return (
     <Page
-      title={inv.number ? `Invoice ${inv.number}` : 'Draft Invoice'}
+      title={docName}
       subtitle={
         <>
           {inv.customerName} · <Link to={`/jobs/${inv.jobId}`}>Job {inv.jobNumber}</Link>
@@ -131,17 +143,41 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
       back={{ label: 'Invoices', to: '/invoices' }}
     >
       <div className="hero">
-        <div className="hero__amount" aria-label={`Total ${formatPence(inv.totalPence)}`}>
-          {formatPence(owing ? inv.balancePence : inv.totalPence)}
-        </div>
-        <div className="hero__meta">
-          <Pill tone={st.tone}>{st.label}</Pill>
-          <span>{owing ? `owed of ${formatPence(inv.totalPence)}` : dueLabel(inv)}</span>
-        </div>
+        {isCredit ? (
+          <>
+            <div
+              className="hero__amount"
+              aria-label={`Credit ${formatPence(-inv.totalPence)}`}
+              style={{ color: 'var(--green)' }}
+            >
+              {formatPence(-(draft ? inv.totalPence : inv.balancePence))}
+            </div>
+            <div className="hero__meta">
+              <Pill tone={st.tone}>{st.label}</Pill>
+              <span>
+                {draft
+                  ? 'comes to less than £0: issue it as a credit for the customer'
+                  : inv.balancePence < 0
+                    ? `credit left of ${formatPence(-inv.totalPence)} · comes off their next invoice`
+                    : 'all used on later invoices'}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="hero__amount" aria-label={`Total ${formatPence(inv.totalPence)}`}>
+              {formatPence(owing ? inv.balancePence : inv.totalPence)}
+            </div>
+            <div className="hero__meta">
+              <Pill tone={st.tone}>{st.label}</Pill>
+              <span>{owing ? `owed of ${formatPence(inv.totalPence)}` : dueLabel(inv)}</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* The one next step, always an explicit owner tap. */}
-      {inv.status !== 'paid' && (
+      {inv.status !== 'paid' && inv.status !== 'credit' && (
         <Section
           footer={
             !isOwner
@@ -149,7 +185,9 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
               : draft
                 ? inv.approvalBlockers.length
                   ? undefined
-                  : 'Approving gives it its number and locks it. Nothing is sent.'
+                  : isCredit
+                    ? 'The customer isn’t refunded: the credit comes off their next invoice. Nothing is sent.'
+                    : 'Approving gives it its number and locks it. Nothing is sent.'
                 : inv.status === 'approved'
                   ? 'This records that you’ve sent it. The app doesn’t email invoices yet.'
                   : 'Record money as it arrives, in full or in part.'
@@ -165,7 +203,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
               disabled={inv.approvalBlockers.length > 0}
               onClick={() => setConfirm('approve')}
             >
-              Approve Invoice…
+              {isCredit ? 'Issue Customer Credit…' : 'Approve Invoice…'}
             </Button>
           )}
           {isOwner && inv.status === 'approved' && (
@@ -188,9 +226,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
               lead={<IconDoc width={22} height={22} color="var(--accent)" />}
               title="Preview PDF"
               sub={
-                draft
-                  ? 'Draft preview: approve to share it'
-                  : `Invoice ${inv.number} as the customer gets it`
+                draft ? 'Draft preview: approve to share it' : `${docName} as the customer gets it`
               }
               onClick={() => setPreviewing(true)}
               chevron
@@ -203,7 +239,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
         onClose={() => setPreviewing(false)}
         kind="invoices"
         id={inv.id}
-        title={inv.number ? `Invoice ${inv.number}` : 'Draft Invoice'}
+        title={docName}
         shareBlocked={
           draft
             ? 'This is a draft preview. Approve the invoice to give it its number and share it.'
@@ -293,11 +329,38 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
           )}
           <li>
             <KeyValueRow
-              label="Total"
-              value={formatPence(inv.totalPence)}
-              strong={inv.paidPence === 0}
+              label={isCredit ? 'Credit to the customer' : 'Total'}
+              value={formatPence(isCredit ? -inv.totalPence : inv.totalPence)}
+              strong={inv.paidPence === 0 && !inv.creditUses.length}
             />
           </li>
+          {inv.creditUses.map((u) => (
+            <li key={u.id}>
+              <Link className="row" to={`/invoices/${u.invoiceId}`}>
+                <span className="row__main">
+                  <span className="row__title">Used on invoice {u.invoiceNumber}</span>
+                </span>
+                <span className="row__meta num">−{formatPence(u.amountPence)}</span>
+              </Link>
+            </li>
+          ))}
+          {inv.creditUses.length > 0 && (
+            <li>
+              <KeyValueRow label="Credit left" value={formatPence(-inv.balancePence)} strong />
+            </li>
+          )}
+          {inv.creditsApplied.map((u) => (
+            <li key={u.id}>
+              <Link className="row" to={`/invoices/${u.creditId}`}>
+                <span className="row__main">
+                  <span className="row__title">Customer credit {u.creditNumber} used</span>
+                </span>
+                <span className="row__meta num" style={{ color: 'var(--green)' }}>
+                  −{formatPence(u.amountPence)}
+                </span>
+              </Link>
+            </li>
+          ))}
           {inv.paidPence > 0 && (
             <li>
               <KeyValueRow label="Paid" value={`−${formatPence(inv.paidPence)}`} />
@@ -456,7 +519,27 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
       )}
 
       <ConfirmSheet
-        open={confirm === 'approve'}
+        open={confirm === 'approve' && isCredit}
+        title="Issue Customer Credit"
+        actionLabel="Issue Credit"
+        onConfirm={() => run('approve')}
+        onClose={closeConfirm}
+        loading={decide.isPending}
+        error={decide.error?.message}
+      >
+        <p>
+          <strong>{formatPence(-inv.totalPence)}</strong> credit for {inv.customerName}.
+        </p>
+        <ul>
+          <li>
+            It becomes credit note <strong>{inv.nextNumber ?? 'CN'}</strong> and is locked.
+          </li>
+          <li>It comes off their next invoice when you approve it. No money is paid out.</li>
+          <li>Nothing is sent to the customer.</li>
+        </ul>
+      </ConfirmSheet>
+      <ConfirmSheet
+        open={confirm === 'approve' && !isCredit}
         title="Approve Invoice"
         actionLabel="Approve"
         onConfirm={() => run('approve')}
@@ -473,6 +556,11 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
             It becomes invoice <strong>{inv.nextNumber ?? inv.jobNumber}</strong> and is locked.
           </li>
           <li>Due {inv.termsDays} days from today.</li>
+          {creditToUse > 0 && (
+            <li>
+              Their customer credit of <strong>{formatPence(creditToUse)}</strong> comes off it.
+            </li>
+          )}
           <li>Nothing is sent to the customer.</li>
         </ul>
       </ConfirmSheet>
