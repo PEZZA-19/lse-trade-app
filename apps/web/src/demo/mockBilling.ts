@@ -3,6 +3,8 @@
  * (apps/api/src/services/pricelist.ts and invoices.ts), kept small; state lives in the demo db.
  */
 import {
+  approveDateProblem,
+  invoiceApprove,
   DEFAULT_INVOICE_TERMS,
   addDaysIso,
   creditBlocker,
@@ -810,9 +812,14 @@ export function billingRoute(
         c.fail(422, 'not_ready', `Before approving, add: ${d.approvalBlockers.join(', ')}.`, {
           missing: d.approvalBlockers,
         });
+      const { issueDate } = c.parse(invoiceApprove, body);
+      if (issueDate) {
+        const problem = approveDateProblem(issueDate, today());
+        if (problem) c.fail(422, 'validation_failed', problem, { fields: { issueDate: problem } });
+      }
       const n = (c.b.invoiceCount[inv.jobId] ?? 0) + 1;
       c.b.invoiceCount[inv.jobId] = n;
-      const t = today();
+      const t = issueDate ?? today();
       Object.assign(inv, {
         status: 'approved',
         number: invoiceNumber(c.job(inv.jobId).number, n),

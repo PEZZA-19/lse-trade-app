@@ -15,6 +15,17 @@ export async function jsonBody(req: { json: () => Promise<unknown> }): Promise<u
   }
 }
 
+/** A JSON body that may be left out altogether (undefined when empty). */
+export async function optionalJsonBody(req: { text: () => Promise<string> }): Promise<unknown> {
+  const raw = await req.text();
+  if (!raw.trim()) return undefined;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw invalid('Request body must be valid JSON');
+  }
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Path ids that are not UUIDs are simply "not found", never a database error. */
 export function isUuid(s: string): boolean {

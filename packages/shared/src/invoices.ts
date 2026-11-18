@@ -255,3 +255,21 @@ export interface JobInvoicingDto {
   unbilledMaterialsPence: Pence;
   invoices: InvoiceSummaryDto[];
 }
+
+/**
+ * Approving an invoice: dated today unless an earlier issue date is given (bringing in invoices
+ * already sent from another system). Never in the future, and at most a year back.
+ */
+export const invoiceApprove = z
+  .object({ issueDate: z.iso.date().optional() })
+  .optional()
+  .default({});
+export type InvoiceApprove = z.input<typeof invoiceApprove>;
+/** The approve date rule, shared by the server and the demo: '' when allowed, else the reason. */
+export function approveDateProblem(issueDate: string, today: string): string {
+  if (issueDate > today) return 'The invoice date can’t be in the future.';
+  const [y, m, d] = today.split('-');
+  if (issueDate < `${Number(y) - 1}-${m}-${d}`)
+    return 'The invoice date can’t be more than a year ago.';
+  return '';
+}

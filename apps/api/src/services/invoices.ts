@@ -1,4 +1,5 @@
 import {
+  approveDateProblem,
   chargeOutFor,
   DEFAULT_INVOICE_TERMS,
   addDaysIso,
@@ -545,6 +546,7 @@ export async function approve(
   auth: Auth,
   id: string,
   expectedVersion?: number,
+  issueDate?: string,
 ): Promise<InvoiceDetailDto> {
   assertOwnerDecision(auth, 'approve an invoice');
   const cur = await lockInvoice(tx, id);
@@ -566,7 +568,12 @@ export async function approve(
     UPDATE jobs SET invoice_count = invoice_count + 1 WHERE id = ${job.id} RETURNING invoice_count AS n`) as unknown as [
     { n: number },
   ];
-  const t = await today(tx);
+  const t = issueDate ?? (await today(tx));
+  if (issueDate) {
+    const problem = approveDateProblem(issueDate, await today(tx));
+    if (problem)
+      throw new AppError(422, 'validation_failed', problem, { fields: { issueDate: problem } });
+  }
   const number = invoiceNumber(job.number, n);
   await tx`
     UPDATE invoices SET status = 'approved', number = ${number}, issue_date = ${t}::date,

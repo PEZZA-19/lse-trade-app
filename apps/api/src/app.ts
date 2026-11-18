@@ -42,6 +42,7 @@ import {
   chargeOutUpdate,
   accessUpdate,
   areaForPath,
+  invoiceApprove,
   billPaymentCreate,
   budgetUpdate,
   openingBalanceUpdate,
@@ -82,7 +83,7 @@ import { withTenant, type Sql, type Tx } from './db/client';
 import { AppError, notFound } from './lib/errors';
 import { idempotent } from './lib/idempotency';
 import type { AppEnv, Auth } from './lib/types';
-import { isUuid, jsonBody, parse } from './lib/validate';
+import { isUuid, jsonBody, optionalJsonBody, parse } from './lib/validate';
 import * as customers from './services/customers';
 import * as jobs from './services/jobs';
 import * as quotes from './services/quotes';
@@ -673,7 +674,10 @@ export function createApp(deps: AppDeps) {
   // Owner decisions. Each is a separate explicit tap in the app; none is ever automatic.
   app.post('/api/invoices/:id/approve', async (c) => {
     const id = uuidParam(c);
-    return c.json(await c.var.tx((tx) => invoices.approve(tx, c.var.auth, id, ifMatch(c))));
+    const input = parse(invoiceApprove, await optionalJsonBody(c.req));
+    return c.json(
+      await c.var.tx((tx) => invoices.approve(tx, c.var.auth, id, ifMatch(c), input.issueDate)),
+    );
   });
   app.post('/api/invoices/:id/mark-sent', async (c) => {
     const id = uuidParam(c);

@@ -192,3 +192,48 @@ describe('business overview and books', () => {
     expect(d.opening).toBeNull();
   });
 });
+
+describe('approving with an earlier invoice date (bringing in invoices already sent)', () => {
+  it('dates the invoice and its due date; refuses the future and more than a year back', async () => {
+    const c = await client();
+    await c.req('PATCH', '/api/settings', {
+      bankAccountName: 'T',
+      bankSortCode: '400000',
+      bankAccountNumber: '12345678',
+    });
+    const cust = await seedCustomer(c);
+    const mk = async () => {
+      const job = (await c.req('POST', '/api/jobs', { customerId: cust.id, title: 'Old job' }))
+        .body;
+      await c.req('POST', `/api/jobs/${job.id}/lines`, {
+        kind: 'material',
+        description: 'Thing',
+        qtyMilli: 1000,
+        unitSellPence: 1000,
+      });
+      const inv = await c.req('POST', `/api/jobs/${job.id}/invoices`, { source: 'job' });
+      return inv.body;
+    };
+    const t = todayIso();
+    const y = Number(t.slice(0, 4));
+    const a = await mk();
+    expect(a.id, JSON.stringify(a)).toBeTruthy();
+    const future = await c.req('POST', `/api/invoices/${a.id}/approve`, {
+      issueDate: `${y + 1}-01-01`,
+    });
+    expect(future.status).toBe(422);
+    const old = await c.req('POST', `/api/invoices/${a.id}/approve`, {
+      issueDate: `${y - 2}-01-01`,
+    });
+    expect(old.status).toBe(422);
+    const back = `${y}-01-02` <= t ? `${y}-01-02` : t;
+    const ok = await c.req('POST', `/api/invoices/${a.id}/approve`, { issueDate: back });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.issueDate).toBe(back);
+    expect(ok.body.dueDate > back).toBe(true);
+    // No body still means today.
+    const b = await mk();
+    const plain = await c.req('POST', `/api/invoices/${b.id}/approve`);
+    expect(plain.body.issueDate).toBe(t);
+  });
+});
