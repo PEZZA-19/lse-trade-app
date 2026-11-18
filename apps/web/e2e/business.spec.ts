@@ -46,13 +46,14 @@ test('expenses and wages: add one, it shows in the totals and the P&L, remove it
   await sheet.getByLabel('What for').selectOption({ label: 'Travel and ferries' });
   await sheet.getByLabel('Paid to').fill(`Ferry ${stamp}`);
   await sheet.getByLabel('Amount (£)').fill('23.50');
-  await sheet.getByRole('button', { name: 'Paid personally' }).click();
-  await expect(sheet).toContainText('not the business bank');
+  // Every expense is the business's (Joe, 18 Nov 2026): no "paid personally" choice.
+  await expect(sheet.getByRole('button', { name: 'Paid personally' })).toHaveCount(0);
+  await expect(sheet).toContainText('Comes out of the business account and off the profit.');
   await sheet.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByText('Expense added · £23.50')).toBeVisible();
   const list = page.getByRole('list', { name: 'Expenses', exact: true });
   await expect(list).toContainText(`Ferry ${stamp}`);
-  await expect(list).toContainText('paid personally');
+  await expect(list).not.toContainText('paid personally');
   await expect(page.getByRole('list', { name: 'Expenses by account' })).toContainText(
     'Travel and ferries',
   );

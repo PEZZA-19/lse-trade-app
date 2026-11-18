@@ -453,7 +453,6 @@ describe('expenses and wages in the books', () => {
         description: 'Public liability',
         amountPence: 24_000,
         taxPence: 4_000,
-        paidFrom: 'bank',
       },
       {
         id: 'e2',
@@ -463,7 +462,6 @@ describe('expenses and wages in the books', () => {
         description: 'January',
         amountPence: 150_000,
         taxPence: 0,
-        paidFrom: 'bank',
       },
       {
         id: 'e3',
@@ -473,7 +471,6 @@ describe('expenses and wages in the books', () => {
         description: '',
         amountPence: 1_500,
         taxPence: 0,
-        paidFrom: 'owner',
       },
     ],
   });
@@ -491,11 +488,11 @@ describe('expenses and wages in the books', () => {
     expect(bs.netAssets).toBe(bs.equity);
   });
 
-  it('cash flow splits money out into suppliers, wages and expenses; owner-paid isn’t bank', () => {
+  it('cash flow splits money out into suppliers, wages and expenses', () => {
     const { months } = monthlyCash(withExpenses(), range);
     const feb = months.find((m) => m.month === '2027-02')!;
     expect(feb.outWagesPence).toBe(150_000);
-    expect(feb.outExpensesPence).toBe(0); // the ferry was paid personally
+    expect(feb.outExpensesPence).toBe(1500); // every expense is out of the business account
     expect(feb.outSuppliersPence + feb.outWagesPence + feb.outExpensesPence).toBe(feb.outPence);
     const jan = months.find((m) => m.month === '2027-01')!;
     expect(jan.outExpensesPence).toBe(24_000);

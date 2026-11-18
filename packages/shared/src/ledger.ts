@@ -159,7 +159,6 @@ export interface LedgerExpense {
   amountPence: number;
   /** Tax reclaimable within the amount (0 when none). */
   taxPence: number;
-  paidFrom: 'bank' | 'owner';
 }
 export interface LedgerBudget {
   /** YYYY-MM */
@@ -363,8 +362,9 @@ export function postings(b: BooksInput): Posting[] {
       [
         [e.account, e.amountPence - e.taxPence],
         ['820', e.taxPence],
-        // Paid personally: the owner's own money put into the business (less drawings).
-        [e.paidFrom === 'owner' ? '880' : '090', -e.amountPence],
+        // Always out of the business account (Joe, 18 Nov 2026: "Expenses just come from the
+        // profit of the company").
+        ['090', -e.amountPence],
       ],
     );
   }
@@ -1295,7 +1295,6 @@ export const expenseCreate = z
     description: z.string().trim().max(500).default(''),
     amountPence: z.number().int().positive('Enter the amount').max(100_000_000_00),
     taxPence: z.number().int().min(0).max(100_000_000_00).default(0),
-    paidFrom: z.enum(['bank', 'owner']).default('bank'),
     /** For wages: the team member paid (optional). */
     memberUserId: z.uuid().nullish(),
   })

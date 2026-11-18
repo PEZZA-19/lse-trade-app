@@ -10,7 +10,8 @@ import {
 } from '@lse/shared';
 import { useMemo, useState } from 'react';
 import { useBusiness, useAddExpense, useDeleteExpense, useExpenses } from '../../api/business';
-import { useMembers, useSession } from '../../api/hooks';
+import { useAccess, useMembers } from '../../api/hooks';
+import { canSee } from '@lse/shared';
 import { IconBusiness } from '../../components/icons';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
@@ -22,7 +23,6 @@ import {
   ListSkeleton,
   Page,
   Section,
-  Segmented,
   SelectField,
   TextField,
 } from '../../components/ui';
@@ -33,12 +33,12 @@ const name = (code: string) => accountByCode(code)?.name ?? code;
 
 /**
  * Business › Expenses and Wages: overheads that aren't supplier bills (insurance, fuel, phone,
- * ferries, software) and wages, so the Profit and Loss shows a real net profit. The owner adds
- * them; everyone with Accounts access can see them.
+ * ferries, software) and wages, so the Profit and Loss shows a real net profit. Everyone with
+ * Accounts access can see, add and remove them.
  */
 export function ExpensesScreen() {
-  const session = useSession();
-  const isOwner = session.data?.role === 'owner';
+  // Anyone with Accounts access can add and remove them (Joe, 18 Nov 2026); the API enforces it.
+  const canEdit = canSee(useAccess(), 'financials');
   const list = useExpenses();
   const b = useBusiness();
   const [adding, setAdding] = useState(false);
@@ -71,7 +71,7 @@ export function ExpensesScreen() {
     );
   return (
     <Page title="Expenses and Wages" back={back}>
-      {isOwner && (
+      {canEdit && (
         <div className="action-bar">
           <Button large block onClick={() => setAdding(true)}>
             Add Expense or Wages
@@ -109,12 +109,11 @@ export function ExpensesScreen() {
                     <span className="row__sub">
                       {shortDate(e.date)} · {name(e.account)}
                       {e.description ? ` · ${e.description}` : ''}
-                      {e.paidFrom === 'owner' ? ' · paid personally' : ''}
                     </span>
                   </span>
                   <span className="row__meta">
                     <span style={{ color: 'var(--label)' }}>{money(e.amountPence)}</span>
-                    {isOwner && (
+                    {canEdit && (
                       <Button
                         variant="plain"
                         aria-label={`Remove ${e.payee} ${money(e.amountPence)}`}
@@ -170,7 +169,6 @@ function AddExpenseSheet(props: { today: string; onClose: () => void }) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [tax, setTax] = useState('');
-  const [paidFrom, setPaidFrom] = useState<'bank' | 'owner'>('bank');
   const wages = account === WAGES_ACCOUNT;
   const pence = parsePounds(amount);
   const taxPence = tax.trim() ? parsePounds(tax) : 0;
@@ -196,7 +194,6 @@ function AddExpenseSheet(props: { today: string; onClose: () => void }) {
         description: description.trim(),
         amountPence: pence,
         taxPence: taxPence ?? 0,
-        paidFrom,
         memberUserId: wages && memberId ? memberId : null,
       },
       {
@@ -282,22 +279,7 @@ function AddExpenseSheet(props: { today: string; onClose: () => void }) {
           onChange={(e) => setDescription(e.target.value)}
         />
       </List>
-      <Section header="Paid from">
-        <Segmented
-          label="Paid from"
-          value={paidFrom}
-          onChange={setPaidFrom}
-          options={[
-            { value: 'bank', label: 'Business bank' },
-            { value: 'owner', label: 'Paid personally' },
-          ]}
-        />
-      </Section>
-      <p className="section__footer">
-        {paidFrom === 'bank'
-          ? 'Comes off the business bank balance and the profit.'
-          : 'A business cost you paid yourself: it comes off the profit, not the business bank.'}
-      </p>
+      <p className="section__footer">Comes out of the business account and off the profit.</p>
     </Sheet>
   );
 }

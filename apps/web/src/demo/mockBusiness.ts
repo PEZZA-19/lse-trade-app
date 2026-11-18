@@ -201,7 +201,6 @@ export function businessRoute(
         description: input.description,
         amountPence: input.amountPence,
         taxPence: input.taxPence,
-        paidFrom: input.paidFrom,
         memberUserId: input.memberUserId ?? null,
         createdAt: c.now(),
       };

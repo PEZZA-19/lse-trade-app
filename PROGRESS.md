@@ -679,11 +679,15 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     to job). It sets the default on the invoice's Approve sheet, which still confirms. Updated 10:35:
     credit can also be used on an invoice already issued ("Use Customer Credit…", confirmed); it
     lowers what they owe but the invoice as billed and its PDF don't change.
-42. Expenses you pay personally (not from the business bank) are recorded as money you put into the
-    business (they reduce your drawings on the Balance Sheet). OK?
+42. ANSWERED 18 Nov 2026, 10:36 by Joe: "Expenses just come from the profit of the company." Done:
+    no "paid personally" option; every expense comes out of the business account and off profit
+    (migration 0032 turned any recorded as personal into business expenses and dropped the column).
 43. If a booking is changed in the app and in Google Calendar before they sync, Google's change wins
     (and the log says so). OK, or should the app's change win?
-44. Adding and removing expenses and wages is owner-only for now. Should Office staff be able to?
+44. ANSWERED 18 Nov 2026, 10:38 by Joe: "Anyone with the correct level of access can make the
+    expenses change." Done: anyone with Accounts access (Admin and Office presets; not Field worker
+    or Subcontractor) can add and remove expenses and wages; the API refuses others (403). Removing
+    still asks to confirm, and every change is audited.
 
 ## Next (after session 4)
 
@@ -948,9 +952,10 @@ All four of Joe's 10:02 decisions are done, plus expenses and wages.
 - **Expenses and wages** (migration 0028). Business › Profit › "Expenses and wages": add an overhead
   (Xero codes: bank fees, accountancy, general, insurance, vehicle and fuel, software, tools and
   repairs, phone and internet, travel and ferries) or wages for a team member, paid from the
-  business bank or personally, with any reclaimable tax. They post to the ledger, so the P&L shows
+  business account (updated 10:36, Q42), with any reclaimable tax. They post to the ledger, so the P&L shows
   operating expenses and real net profit, Cash Flow splits suppliers / wages / expenses, Balance
-  Sheet and budgets include them. Owner-only to add or remove (with confirm and audit).
+  Sheet and budgets include them. Anyone with Accounts access adds or removes them (Q44; confirm
+  and audit).
 
 Tests: API 235, shared 181 (+1 skipped), web unit 57; e2e billing, calendar and business all pass on
 iPhone 14 and desktop.
@@ -982,4 +987,4 @@ re-importing or overlapping statements adds nothing twice. No screen yet.
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
 2. Bank statement import (CSV) and reconciliation; refunds.
-3. Answers needed: Q33, Q34, Q35, Q38, Q42–Q44.
+3. Answers needed: Q33, Q34, Q35, Q38.

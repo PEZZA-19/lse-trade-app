@@ -113,11 +113,10 @@ export async function getBusiness(tx: Tx): Promise<BusinessDto> {
       description: string;
       amountPence: string;
       taxPence: string;
-      paidFrom: 'bank' | 'owner';
     }[]
   >`
     SELECT id, spent_on::text AS date, payee, account_code AS account, description, amount_pence,
-           tax_pence, paid_from
+           tax_pence
       FROM expenses ORDER BY spent_on, created_at`;
   const budgets = await tx<{ month: string; account: string; amountPence: string }[]>`
     SELECT to_char(month, 'YYYY-MM') AS month, account_code AS account, amount_pence FROM budgets`;

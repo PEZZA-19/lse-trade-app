@@ -1,7 +1,8 @@
 /**
  * Expenses and wages: overheads that aren't supplier bills for materials, and wages, so the
- * Profit and Loss shows a real net profit. Recording or removing one is the owner's decision
- * (like recording a payment); anyone with Accounts access can see them.
+ * Profit and Loss shows a real net profit. Anyone with Accounts access can see, add and remove
+ * them (Joe, 18 Nov 2026: "Anyone with the correct level of access can make the expenses change");
+ * the API's access check for /api/expenses enforces it. Every change is audited.
  */
 import type { expenseCreate } from '@lse/shared';
 import { type ExpenseDto } from '@lse/shared';
@@ -22,7 +23,6 @@ interface Row {
   description: string;
   amountPence: string;
   taxPence: string;
-  paidFrom: 'bank' | 'owner';
   memberUserId: string | null;
   createdAt: Date;
 }
@@ -36,7 +36,7 @@ const toDto = (r: Row): ExpenseDto => ({
 export async function listExpenses(tx: Tx, from?: string, to?: string): Promise<ExpenseDto[]> {
   const rows = await tx<Row[]>`
     SELECT id, spent_on::text AS date, payee, account_code AS account, description, amount_pence,
-           tax_pence, paid_from, member_user_id, created_at
+           tax_pence, member_user_id, created_at
       FROM expenses
      WHERE (${from ?? null}::date IS NULL OR spent_on >= ${from ?? null}::date)
        AND (${to ?? null}::date IS NULL OR spent_on <= ${to ?? null}::date)
@@ -45,13 +45,7 @@ export async function listExpenses(tx: Tx, from?: string, to?: string): Promise<
   return rows.map(toDto);
 }
 
-const ownerOnly = (auth: Auth, what: string) => {
-  if (auth.role !== 'owner')
-    throw new AppError(403, 'owner_only', `Only the business owner can ${what}.`);
-};
-
 export async function createExpense(tx: Tx, auth: Auth, input: Input): Promise<ExpenseDto> {
-  ownerOnly(auth, 'record an expense');
   const t = await today(tx);
   if (input.date > t)
     throw new AppError(422, 'future_date', 'The date can’t be in the future.', {
@@ -66,12 +60,11 @@ export async function createExpense(tx: Tx, auth: Auth, input: Input): Promise<E
       });
   }
   const [row] = await tx<Row[]>`
-    INSERT INTO expenses (tenant_id, spent_on, payee, account_code, description, amount_pence, tax_pence,
-                          paid_from, member_user_id, created_by)
+    INSERT INTO expenses (tenant_id, spent_on, payee, account_code, description, amount_pence, tax_pence, member_user_id, created_by)
     VALUES (${auth.tenantId}, ${input.date}, ${input.payee}, ${input.account}, ${input.description},
-            ${input.amountPence}, ${input.taxPence}, ${input.paidFrom}, ${input.memberUserId ?? null}, ${auth.userId})
+            ${input.amountPence}, ${input.taxPence}, ${input.memberUserId ?? null}, ${auth.userId})
     RETURNING id, spent_on::text AS date, payee, account_code AS account, description, amount_pence,
-              tax_pence, paid_from, member_user_id, created_at`;
+              tax_pence, member_user_id, created_at`;
   await audit(tx, auth, 'create', 'expense', row!.id, {
     account: input.account,
     amountPence: input.amountPence,
@@ -80,11 +73,10 @@ export async function createExpense(tx: Tx, auth: Auth, input: Input): Promise<E
 }
 
 export async function deleteExpense(tx: Tx, auth: Auth, id: string): Promise<void> {
-  ownerOnly(auth, 'remove an expense');
   const [row] = await tx<Row[]>`
     DELETE FROM expenses WHERE id = ${id}
     RETURNING id, spent_on::text AS date, payee, account_code AS account, description, amount_pence,
-              tax_pence, paid_from, member_user_id, created_at`;
+              tax_pence, member_user_id, created_at`;
   if (!row) throw notFound('Expense');
   // The audit keeps what was removed.
   await audit(tx, auth, 'delete', 'expense', id, { ...toDto(row) });

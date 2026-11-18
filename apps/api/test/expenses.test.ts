@@ -34,7 +34,8 @@ describe('expenses and wages', () => {
       amountPence: 6000,
     });
     expect(fuel.status, JSON.stringify(fuel.body)).toBe(201);
-    expect(fuel.body).toMatchObject({ account: '449', paidFrom: 'bank', taxPence: 0 });
+    expect(fuel.body).toMatchObject({ account: '449', taxPence: 0 });
+    expect(fuel.body).not.toHaveProperty('paidFrom');
     const wages = await c.req('POST', '/api/expenses', {
       date: t,
       payee: 'Sam',
@@ -44,13 +45,12 @@ describe('expenses and wages', () => {
       memberUserId: sam.id,
     });
     expect(wages.status).toBe(201);
-    // Paid personally by the owner: a cost, but not out of the business bank.
+    // Every expense is the business's, out of the business account (Joe, 18 Nov 2026).
     const ferry = await c.req('POST', '/api/expenses', {
       date: t,
       payee: 'Isle of Sark Shipping',
       account: '493',
       amountPence: 2000,
-      paidFrom: 'owner',
     });
     expect(ferry.status).toBe(201);
 
@@ -68,7 +68,7 @@ describe('expenses and wages', () => {
     expect(pl.notes?.join(' ')).not.toMatch(/not recorded in the app yet/);
 
     const o = overview(d);
-    expect(o.bankPence).toBe(-56000);
+    expect(o.bankPence).toBe(-58000);
     expect(o.profit.year.netProfit).toBe(-58000);
     const bs = balanceSheet(d, t);
     const v = (l: string) => bs.rows.find((x) => x.label === l)?.values[0];
@@ -77,7 +77,7 @@ describe('expenses and wages', () => {
     const cf = cashFlow(d, { from: `${t.slice(0, 7)}-01`, to: t });
     const cv = (l: string) => cf.rows.find((x) => x.label === l)?.values.at(-1);
     expect(cv('Wages')).toBe(50000);
-    expect(cv('Expenses')).toBe(6000);
+    expect(cv('Expenses')).toBe(8000);
     expect(cv('Paid to suppliers')).toBe(0);
 
     expect(expenseTotals(d.expenses!, range).map((x) => [x.name, x.netPence])).toEqual([
@@ -86,9 +86,12 @@ describe('expenses and wages', () => {
       ['Travel and ferries', 2000],
     ]);
 
-    // Removing one (owner only) takes it out of everything.
+    // Removing one takes it out of everything. Anyone with Accounts access can (Joe, 18 Nov 2026):
+    // Sam is staff with the Office preset; a field worker can't.
+    await c.req('PUT', `/api/team/${sam.id}/access`, { isAdmin: false, areas: [] });
     expect((await sam.s.req('DELETE', `/api/expenses/${fuel.body.id}`)).status).toBe(403);
-    expect((await c.req('DELETE', `/api/expenses/${fuel.body.id}`)).status).toBe(204);
+    await c.req('PUT', `/api/team/${sam.id}/access`, { isAdmin: false, areas: ['financials'] });
+    expect((await sam.s.req('DELETE', `/api/expenses/${fuel.body.id}`)).status).toBe(204);
     expect((await c.req('DELETE', `/api/expenses/${fuel.body.id}`)).status).toBe(404);
     expect((await c.req('GET', '/api/expenses')).body).toHaveLength(2);
     const [a] = await adminSql<{ n: number }[]>`
@@ -114,13 +117,18 @@ describe('expenses and wages', () => {
     expect(v('Net assets')).toBe(v('Total equity'));
   });
 
-  it('only the owner records them; field workers can’t see them; bad input is explained', async () => {
+  it('anyone with Accounts access records them; field workers can’t; bad input is explained', async () => {
     const c = await client();
     const t = todayIso();
     const staff = await member(c, 'staff');
     const sub = await member(c, 'subcontractor');
     const body = { date: t, payee: 'Insurer', account: '433', amountPence: 30000 };
+    // Staff start with the Office preset (Accounts): they can.
+    const byStaff = await staff.s.req('POST', '/api/expenses', body);
+    expect(byStaff.status, JSON.stringify(byStaff.body)).toBe(201);
+    await c.req('PUT', `/api/team/${staff.id}/access`, { isAdmin: false, areas: [] });
     expect((await staff.s.req('POST', '/api/expenses', body)).status).toBe(403);
+    expect((await staff.s.req('DELETE', `/api/expenses/${byStaff.body.id}`)).status).toBe(403);
     expect((await sub.s.req('GET', '/api/expenses')).status).toBe(403);
     const future = await c.req('POST', '/api/expenses', { ...body, date: '2999-01-01' });
     expect(future.status).toBe(422);
@@ -139,6 +147,7 @@ describe('expenses and wages', () => {
     expect((await c.req('POST', '/api/expenses', body)).status).toBe(201);
     const other = await client();
     expect((await other.req('GET', '/api/expenses')).body).toEqual([]);
+    expect((await other.req('DELETE', `/api/expenses/${byStaff.body.id}`)).status).toBe(404);
   });
 
   it('budgets can be set for overheads and wages too', async () => {
