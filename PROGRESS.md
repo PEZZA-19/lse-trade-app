@@ -1027,9 +1027,18 @@ it. `POST /api/bank/transactions/:id/bill-payment {billId}`.
 The bank feature is complete for now: import, suggestions, match/unmatch/ignore, Add as Expense,
 Record Payment, Pay Bill, and the balance check. Refunds not started (as asked).
 
+## Where session 6 stopped (18 Nov 2026, 11:30 Guernsey, usage 90.5%)
+
+Stopped cleanly after the bank feature (steps 1–7) and the job-screen credit switch; everything is
+committed (last: job credit section). Tests: API 247, shared 197 (+1 skipped), web unit 63,
+e2e 84/84 (iPhone 14 + desktop). Private demo rebuilt 11:26 with real jobs (smoke: ERRORS none)
+and zipped to both usual paths; Joe's PC was offline, so it isn't in his Downloads yet.
+Nothing half-built. Next pick-up: refunds (when Joe says go), or answers to Q33/Q34/Q35/Q38.
+Q34 (opening bank balance) matters now: "Check against your bank" needs it to show no difference.
+
 ## Next (after session 6)
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
-2. Refunds (not started, as asked). Bank is done apart from refunds. Then refunds (not started, as asked).
+2. Refunds (not started, as asked). Bank is done apart from refunds.
 3. Answers needed: Q33, Q34, Q35, Q38. Q41–Q44 answered 18 Nov (credit, expenses, conflicts,
    expense access).
