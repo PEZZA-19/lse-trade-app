@@ -670,6 +670,11 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     review it. Nothing has been created in your Google account. Say when you'd like to do it.
 38. Labour on kits uses the business charge-out rate. Should it use a named person's rate when the
     job is assigned to them (ties in with Q28)?
+39. A customer credit is used on that customer's **next invoice approved after it** (oldest credit
+    first). If they already have an approved, unpaid invoice when the credit is issued, it isn't
+    taken off that one. Should it be?
+40. A quote that comes to less than £0 can be sent to the customer (it becomes a credit when
+    invoiced). OK, or should those skip the quote and go straight to a credit?
 
 ## Next (after session 4)
 
@@ -897,3 +902,12 @@ so You Owe is £0 there until they are.
   push + echo + paging + Google move/delete as approvals + app move pushed out, expired sync token,
   revoked access → Connect Again → reconnect, deleted calendar → new one, the schedule. Existing
   calendar sync tests updated; e2e: "Needs setting up" and the back-from-Google message.
+
+## Next (after session 5)
+
+1. Do the one-off Google setup with Joe (Q37, `docs/GOOGLE_CALENDAR_SETUP.md`), then try two-way
+   sync for real.
+2. Later for the books: expenses/overheads and wages (so net profit is real), bank feed or bank
+   statement import and reconciliation, refunds.
+3. Answers needed: Q32 (Google moves: approve or apply), Q33, Q34 (opening bank balance), Q35
+   (2027 budget), Q38, Q39, Q40.
