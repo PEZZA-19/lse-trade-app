@@ -115,6 +115,7 @@ export function demoBusiness(c: BusinessCtx): BusinessDto {
         invoiceId: u.invoiceId,
         date: u.appliedOn,
         amountPence: u.amountPence,
+        ...(u.afterIssue ? { afterIssue: true } : {}),
       })),
     ),
     bills: bills.map((b) => ({

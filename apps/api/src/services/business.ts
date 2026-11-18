@@ -69,9 +69,17 @@ export async function getBusiness(tx: Tx): Promise<BusinessDto> {
     SELECT id, invoice_id, number, issue_date::text AS date, amount_pence
       FROM credit_notes WHERE status = 'approved'`;
   const creditUses = await tx<
-    { id: string; creditId: string; invoiceId: string; date: string; amountPence: string }[]
+    {
+      id: string;
+      creditId: string;
+      invoiceId: string;
+      date: string;
+      amountPence: string;
+      afterIssue: boolean;
+    }[]
   >`
-    SELECT id, credit_invoice_id AS credit_id, invoice_id, applied_on::text AS date, amount_pence
+    SELECT id, credit_invoice_id AS credit_id, invoice_id, applied_on::text AS date, amount_pence,
+           after_issue
       FROM credit_uses ORDER BY applied_on, created_at`;
   const bills = await tx<
     {

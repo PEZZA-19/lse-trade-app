@@ -124,6 +124,11 @@ export interface LedgerCreditUse {
   invoiceId: string;
   date: string;
   amountPence: number;
+  /**
+   * Used after the invoice was issued (Joe, 18 Nov 2026, 11:34): the customer still owes the
+   * invoice as billed; the credit lowers that job's costs instead (profit goes up).
+   */
+  afterIssue?: boolean;
 }
 export interface LedgerBill {
   id: string;
@@ -207,7 +212,8 @@ export type SourceKind =
   | 'bill'
   | 'supplier_credit'
   | 'bill_payment'
-  | 'expense';
+  | 'expense'
+  | 'credit_use';
 export interface Posting {
   date: string;
   account: AccountCode;
@@ -346,6 +352,28 @@ export function postings(b: BooksInput): Posting[] {
       [
         ['800', p.amountPence],
         ['090', -p.amountPence],
+      ],
+    );
+  }
+  // A customer credit used after the invoice was issued: the credit is cleared and the job's
+  // costs go down (less materials cost), so profit goes up; what the customer owes doesn't change.
+  // (Used before issue, it only moves money between the credit and the invoice: no posting.)
+  for (const u of b.creditUses ?? []) {
+    if (!u.afterIssue) continue;
+    const i = invById.get(u.invoiceId);
+    const cr = invById.get(u.creditId);
+    add(
+      {
+        date: u.date,
+        source: 'credit_use',
+        sourceId: u.id,
+        reference: cr?.number ?? 'Customer credit',
+        contact: i?.customerName ?? '',
+        description: `Customer credit used on ${i?.jobNumber ? `job ${i.jobNumber}` : (i?.number ?? 'a job')} (lowers its costs)`,
+      },
+      [
+        ['610', u.amountPence],
+        ['310', -u.amountPence],
       ],
     );
   }
@@ -769,9 +797,10 @@ export function openInvoices(b: BooksInput, asAt: string): OpenItem[] {
   for (const c of b.credits)
     if (c.date <= asAt) settled.set(c.invoiceId, (settled.get(c.invoiceId) ?? 0) + c.amountPence);
   // A customer credit used on an invoice: less owed on the invoice, less credit left.
+  // Used after issue, the invoice is still owed in full (the credit lowers the job's costs).
   for (const u of b.creditUses ?? [])
     if (u.date <= asAt) {
-      settled.set(u.invoiceId, (settled.get(u.invoiceId) ?? 0) + u.amountPence);
+      if (!u.afterIssue) settled.set(u.invoiceId, (settled.get(u.invoiceId) ?? 0) + u.amountPence);
       settled.set(u.creditId, (settled.get(u.creditId) ?? 0) - u.amountPence);
     }
   return b.invoices

@@ -243,11 +243,15 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
     creditUses: uses.filter((u) => u.creditId === id),
     creditToUsePence:
       (r.status === 'draft' && Number(r.totalPence) > 0) ||
-      ['approved', 'sent', 'part_paid'].includes(r.status)
+      ['approved', 'sent', 'part_paid', 'paid'].includes(r.status)
         ? Math.min(
             r.status === 'draft'
               ? Number(r.totalPence)
-              : Number(r.totalPence) - Number(r.paidPence) - Number(r.creditedPence),
+              : // Issued: credit lowers the job's costs, up to the invoice total (Joe, 18 Nov 11:34).
+                Number(r.totalPence) -
+                  uses
+                    .filter((u) => u.invoiceId === id && u.afterIssue)
+                    .reduce((a, u) => a + u.amountPence, 0),
             (await availableCredits(tx, r.customerId)).reduce((a, c) => a + c.remainingPence, 0),
           )
         : 0,
@@ -336,7 +340,9 @@ async function applyCredits(
     used += p.amountPence;
   }
   if (used) {
-    await tx`UPDATE invoices SET credited_pence = credited_pence + ${used} WHERE id = ${invoiceId}`;
+    // After issue the customer still owes the invoice as billed: the credit lowers the job's costs.
+    if (!afterIssue)
+      await tx`UPDATE invoices SET credited_pence = credited_pence + ${used} WHERE id = ${invoiceId}`;
     await audit(tx, auth, 'use_credit', 'invoice', invoiceId, { uses: plan });
   }
   return used;
@@ -904,27 +910,24 @@ export async function useCreditAfterIssue(
 ): Promise<InvoiceDetailDto> {
   assertOwnerDecision(auth, 'use customer credit');
   const cur = await lockInvoice(tx, id);
-  if (!['approved', 'sent', 'part_paid'].includes(cur.status))
+  if (!['approved', 'sent', 'part_paid', 'paid'].includes(cur.status))
     throw conflict(
       'invoice_not_open',
       cur.status === 'draft'
         ? 'This invoice is still a draft: choose on the Approve sheet.'
-        : 'Nothing is owed on this invoice.',
+        : 'Credit can’t be used on this.',
     );
   await lockJob(tx, cur.jobId);
-  const [inv] = await tx<
-    { customerId: string; totalPence: string; paidPence: string; creditedPence: string }[]
-  >`SELECT j.customer_id, i.total_pence, i.paid_pence, i.credited_pence
+  const [inv] = await tx<{ customerId: string; totalPence: string; usedAfter: string }[]>`
+    SELECT j.customer_id, i.total_pence,
+           (SELECT COALESCE(SUM(u.amount_pence), 0) FROM credit_uses u
+             WHERE u.invoice_id = i.id AND u.after_issue) AS used_after
       FROM invoices i JOIN jobs j ON j.id = i.job_id WHERE i.id = ${id}`;
-  const owed = Number(inv!.totalPence) - Number(inv!.paidPence) - Number(inv!.creditedPence);
+  // Joe, 18 Nov 11:34: "the cost of the total job goes down so profit increases for that job".
+  // What the customer owes, the invoice and its PDF stay as billed; status doesn't change.
+  const room = Number(inv!.totalPence) - Number(inv!.usedAfter);
   const t = await today(tx);
-  const used = await applyCredits(tx, auth, id, inv!.customerId, owed, t, true);
+  const used = room > 0 ? await applyCredits(tx, auth, id, inv!.customerId, room, t, true) : 0;
   if (!used) throw conflict('no_credit', 'This customer has no credit to use.');
-  const credited = Number(inv!.creditedPence) + used;
-  if (cur.status !== 'approved' || Number(inv!.paidPence) + credited >= Number(inv!.totalPence)) {
-    const status = statusAfterPayment(Number(inv!.totalPence), Number(inv!.paidPence), credited);
-    await tx`UPDATE invoices SET status = ${status} WHERE id = ${id}`;
-    if (status === 'paid') await completeJobIfSettled(tx, auth, cur.jobId);
-  }
   return getInvoice(tx, id);
 }

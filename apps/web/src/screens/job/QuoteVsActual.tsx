@@ -61,6 +61,12 @@ export function QuoteVsActual({ jobId }: { jobId: string }) {
         <KeyValueRow label="Materials quoted (sell)" value={formatPence(q.materialsPence)} />
         <KeyValueRow label="Materials actual (cost)" value={formatPence(p.materialsCostPence)} />
         <KeyValueRow label="Invoiced so far (ex VAT)" value={formatPence(p.invoicedPence)} />
+        {p.creditUsedPence > 0 && (
+          <KeyValueRow
+            label="Customer credit used (lowers cost)"
+            value={`−${formatPence(p.creditUsedPence)}`}
+          />
+        )}
         <KeyValueRow
           label={`Profit so far${soFarBp !== null ? ` · ${Math.round(soFarBp / 100)}%` : ''}`}
           value={

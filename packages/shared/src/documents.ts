@@ -244,13 +244,10 @@ export function invoiceDocument(
         value: formatPence(-cn.amountPence),
         pence: -cn.amountPence,
       });
-  // Credit used after issue is left off the document (the invoice stays as billed).
-  const afterIssue = (inv.creditsApplied ?? [])
-    .filter((x) => x.afterIssue)
-    .reduce((a, x) => a + x.amountPence, 0);
-  const shownCredited = (inv.creditedPence ?? 0) - afterIssue;
-  if (!credit && (inv.paidPence > 0 || shownCredited > 0)) {
-    const due = inv.balancePence + afterIssue;
+  // Credit used after issue lowers the job's costs, not what's owed (Joe, 18 Nov 11:34), so it is
+  // in neither creditedPence nor the balance, and is left off the document.
+  if (!credit && (inv.paidPence > 0 || (inv.creditedPence ?? 0) > 0)) {
+    const due = inv.balancePence;
     totals.push({
       label: 'Balance due',
       value: formatPence(due),

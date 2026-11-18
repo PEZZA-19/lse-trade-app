@@ -1036,6 +1036,29 @@ area check (403 for field workers / subcontractors). This matches Xero, where St
 only Advisers/owners) can record payments. Approving and marking invoices sent, approving credit
 notes, applying bills and the customer-credit choices stay owner-only (unchanged).
 
+### Credit used on an already-invoiced job (Joe, 18 Nov 11:34, replaces the 10:35 reading)
+
+"No, the cost of the total job goes down so profit increases for that job." Now: Use Customer
+Credit on an issued invoice (approved, sent, part paid or paid; owner, with a confirm sheet) uses
+the credit up (oldest first) to at most the invoice total, and books it as **lower costs for that
+job**: posting Dr 610 (clears the customer's credit) / Cr 310 Materials and supplies. The job's
+"Profit so far" and "Expected profit" go up by it (`creditUsedPence` in job costing and Reports),
+and the P&L shows lower cost of sales. What the customer owes, the invoice status, lines, total
+and PDF don't change. Migration 0033 reverses the earlier treatment for any existing after-issue
+uses (gives the owed amount back). Demo mirrors it.
+
+Open questions (not guessed):
+
+- Q45. A credit usually comes from a customer's negative-total job (e.g. rent payments owed to
+  them), which already lowered income in the P&L when it was issued. Using it against another job's
+  costs then raises profit again, so across the two jobs the credit nets to zero profit and the
+  customer is never actually paid or charged less. Is that what Joe intends, or should the credit
+  job's own loss stay and the customer still be paid/credited at some point?
+- Q46. Which cost line should it lower: materials (310, used now) or a separate "customer credit"
+  line in the P&L? And is the limit right (up to the invoice total)?
+- Q47. Any GST/VAT in the credit is treated as part of the cost reduction (fine while not
+  registered; needs a rule if that changes).
+
 ## Where session 6 stopped (18 Nov 2026, 11:30 Guernsey, usage 90.5%)
 
 Stopped cleanly after the bank feature (steps 1–7) and the job-screen credit switch; everything is

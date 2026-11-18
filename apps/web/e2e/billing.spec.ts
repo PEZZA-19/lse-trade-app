@@ -455,11 +455,12 @@ test('a job below £0 is issued as a customer credit and comes off the next invo
   ).not.toBeChecked();
   await expect(sheet2).toContainText('stays on their account for a later invoice');
   await sheet2.getByRole('button', { name: 'Approve', exact: true }).last().click();
-  // Joe, 10:35: it can still be used once invoiced, without changing the invoice as billed.
+  // Joe, 11:34: once invoiced, it lowers the job's costs; the invoice and what's owed stay as billed.
   await page.getByRole('button', { name: 'Use Customer Credit…' }).click();
   const use2 = page.getByRole('dialog', { name: 'Use Customer Credit' });
   await expect(use2).toContainText('stays as billed');
+  await expect(use2).toContainText('the job’s profit goes up');
   await use2.getByRole('button', { name: 'Use Credit', exact: true }).last().click();
-  await expect(page.getByText(/Customer credit used · £150\.00 still owed/)).toBeVisible();
-  await expect(page.getByText('After invoicing · not on the invoice PDF')).toBeVisible();
+  await expect(page.getByText('Customer credit used · the job’s costs are lower')).toBeVisible();
+  await expect(page.getByText(/lowers the job’s costs, not what’s owed/)).toBeVisible();
 });

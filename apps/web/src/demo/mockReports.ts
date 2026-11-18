@@ -166,6 +166,10 @@ function jobProfitFor(c: ReportsCtx, j: JobDetailDto, details: InvoiceDetailDto[
       d.subtotalPence -
       (d.totalPence > 0 ? Math.round((d.creditedPence * d.subtotalPence) / d.totalPence) : 0),
   );
+  const creditUsedPence = sumOf(
+    details.filter((d) => d.jobId === j.id).flatMap((d) => d.creditsApplied),
+    (u) => (u.afterIssue ? u.amountPence : 0),
+  );
   const rates = c.members.map((m) => c.costRate(m.userId)).filter((r): r is number => r !== null);
   const fallbackRatePence = rates.length
     ? Math.round(sumOf(rates, (r) => r) / rates.length)
@@ -182,10 +186,12 @@ function jobProfitFor(c: ReportsCtx, j: JobDetailDto, details: InvoiceDetailDto[
     chargeOutPence,
     missingCostRates: rows.filter((r) => r.rateIsDefault).length,
     invoicedPence,
+    creditUsedPence,
     ...profitFigures({
       ...parts,
       chargeOutPence,
       invoicedPence,
+      creditUsedPence,
       quotedLabourCostPence: quotedLabourCost({
         quotedMinutes: Math.round(
           (sumOf(

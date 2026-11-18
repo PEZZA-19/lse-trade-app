@@ -417,7 +417,10 @@ function summary(c: BillingCtx, i: Invoice): InvoiceSummaryDto {
     .filter((x) => x.status === 'approved')
     .reduce((a, x) => a + x.amountPence, 0);
   const uses = c.b.creditUses ?? [];
-  const usedOn = uses.filter((u) => u.invoiceId === i.id).reduce((a, u) => a + u.amountPence, 0);
+  // Used after issue it lowers the job's costs, not what's owed (Joe, 18 Nov 11:34).
+  const usedOn = uses
+    .filter((u) => u.invoiceId === i.id && !u.afterIssue)
+    .reduce((a, u) => a + u.amountPence, 0);
   const usedOf = uses.filter((u) => u.creditId === i.id).reduce((a, u) => a + u.amountPence, 0);
   return {
     id: i.id,
@@ -500,9 +503,9 @@ function detail(c: BillingCtx, i: Invoice): InvoiceDetailDto {
     creditUses: uses.filter((u) => u.creditId === i.id).map(useDto),
     creditToUsePence:
       (i.status === 'draft' && t.totalPence > 0) ||
-      ['approved', 'sent', 'part_paid'].includes(i.status)
+      ['approved', 'sent', 'part_paid', 'paid'].includes(i.status)
         ? Math.min(
-            i.status === 'draft' ? t.totalPence : summary(c, i).balancePence,
+            i.status === 'draft' ? t.totalPence : afterIssueRoom(c, i),
             availableCredits(c, j.customerId).reduce((a, x) => a + x.remainingPence, 0),
           )
         : 0,
@@ -686,8 +689,17 @@ export function availableCredits(c: BillingCtx, customerId: string, asOf?: strin
     .sort((a, z) => (a.issueDate < z.issueDate ? -1 : a.issueDate > z.issueDate ? 1 : 0));
 }
 /** Uses the customer's credit on an invoice just approved (as the server does). */
+/** Credit can lower an issued job's costs up to the invoice total, less what's already used. */
+function afterIssueRoom(c: BillingCtx, inv: Invoice) {
+  return (
+    totalsOf(inv).totalPence -
+    (c.b.creditUses ?? [])
+      .filter((u) => u.invoiceId === inv.id && u.afterIssue)
+      .reduce((a, u) => a + u.amountPence, 0)
+  );
+}
 function applyCredits(c: BillingCtx, inv: Invoice, date: string, afterIssue = false) {
-  const owed = summary(c, inv).balancePence;
+  const owed = afterIssue ? afterIssueRoom(c, inv) : summary(c, inv).balancePence;
   const plan = planCreditUse(availableCredits(c, c.job(inv.jobId).customerId, date), owed);
   c.b.creditUses ??= [];
   for (const p of plan)
@@ -939,23 +951,18 @@ export function billingRoute(
       return detail(c, inv);
     }
     if (method === 'POST' && sub === 'use-credit') {
-      // Joe, 18 Nov 10:35: credit on an issued invoice; the invoice as billed doesn't change.
-      if (!['approved', 'sent', 'part_paid'].includes(inv.status))
+      // Joe, 18 Nov 11:34: credit on an issued invoice lowers the job's costs (profit up); what's
+      // owed, the invoice and its status don't change.
+      if (!['approved', 'sent', 'part_paid', 'paid'].includes(inv.status))
         c.fail(
           409,
           'invoice_not_open',
           inv.status === 'draft'
             ? 'This invoice is still a draft: choose on the Approve sheet.'
-            : 'Nothing is owed on this invoice.',
+            : 'Credit can’t be used on this.',
         );
-      if (!applyCredits(c, inv, today(), true))
+      if (afterIssueRoom(c, inv) <= 0 || !applyCredits(c, inv, today(), true))
         c.fail(409, 'no_credit', 'This customer has no credit to use.');
-      const s = summary(c, inv);
-      if (inv.status !== 'approved' || s.balancePence <= 0) {
-        const st = statusAfterPayment(s.totalPence, s.paidPence, s.creditedPence);
-        inv.status = st;
-        if (st === 'paid' && settled(c, inv.jobId)) c.completeJob(inv.jobId);
-      }
       inv.version += 1;
       return detail(c, inv);
     }

@@ -147,6 +147,7 @@ export async function jobProfits(
       lineValue: string;
       materials: string;
       invoiced: string;
+      creditUsed: string;
       quotedLabourMilli: string;
       quotedMaterialsCost: string;
     }[]
@@ -164,6 +165,9 @@ export async function jobProfits(
                                         / NULLIF(v.total_pence, 0))), 0)
                 FROM credit_notes cn JOIN invoices v ON v.id = cn.invoice_id
                WHERE v.job_id = j.id AND cn.status = 'approved') AS invoiced,
+           (SELECT COALESCE(SUM(u.amount_pence), 0) FROM credit_uses u
+              JOIN invoices v ON v.id = u.invoice_id
+             WHERE v.job_id = j.id AND u.after_issue) AS credit_used,
            (SELECT COALESCE(SUM(qty_milli), 0) FROM job_lines l
              WHERE l.job_id = j.id AND l.source = 'quote' AND l.kind = 'labour') AS quoted_labour_milli,
            -- Quoted materials and extras at cost: the line's cost where known, else price ÷ markup.
@@ -236,6 +240,7 @@ export async function jobProfits(
       };
       const chargeOutPence = rows.reduce((t, x) => t + x.chargeOutPence, 0);
       const invoicedPence = n(r.invoiced);
+      const creditUsedPence = n(r.creditUsed);
       return {
         jobId: r.jobId,
         number: r.number,
@@ -247,10 +252,12 @@ export async function jobProfits(
         chargeOutPence,
         missingCostRates: rows.filter((x) => x.rateIsDefault).length,
         invoicedPence,
+        creditUsedPence,
         ...profitFigures({
           ...parts,
           chargeOutPence,
           invoicedPence,
+          creditUsedPence,
           quotedLabourCostPence: quotedLabourCost({
             quotedMinutes: Math.round((n(r.quotedLabourMilli) * 60) / 1000),
             minutes,

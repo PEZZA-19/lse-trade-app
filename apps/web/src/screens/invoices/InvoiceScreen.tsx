@@ -134,7 +134,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
                   ? `Approved · Invoice ${r.number} · ${formatPence(r.creditedPence)} credit used`
                   : `Approved · Invoice ${r.number}`
               : action === 'use-credit'
-                ? `Customer credit used · ${formatPence(r.balancePence)} still owed`
+                ? 'Customer credit used · the job’s costs are lower'
                 : `Invoice ${r.number} marked as sent`,
           );
           setConfirm(null);
@@ -239,6 +239,13 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
               Use Customer Credit…
             </Button>
           )}
+        </Section>
+      )}
+      {isOwner && inv.status === 'paid' && creditToUse > 0 && (
+        <Section>
+          <Button block variant="secondary" onClick={() => setConfirm('credit')}>
+            Use Customer Credit…
+          </Button>
         </Section>
       )}
 
@@ -378,11 +385,14 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
                 <span className="row__main">
                   <span className="row__title">Customer credit {u.creditNumber} used</span>
                   {u.afterIssue && (
-                    <span className="row__sub">After invoicing · not on the invoice PDF</span>
+                    <span className="row__sub" style={{ whiteSpace: 'normal' }}>
+                      After invoicing · lowers the job’s costs, not what’s owed · not on the PDF
+                    </span>
                   )}
                 </span>
                 <span className="row__meta num" style={{ color: 'var(--green)' }}>
-                  −{formatPence(u.amountPence)}
+                  {u.afterIssue ? '' : '−'}
+                  {formatPence(u.amountPence)}
                 </span>
               </Link>
             </li>
@@ -641,12 +651,15 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
         error={decide.error?.message}
       >
         <p>
-          <strong>{formatPence(creditToUse)}</strong> of {inv.customerName}’s credit comes off what
-          they owe, leaving <strong>{formatPence(inv.balancePence - creditToUse)}</strong>.
+          <strong>{formatPence(creditToUse)}</strong> of {inv.customerName}’s credit goes against
+          this job’s costs, so the job’s profit goes up by that much.
         </p>
         <ul>
-          <li>Invoice {inv.number} stays as billed: its lines, total and PDF don’t change.</li>
-          <li>The credit is already in the Profit and Loss, so profit doesn’t change.</li>
+          <li>
+            Invoice {inv.number} stays as billed: its lines, total, PDF and what they owe don’t
+            change.
+          </li>
+          <li>The credit is used up; the Profit and Loss shows lower costs.</li>
           <li>Nothing is sent to the customer.</li>
         </ul>
       </ConfirmSheet>

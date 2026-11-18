@@ -312,11 +312,12 @@ describe('customer credit: Joe’s rules (18 Nov 2026)', () => {
     );
   });
 
-  it('Joe, 10:35: credit can be used on an issued invoice; what they owe drops, the invoice as billed doesn’t', async () => {
+  it('Joe, 11:34: credit used on an invoiced job lowers its costs (profit up); what they owe and the invoice don’t change', async () => {
     const c = await client();
     await ready(c);
     const cust = await seedCustomer(c);
-    const sent = await draftFor(c, (await job(c, cust.id, 'Earlier work', WORK_JOB(6000))).id);
+    const earlier = await job(c, cust.id, 'Earlier work', WORK_JOB(6000));
+    const sent = await draftFor(c, earlier.id);
     await c.req('POST', `/api/invoices/${sent.id}/approve`);
     await c.req('POST', `/api/invoices/${sent.id}/mark-sent`);
     const pdfBefore = (await c.req('GET', `/api/invoices/${sent.id}/document`)).body;
@@ -324,26 +325,33 @@ describe('customer credit: Joe’s rules (18 Nov 2026)', () => {
     const { draft: credit } = await creditDraft(c, cust.id);
     await c.req('POST', `/api/invoices/${credit.id}/approve`);
     const mid = (await c.req('GET', '/api/business')).body as BusinessDto;
+    const costBefore = (await c.req('GET', `/api/jobs/${earlier.id}/costing`)).body.profit;
 
     const r = await c.req('POST', `/api/invoices/${sent.id}/use-credit`);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    // £60 owed, £150 credit: settled, total unchanged, £90 credit left.
-    expect(r.body).toMatchObject({ status: 'paid', totalPence: 6000, balancePence: 0 });
+    // £60 invoice, £150 credit: £60 used (up to the invoice total), still £60 owed, £90 left.
+    expect(r.body).toMatchObject({ status: 'sent', totalPence: 6000, balancePence: 6000 });
     expect(r.body.creditsApplied).toMatchObject([{ amountPence: 6000, afterIssue: true }]);
     expect((await c.req('GET', `/api/customers/${cust.id}`)).body.credits[0].remainingPence).toBe(
       9000,
     );
     // The invoice document is exactly as billed.
     expect((await c.req('GET', `/api/invoices/${sent.id}/document`)).body).toEqual(pdfBefore);
-    // The credit is in the P&L once (when issued); using it doesn't change profit, and the books balance.
+    // The job's profit goes up by the credit; the P&L shows lower costs; the books balance.
+    const costAfter = (await c.req('GET', `/api/jobs/${earlier.id}/costing`)).body.profit;
+    expect(costAfter.creditUsedPence).toBe(6000);
+    expect(costAfter.profitPence).toBe(costBefore.profitPence + 6000);
     const after = (await c.req('GET', '/api/business')).body as BusinessDto;
     const range = { from: '2000-01-01', to: after.today };
     const np = (d: BusinessDto) => plFigures(postings(d), range).netProfit;
     expect(np(mid)).toBe(np(before) - 15000);
-    expect(np(after)).toBe(np(mid));
+    expect(np(after)).toBe(np(mid) + 6000);
     const bs = bsFigures(postings(after), after.today, '01-01');
     expect(bs.netAssets).toBe(bs.equity);
-    // Nothing more to use; a draft goes through the Approve sheet instead.
+    const open = openInvoices(after, after.today);
+    expect(open.find((x) => x.id === sent.id)!.duePence).toBe(6000);
+    expect(open.find((x) => x.id === credit.id)!.duePence).toBe(-9000);
+    // Up to the invoice total only; owner only; a draft goes through the Approve sheet instead.
     expect((await c.req('POST', `/api/invoices/${sent.id}/use-credit`)).status).toBe(409);
     const staff = await clientFor(await addMember(c.tenantId, 'staff'), c);
     expect((await staff.req('POST', `/api/invoices/${sent.id}/use-credit`)).status).toBe(403);

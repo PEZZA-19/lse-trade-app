@@ -132,7 +132,7 @@ describe('demo credit on an issued invoice (Joe, 18 Nov 2026, 10:35)', () => {
     resetDemo();
   });
 
-  it('owed drops, the invoice document stays as billed', async () => {
+  it('lowers the job’s costs; what’s owed and the invoice document stay as billed (11:34)', async () => {
     const cust = await send<CustomerDetailDto>('POST', '/customers', {
       name: 'After Issue',
       email: 'after@example.com',
@@ -151,11 +151,16 @@ describe('demo credit on an issued invoice (Joe, 18 Nov 2026, 10:35)', () => {
     await send('POST', `/invoices/${d.id}/approve`);
     expect((await get<InvoiceDetailDto>(`/invoices/${inv.id}`)).creditToUsePence).toBe(6000);
     const r = await send<InvoiceDetailDto>('POST', `/invoices/${inv.id}/use-credit`);
-    expect(r).toMatchObject({ status: 'paid', totalPence: 6000, balancePence: 0 });
+    expect(r).toMatchObject({ status: 'sent', totalPence: 6000, balancePence: 6000 });
     expect(r.creditsApplied[0]).toMatchObject({ amountPence: 6000, afterIssue: true });
     expect(await get(`/invoices/${inv.id}/document`)).toEqual(docBefore);
     expect((await get<CustomerDetailDto>(`/customers/${cust.id}`)).credits[0]!.remainingPence).toBe(
       9000,
     );
+    // The job's profit goes up by the credit used.
+    const costing = await get<{ profit: { creditUsedPence: number } }>(
+      `/jobs/${inv.jobId}/costing`,
+    );
+    expect(costing.profit.creditUsedPence).toBe(6000);
   });
 });

@@ -46,6 +46,11 @@ export interface JobProfitDto {
   /** Net invoiced so far (issued invoices, ex VAT, less approved credit notes). */
   invoicedPence: number;
   /**
+   * Customer credit used on this job after it was invoiced (Joe, 18 Nov 2026, 11:34): lowers the
+   * job's costs, so its profit goes up. The invoice is unchanged.
+   */
+  creditUsedPence: number;
+  /**
    * Expected revenue: the quote (ex VAT); for a job without a quote, its lines plus the time at
    * the charge-out rate (what a time-and-materials invoice would bill).
    */
@@ -126,14 +131,18 @@ export function profitFigures(p: {
   materialsCostPence: number;
   quotedLabourCostPence: number;
   quotedMaterialsCostPence: number;
+  /** Customer credit used after invoicing: lowers the job's costs. */
+  creditUsedPence?: number;
 }) {
+  const credit = p.creditUsedPence ?? 0;
   const revenuePence = p.quotedPence ?? p.lineValuePence + p.chargeOutPence;
   const expectedCostPence =
     Math.max(p.quotedLabourCostPence, p.labourPence) +
-    Math.max(p.quotedMaterialsCostPence, p.materialsCostPence);
+    Math.max(p.quotedMaterialsCostPence, p.materialsCostPence) -
+    credit;
   return {
     revenuePence,
-    profitPence: p.invoicedPence - p.labourPence - p.materialsCostPence,
+    profitPence: p.invoicedPence - p.labourPence - p.materialsCostPence + credit,
     expectedCostPence,
     expectedProfitPence: revenuePence - expectedCostPence,
   };

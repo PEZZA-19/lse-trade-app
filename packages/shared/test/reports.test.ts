@@ -186,6 +186,7 @@ describe('reports CSV', () => {
         labourPence: 5933,
         materialsCostPence: 2000,
         invoicedPence: 0,
+        creditUsedPence: 0,
         revenuePence: 20000,
         chargeOutPence: 9000,
         missingCostRates: 1,
