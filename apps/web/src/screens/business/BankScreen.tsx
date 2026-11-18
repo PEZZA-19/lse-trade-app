@@ -1,17 +1,24 @@
 import {
   BANK_CSV_MAX_BYTES,
+  reconcileBank,
   canSee,
   type BankImportResultDto,
   type BankTransactionDto,
 } from '@lse/shared';
 import { useRef, useState } from 'react';
-import { useBankLineAction, useBankLines, useImportStatement } from '../../api/business';
+import {
+  useBankLineAction,
+  useBankLines,
+  useBusiness,
+  useImportStatement,
+} from '../../api/business';
 import { useAccess } from '../../api/hooks';
 import { IconBusiness } from '../../components/icons';
 import { useToast } from '../../components/Toast';
 import {
   Button,
   EmptyState,
+  KeyValueRow,
   List,
   ListSkeleton,
   Page,
@@ -32,6 +39,10 @@ export function BankScreen() {
   const canEdit = canSee(useAccess(), 'financials');
   const [tab, setTab] = useState<Tab>('unmatched');
   const lines = useBankLines(tab);
+  const everything = useBankLines('all');
+  const books = useBusiness();
+  const rec = everything.data && books.data ? reconcileBank(everything.data, books.data) : null;
+  const toMatch = everything.data?.filter((l) => l.status === 'unmatched').length ?? 0;
   const imp = useImportStatement();
   const act = useBankLineAction();
   const toast = useToast();
@@ -125,6 +136,35 @@ export function BankScreen() {
                 </div>
               </li>
             ))}
+          </List>
+        </Section>
+      )}
+      {rec && (
+        <Section
+          header="Check against your bank"
+          footer={
+            rec.differencePence === 0
+              ? 'The app’s Bank and Cash matches your bank on that day.'
+              : `They differ${toMatch ? ` and ${toMatch} bank ${toMatch === 1 ? 'line is' : 'lines are'} still to match` : ''}. Usually it’s money in or out not yet recorded in the app, or the opening balance (Business › Bank and Cash).`
+          }
+        >
+          <List label="Bank check">
+            <li>
+              <KeyValueRow
+                label={`Your bank on ${shortDate(rec.date)}`}
+                value={money(rec.bankPence)}
+              />
+            </li>
+            <li>
+              <KeyValueRow label="The app’s Bank and Cash" value={money(rec.appPence)} />
+            </li>
+            <li>
+              <KeyValueRow
+                label="Difference"
+                value={rec.differencePence === 0 ? 'None ✓' : money(rec.differencePence)}
+                strong
+              />
+            </li>
           </List>
         </Section>
       )}

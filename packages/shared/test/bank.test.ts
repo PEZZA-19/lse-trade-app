@@ -4,8 +4,11 @@ import {
   parseBankCsv,
   parseBankDate,
   splitCsv,
+  closingBalance,
+  reconcileBank,
   suggestMatches,
   type BankMatchCandidate,
+  type BooksInput,
 } from '../src';
 
 describe('bank CSV basics', () => {
@@ -201,5 +204,49 @@ describe('bank matching suggestions', () => {
     expect(r.map((x) => x.id)).toEqual(['b1', 'e1']);
     expect(r[0]!.strong).toBe(true);
     expect(r[1]!.strong).toBe(false);
+  });
+});
+
+describe('bank reconciliation', () => {
+  it('finds the day’s closing balance whichever way round the bank lists lines', () => {
+    const oldestFirst = [
+      { date: '2026-11-17', amountPence: -100, balancePence: 900 },
+      { date: '2026-11-18', amountPence: -200, balancePence: 700 },
+      { date: '2026-11-18', amountPence: 500, balancePence: 1200 },
+    ];
+    expect(closingBalance(oldestFirst)).toEqual({ date: '2026-11-18', pence: 1200 });
+    expect(closingBalance([...oldestFirst].reverse())).toEqual({ date: '2026-11-18', pence: 1200 });
+    expect(closingBalance([{ date: '2026-11-18', amountPence: 1, balancePence: null }])).toBeNull();
+  });
+
+  it('compares with the app’s Bank and Cash on that day', () => {
+    const books = {
+      opening: { date: '2026-11-01', bankPence: 1000 },
+      invoices: [],
+      payments: [],
+      credits: [],
+      bills: [],
+      billPayments: [],
+      budgets: [],
+      expenses: [
+        {
+          id: 'e',
+          date: '2026-11-10',
+          payee: 'X',
+          account: '449' as const,
+          description: '',
+          amountPence: 100,
+          taxPence: 0,
+        },
+      ],
+    } satisfies BooksInput;
+    const lines = [{ date: '2026-11-18', amountPence: -100, balancePence: 900 }];
+    expect(reconcileBank(lines, books)).toEqual({
+      date: '2026-11-18',
+      bankPence: 900,
+      appPence: 900,
+      differencePence: 0,
+    });
+    expect(reconcileBank([{ ...lines[0]!, balancePence: 850 }], books)!.differencePence).toBe(-50);
   });
 });

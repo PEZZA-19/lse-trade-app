@@ -105,7 +105,7 @@ export function useDeleteExpense() {
 
 const bankKey = ['bank'] as const;
 
-export const useBankLines = (status: 'unmatched' | 'matched' | 'ignored', enabled = true) =>
+export const useBankLines = (status: 'unmatched' | 'matched' | 'ignored' | 'all', enabled = true) =>
   useQuery({
     queryKey: [...bankKey, status],
     queryFn: () => api<BankTransactionDto[]>('GET', `/bank/transactions?status=${status}`),

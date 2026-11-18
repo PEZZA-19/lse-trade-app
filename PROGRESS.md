@@ -1005,12 +1005,18 @@ Step 4 done: **Add as Expense** on an unmatched money-out line opens the Add Exp
 the bank's date and amount (fixed) and the payee from the line; saving records the expense and
 matches the line (`POST /api/bank/transactions/:id/expense`). Mirrored in the demo.
 
-Still to do for the bank: a reconciliation summary (bank closing balance vs app's Bank and Cash) using the CSV's balance
-column; record a customer payment from an unmatched money-in line.
+Step 5 done: **Check against your bank** on the Bank Statement screen (when the CSV has a Balance
+column): the bank's closing balance on the statement's last day vs the app's Bank and Cash at the
+end of that day, and the difference (with a hint: unrecorded money in/out, or the opening balance).
+Shared `closingBalance` / `reconcileBank` handle banks listing newest-first or oldest-first.
+
+Still to do for the bank: record a customer payment from an unmatched money-in line, and a supplier
+bill payment from a money-out line (today: record them on the invoice or bill, then Match).
 
 ## Next (after session 6)
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
-2. Bank: reconciliation summary (closing balance check), record a payment from a bank line. Then refunds (not started, as asked).
+2. Bank: record a customer payment straight from a money-in bank line; supplier bill payment from a
+   money-out line. Then refunds (not started, as asked). Then refunds (not started, as asked).
 3. Answers needed: Q33, Q34, Q35, Q38. Q41–Q44 answered 18 Nov (credit, expenses, conflicts,
    expense access).

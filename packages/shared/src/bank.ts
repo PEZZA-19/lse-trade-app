@@ -13,7 +13,7 @@
  *   while two identical coffees on one day both stay.
  */
 import { z } from 'zod';
-import { EXPENSE_ACCOUNT_CODES } from './ledger';
+import { EXPENSE_ACCOUNT_CODES, balances, postings, type BooksInput } from './ledger';
 
 export interface BankCsvRow {
   /** Line in the file, from 1, for messages. */
@@ -441,3 +441,48 @@ export const bankLineExpense = z.object({
   memberUserId: z.uuid().nullish(),
 });
 export type BankLineExpense = z.input<typeof bankLineExpense>;
+
+/* ----------------------------- reconciliation ----------------------------- */
+
+/**
+ * The bank's balance at the end of the latest day that has balances. Within a day banks list lines
+ * newest-first or oldest-first, so the day's closing balance is the one no other line on that day
+ * starts from (its balance before = balance − amount).
+ */
+export function closingBalance(
+  lines: { date: string; amountPence: number; balancePence: number | null }[],
+): { date: string; pence: number } | null {
+  const withBal = lines.filter((l) => l.balancePence !== null);
+  if (!withBal.length) return null;
+  const last = withBal.reduce((d, l) => (l.date > d ? l.date : d), withBal[0]!.date);
+  const day = withBal.filter((l) => l.date === last);
+  const before = new Set(day.map((l) => l.balancePence! - l.amountPence));
+  const closing = day.filter((l) => !before.has(l.balancePence!));
+  // One clear end: use it. Otherwise (unusual), the line listed first in the file for that day.
+  return { date: last, pence: (closing.length === 1 ? closing[0]! : day[0]!).balancePence! };
+}
+
+export interface BankReconciliation {
+  date: string;
+  bankPence: number;
+  /** The app's Bank and Cash (account 090) at the end of that day. */
+  appPence: number;
+  differencePence: number;
+}
+
+/** Does the app's Bank and Cash agree with the bank's own balance on the statement's last day? */
+export function reconcileBank(
+  lines: { date: string; amountPence: number; balancePence: number | null }[],
+  books: BooksInput,
+): BankReconciliation | null {
+  const close = closingBalance(lines);
+  if (!close) return null;
+  const appPence =
+    balances(postings(books), { from: '0000-01-01', to: close.date }).get('090') ?? 0;
+  return {
+    date: close.date,
+    bankPence: close.pence,
+    appPence,
+    differencePence: close.pence - appPence,
+  };
+}

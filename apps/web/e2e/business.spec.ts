@@ -141,6 +141,19 @@ test('bank statement: import a CSV, match a line to an expense, unmatch, ignore'
   await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'To Match' }).click();
   await expect(lines).toContainText(`FUEL ${stamp} STATION`);
 
+  // With a balance column, the screen checks the bank's balance against the app's Bank and Cash.
+  await page.getByLabel('Bank statement CSV file').setInputFiles({
+    name: 'balance.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(
+      `Date,Description,Amount,Balance\n${d}/${m}/${y},BAL ${stamp},0.01,123.45\n`,
+    ),
+  });
+  const check = page.getByRole('list', { name: 'Bank check' });
+  await expect(check).toContainText('£123.45');
+  await expect(check).toContainText('The app’s Bank and Cash');
+  await expect(check).toContainText('Difference');
+
   // Importing the same file again adds nothing twice.
   await page.getByLabel('Bank statement CSV file').setInputFiles({
     name: 'statement.csv',
