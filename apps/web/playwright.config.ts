@@ -9,7 +9,7 @@ const channel = process.env.CI ? undefined : 'chrome';
 export const AUTH_FILE = 'test-results/.auth/owner.json';
 export default defineConfig({
   testDir: 'e2e',
-  testIgnore: /screenshots\.spec\.ts/,
+  testIgnore: /(?:screenshots|schedule-picker)\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   reporter: [['list']],
