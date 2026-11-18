@@ -654,9 +654,8 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     Accounts access (field workers, subcontractors). Done: the API takes every money field out of
     what it sends them and refuses changes to priced job lines; the job screen shows no prices,
     totals or Add Material.
-32. PART ANSWERED 18 Nov 2026 by Joe: two-way sync is **Google Calendar only** (built in session 5).
-    Still open: a move made in Google currently waits in Approvals for you. Keep it that way, or
-    apply straight away?
+32. ANSWERED 18 Nov 2026 by Joe: Google Calendar only, and a move or delete made in Google **applies
+    straight away** (no Approvals). Done in session 6, with a log and Undo.
 33. Calendar events show the customer's phone number and site address so whoever is booked can get
     there. OK, or leave the phone out?
 34. Business overview: what was your bank balance on the day you'd like the app's records to start
@@ -670,11 +669,19 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     review it. Nothing has been created in your Google account. Say when you'd like to do it.
 38. Labour on kits uses the business charge-out rate. Should it use a named person's rate when the
     job is assigned to them (ties in with Q28)?
-39. A customer credit is used on that customer's **next invoice approved after it** (oldest credit
-    first). If they already have an approved, unpaid invoice when the credit is issued, it isn't
-    taken off that one. Should it be?
-40. A quote that comes to less than £0 can be sent to the customer (it becomes a credit when
-    invoiced). OK, or should those skip the quote and go straight to a credit?
+39. ANSWERED 18 Nov 2026 by Joe: a credit never comes off an invoice that's already approved or sent;
+    it stays on the customer's account for a later invoice. Done in session 6 (see Q41).
+40. ANSWERED 18 Nov 2026 by Joe: a quote can never come to less than £0. Done in session 6: blocked
+    in the app and by the server, with a clear message; minus lines are still fine above £0.
+41. Credit, how we read "if the job is quoted it's irrelevant … but will need a confirmation":
+    credit is never taken off a quote (the quote just shows "they have £X credit"); when you approve
+    their next invoice the app asks whether to use it (switch on by default) or keep it for later.
+    Is that what you meant?
+42. Expenses you pay personally (not from the business bank) are recorded as money you put into the
+    business (they reduce your drawings on the Balance Sheet). OK?
+43. If a booking is changed in the app and in Google Calendar before they sync, Google's change wins
+    (and the log says so). OK, or should the app's change win?
+44. Adding and removing expenses and wages is owner-only for now. Should Office staff be able to?
 
 ## Next (after session 4)
 
@@ -909,8 +916,7 @@ so You Owe is £0 there until they are.
    sync for real.
 2. Later for the books: expenses/overheads and wages (so net profit is real), bank feed or bank
    statement import and reconciliation, refunds.
-3. Answers needed: Q32 (Google moves: approve or apply), Q33, Q34 (opening bank balance), Q35
-   (2027 budget), Q38, Q39, Q40.
+3. Answers needed: Q33, Q34 (opening bank balance), Q35 (2027 budget), Q38.
 
 ## Joe's decisions (18 Nov 2026, 10:02)
 
@@ -918,3 +924,37 @@ so You Owe is £0 there until they are.
 - A move/delete made in Google Calendar should **apply straight away** in the app (no Approvals queue for these).
 - Credits must NOT come off an invoice that's already been sent/approved; they stay allocated to the client's account and come off their future invoices. If the related job is only at quote stage, the credit is irrelevant and can be ignored, but the app must ask for confirmation first.
 - A quote must never total less than £0 (block it with a clear message).
+
+## Done (session 6, Wed 18 Nov 2026)
+
+All four of Joe's 10:02 decisions are done, plus expenses and wages.
+
+- **Google Calendar changes apply straight away** (migration 0027). A move or delete made in Google
+  updates the booking in the app at once (the job's stage too) and is written to a new activity log.
+  Calendar shows "Changes from Google Calendar" with **Undo** for the latest change (only while the
+  app still matches it; undoing a delete brings the booking back with the same links, and the next
+  sync puts it back in Google). Old pending proposals can still be approved or discarded.
+  `docs/GOOGLE_CALENDAR_SETUP.md` rewritten as a short step-by-step for Friday 20 Nov, 8pm.
+- **Customer credit asks first.** Approving an invoice for a customer with credit asks whether to
+  take it off ("Use their credit on this invoice", on by default) or keep it for later. Credit never
+  touches an invoice that's already approved or sent, and never touches quotes; the quote shows the
+  credit as a note. The API refuses to approve without a choice (422 `credit_choice_needed`).
+- **Quotes never below £0.** Server (create, edit, send) and app both block it with a clear message,
+  including when a minus option would take it below £0. Send and Share are disabled while it is.
+- **Private demo banner** now says it's your own jobs, customers and supplier bills when built with
+  real jobs.
+- **Expenses and wages** (migration 0028). Business › Profit › "Expenses and wages": add an overhead
+  (Xero codes: bank fees, accountancy, general, insurance, vehicle and fuel, software, tools and
+  repairs, phone and internet, travel and ferries) or wages for a team member, paid from the
+  business bank or personally, with any reclaimable tax. They post to the ledger, so the P&L shows
+  operating expenses and real net profit, Cash Flow splits suppliers / wages / expenses, Balance
+  Sheet and budgets include them. Owner-only to add or remove (with confirm and audit).
+
+Tests: API 235, shared 181 (+1 skipped), web unit 57; e2e billing, calendar and business all pass on
+iPhone 14 and desktop.
+
+## Next (after session 6)
+
+1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
+2. Bank statement import (CSV) and reconciliation; refunds.
+3. Answers needed: Q33, Q34, Q35, Q38, Q41–Q44.
