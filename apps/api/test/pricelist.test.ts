@@ -237,6 +237,25 @@ describe('kits', () => {
     expect((await c.req('DELETE', `/api/kits/${kit.id}`)).status).toBe(204);
   });
 
+  it('keeps fitting time per kit and per item; a name-only edit leaves it alone', async () => {
+    const c = await client();
+    const { kit, cable, socket } = await stock(c);
+    expect(kit).toMatchObject({ kitLabourMinutes: 0, labourMinutes: 0 });
+    const r = await c.req('PATCH', `/api/kits/${kit.id}`, {
+      labourMinutes: 30,
+      lines: [
+        { itemId: cable.id, qtyMilli: 10000, labourMinutes: 2 },
+        { itemId: socket.id, qtyMilli: 2000, labourMinutes: 15 },
+      ],
+    });
+    // 30 + 10 m x 2 + 2 x 15 = 80 minutes per kit
+    expect(r.body).toMatchObject({ kitLabourMinutes: 30, labourMinutes: 80 });
+    expect(r.body.lines[1]).toMatchObject({ labourMinutes: 15 });
+    const renamed = await c.req('PATCH', `/api/kits/${kit.id}`, { name: 'Socket circuit' });
+    expect(renamed.body).toMatchObject({ kitLabourMinutes: 30, labourMinutes: 80 });
+    expect((await c.req('PATCH', `/api/kits/${kit.id}`, { labourMinutes: -1 })).status).toBe(422);
+  });
+
   it('a kit block on a quote is frozen once sent; a draft can take the new cost', async () => {
     const c = await client();
     const { kit, cable } = await stock(c);

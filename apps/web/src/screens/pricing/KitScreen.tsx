@@ -1,6 +1,7 @@
 import {
   formatPence,
   formatQty,
+  labourValue,
   parseQty,
   type KitDetailDto,
   type PriceItemDto,
@@ -8,7 +9,7 @@ import {
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useDeleteKit, useKit, usePriceList, useSaveKit } from '../../api/billing';
-import { useSession } from '../../api/hooks';
+import { useMe, useSession } from '../../api/hooks';
 import { IconPlusCircle, IconWrench } from '../../components/icons';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
@@ -68,7 +69,18 @@ function KitView({ kit }: { kit: KitDetailDto }) {
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const lines = kit.lines.map((l) => ({ itemId: l.itemId, qtyMilli: l.qtyMilli }));
+  const [editingLabour, setEditingLabour] = useState(false);
+  const rate = useMe().data?.tenant.labourRatePence ?? 4500;
+  const lines = kit.lines.map((l) => ({
+    itemId: l.itemId,
+    qtyMilli: l.qtyMilli,
+    labourMinutes: l.labourMinutes ?? 0,
+  }));
+  const saveKit = (patch: Parameters<typeof save.mutate>[0], done?: string) =>
+    save.mutate(patch, {
+      onSuccess: () => done && toast.show(done),
+      onError: (e) => toast.show(`Not saved. ${e.message}`, { tone: 'error' }),
+    });
   const saveLines = (next: typeof lines, done?: string) =>
     save.mutate(
       { lines: next },
@@ -111,6 +123,7 @@ function KitView({ kit }: { kit: KitDetailDto }) {
                   <span className="row__sub">
                     {formatQty(l.qtyMilli)} {l.unit} × {formatPence(l.unitSellPence)} · cost{' '}
                     {formatPence(l.lineCostPence)}
+                    {!!l.labourMinutes && <> · fit {hoursText(l.labourMinutes)} each</>}
                   </span>
                 </span>
                 <span className="row__meta num" style={{ color: 'var(--label)' }}>
@@ -142,14 +155,57 @@ function KitView({ kit }: { kit: KitDetailDto }) {
         </List>
       </Section>
 
+      <Section
+        header="Labour"
+        footer={`Added to a quote as its own labour line at the charge-out rate (${formatPence(rate)}/h). You can change the hours or rate on each quote.`}
+      >
+        <List label="Kit labour">
+          <li>
+            {isOwner ? (
+              <ButtonRow
+                onClick={() => setEditingLabour(true)}
+                title="Time for the whole kit"
+                meta={<span className="num">{hoursText(kit.kitLabourMinutes ?? 0)}</span>}
+              />
+            ) : (
+              <KeyValueRow
+                label="Time for the whole kit"
+                value={hoursText(kit.kitLabourMinutes ?? 0)}
+              />
+            )}
+          </li>
+          <li>
+            <KeyValueRow
+              label="Time from items"
+              value={hoursText((kit.labourMinutes ?? 0) - (kit.kitLabourMinutes ?? 0))}
+            />
+          </li>
+          <li>
+            <KeyValueRow
+              label="Labour per kit"
+              value={`${hoursText(kit.labourMinutes ?? 0)} · ${formatPence(labourValue(kit.labourMinutes ?? 0, rate))}`}
+              strong
+            />
+          </li>
+        </List>
+      </Section>
+
       <Section header="Totals">
         <List>
           <li>
             <KeyValueRow label="Kit cost" value={formatPence(kit.costPence)} />
           </li>
           <li>
-            <KeyValueRow label="Kit sell" value={formatPence(kit.sellPence)} strong />
+            <KeyValueRow label="Kit sell (materials)" value={formatPence(kit.sellPence)} strong />
           </li>
+          {!!kit.labourMinutes && (
+            <li>
+              <KeyValueRow
+                label="With labour"
+                value={formatPence(kit.sellPence + labourValue(kit.labourMinutes, rate))}
+              />
+            </li>
+          )}
         </List>
       </Section>
 
@@ -194,8 +250,11 @@ function KitView({ kit }: { kit: KitDetailDto }) {
       {picking && (
         <ItemPickerSheet
           onClose={() => setPicking(false)}
-          onPick={(item, qtyMilli) =>
-            saveLines([...lines, { itemId: item.id, qtyMilli }], `${item.description} added`)
+          onPick={(item, qtyMilli, labourMinutes) =>
+            saveLines(
+              [...lines, { itemId: item.id, qtyMilli, labourMinutes: labourMinutes ?? 0 }],
+              `${item.description} added`,
+            )
           }
         />
       )}
@@ -204,9 +263,14 @@ function KitView({ kit }: { kit: KitDetailDto }) {
           title={kit.lines[editing]!.description}
           unit={kit.lines[editing]!.unit}
           qtyMilli={kit.lines[editing]!.qtyMilli}
+          labourMinutes={kit.lines[editing]!.labourMinutes ?? 0}
           onClose={() => setEditing(null)}
-          onSave={(q) =>
-            saveLines(lines.map((l, i) => (i === editing ? { ...l, qtyMilli: q } : l)))
+          onSave={(q, m) =>
+            saveLines(
+              lines.map((l, i) =>
+                i === editing ? { ...l, qtyMilli: q, labourMinutes: m ?? l.labourMinutes } : l,
+              ),
+            )
           }
           onRemove={() =>
             saveLines(
@@ -214,6 +278,16 @@ function KitView({ kit }: { kit: KitDetailDto }) {
               'Removed from kit',
             )
           }
+        />
+      )}
+      {editingLabour && (
+        <HoursSheet
+          title="Kit Labour"
+          label="Hours for the whole kit"
+          minutes={kit.kitLabourMinutes ?? 0}
+          footer="Time to fit one kit, on top of any time set on its items."
+          onClose={() => setEditingLabour(false)}
+          onSave={(m) => saveKit({ labourMinutes: m }, 'Labour saved')}
         />
       )}
       <ConfirmSheet
@@ -241,7 +315,7 @@ function KitView({ kit }: { kit: KitDetailDto }) {
 /** Search the price list and pick an item with a quantity. */
 export function ItemPickerSheet(props: {
   onClose: () => void;
-  onPick: (item: PriceItemDto, qtyMilli: number) => void;
+  onPick: (item: PriceItemDto, qtyMilli: number, labourMinutes?: number) => void;
 }) {
   const [search, setSearch] = useState('');
   const q = useDebounced(search.trim());
@@ -253,8 +327,9 @@ export function ItemPickerSheet(props: {
         title={picked.description}
         unit={picked.unit}
         qtyMilli={1000}
+        labourMinutes={0}
         onClose={props.onClose}
-        onSave={(qty) => props.onPick(picked, qty)}
+        onSave={(qty, m) => props.onPick(picked, qty, m)}
         saveLabel="Add"
       />
     );
@@ -288,22 +363,98 @@ export function ItemPickerSheet(props: {
   );
 }
 
+/** "1 h 30 min", "15 min", "None". */
+export function hoursText(minutes: number) {
+  if (!minutes) return 'None';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return [h ? `${h} h` : '', m ? `${m} min` : ''].filter(Boolean).join(' ');
+}
+/** Hours typed as a decimal ("1.5") to whole minutes; null when not a number. */
+export function parseHours(text: string): number | null {
+  if (!text.trim()) return 0;
+  const milli = parseQty(text);
+  if (milli == null || milli < 0) return null;
+  const m = Math.round((milli * 60) / 1000);
+  return m > 100_000 ? null : m;
+}
+const hoursField = (minutes: number) =>
+  minutes ? formatQty(Math.round((minutes * 1000) / 60)) : '';
+
+/** One "hours" field, saved as minutes. */
+export function HoursSheet(props: {
+  title: string;
+  label: string;
+  minutes: number;
+  footer?: string;
+  onClose: () => void;
+  onSave: (minutes: number) => void;
+}) {
+  const [text, setText] = useState(hoursField(props.minutes));
+  const m = parseHours(text);
+  const submit = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (m == null) return;
+    props.onSave(m);
+    props.onClose();
+  };
+  return (
+    <Sheet
+      open
+      title={props.title}
+      onClose={props.onClose}
+      action={
+        <Button
+          variant="plain"
+          onClick={() => submit()}
+          disabled={m == null}
+          style={{ fontWeight: 600 }}
+        >
+          Done
+        </Button>
+      }
+    >
+      <form onSubmit={submit}>
+        <Section footer={props.footer}>
+          <List className="form-list">
+            <TextField
+              label={props.label}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              inputMode="decimal"
+              placeholder="0"
+              error={m == null ? 'Enter hours, e.g. 1.5' : undefined}
+              data-autofocus
+            />
+          </List>
+        </Section>
+        <button type="submit" hidden />
+      </form>
+    </Sheet>
+  );
+}
+
 export function QtySheet(props: {
   title: string;
   unit: string;
   qtyMilli: number;
+  /** When set, also asks for fitting time per unit. */
+  labourMinutes?: number;
   onClose: () => void;
-  onSave: (qtyMilli: number) => void;
+  onSave: (qtyMilli: number, labourMinutes?: number) => void;
   onRemove?: () => void;
   saveLabel?: string;
 }) {
   const [qty, setQty] = useState(formatQty(props.qtyMilli));
+  const [hours, setHours] = useState(hoursField(props.labourMinutes ?? 0));
   const parsed = parseQty(qty);
-  const valid = parsed != null && parsed > 0;
+  const mins = parseHours(hours);
+  const asksLabour = props.labourMinutes !== undefined;
+  const valid = parsed != null && parsed > 0 && (!asksLabour || mins != null);
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     if (!valid) return;
-    props.onSave(parsed!);
+    props.onSave(parsed!, asksLabour ? mins! : undefined);
     props.onClose();
   };
   return (
@@ -332,6 +483,16 @@ export function QtySheet(props: {
               inputMode="decimal"
               data-autofocus
             />
+            {asksLabour && (
+              <TextField
+                label={`Hours to fit each ${props.unit === 'each' ? 'one' : props.unit}`}
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+                inputMode="decimal"
+                placeholder="0"
+                error={mins == null ? 'Enter hours, e.g. 0.25' : undefined}
+              />
+            )}
           </List>
         </Section>
         {props.onRemove && (

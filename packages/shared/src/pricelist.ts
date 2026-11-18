@@ -54,16 +54,28 @@ export const priceItemUpdate = z.object({
 });
 export type PriceItemUpdate = z.input<typeof priceItemUpdate>;
 
+const labourMinutes = z.number().int().min(0).max(100_000);
+
 export const kitInput = z.object({
   name: text(120).min(1, 'Give the kit a name'),
   description: optional(1000),
   lines: z
-    .array(z.object({ itemId: z.uuid(), qtyMilli: z.number().int().min(1).max(1_000_000_000) }))
+    .array(
+      z.object({
+        itemId: z.uuid(),
+        qtyMilli: z.number().int().min(1).max(1_000_000_000),
+        /** Fitting time per unit of this item, in minutes (e.g. 15 per socket). */
+        labourMinutes: labourMinutes.optional(),
+      }),
+    )
     .max(200)
     .default([]),
+  /** Fitting time for the whole kit, in minutes, on top of any per-item time. */
+  labourMinutes: labourMinutes.optional(),
 });
 export type KitInput = z.input<typeof kitInput>;
-export const kitUpdate = kitInput.partial();
+/** Every field optional, with no defaults: a name-only edit must not empty the kit's lines. */
+export const kitUpdate = kitInput.extend({ lines: kitInput.shape.lines.unwrap() }).partial();
 export type KitUpdate = z.input<typeof kitUpdate>;
 
 /** A supplier bill, already read (by a person, or later an AI helper whose output Joe confirms). */
@@ -110,6 +122,8 @@ export interface KitComponent {
   qtyMilli: number;
   unitCostPence: Pence;
   unitSellPence: Pence;
+  /** Fitting minutes per unit of the item (0 when none). */
+  labourMinutes?: number;
 }
 
 /** Kit cost is the sum of its lines (qty x unit cost, each rounded up), same for sell. */
@@ -135,6 +149,8 @@ export interface QuoteKitSnapshot {
   costPence: Pence;
   sellPence: Pence;
   components: KitComponent[];
+  /** Fitting minutes per kit (kit time plus per-item time) when it was added. */
+  labourMinutes?: number;
 }
 export const quoteKitSnapshot = z.object({
   kitId: z.uuid(),
@@ -151,9 +167,11 @@ export const quoteKitSnapshot = z.object({
         qtyMilli: z.number().int().min(1),
         unitCostPence: money,
         unitSellPence: money,
+        labourMinutes: labourMinutes.optional(),
       }),
     )
     .max(200),
+  labourMinutes: labourMinutes.optional(),
 });
 
 /* ------------------------- kits on quote lines --------------------------- */
@@ -165,12 +183,15 @@ export function snapshotFromKit(kit: {
   costPence: Pence;
   sellPence: Pence;
   lines: KitComponent[];
+  /** The kit's own fitting minutes, before per-item time. */
+  kitLabourMinutes?: number;
 }): QuoteKitSnapshot {
   return {
     kitId: kit.id,
     name: kit.name,
     costPence: kit.costPence,
     sellPence: kit.sellPence,
+    labourMinutes: kitLabourMinutes(kit.kitLabourMinutes ?? 0, kit.lines),
     components: kit.lines.map((l) => ({
       itemId: l.itemId,
       code: l.code,
@@ -179,8 +200,63 @@ export function snapshotFromKit(kit: {
       qtyMilli: l.qtyMilli,
       unitCostPence: l.unitCostPence,
       unitSellPence: l.unitSellPence,
+      labourMinutes: l.labourMinutes ?? 0,
     })),
   };
+}
+
+/* ----------------------------- labour on kits ----------------------------- */
+
+/** Fitting minutes for one kit: the kit's own time plus each item's time x its quantity. */
+export function kitLabourMinutes(
+  kitMinutes: number,
+  lines: Pick<KitComponent, 'qtyMilli' | 'labourMinutes'>[],
+): number {
+  let m = kitMinutes;
+  for (const l of lines) m += Math.round(((l.labourMinutes ?? 0) * l.qtyMilli) / 1000);
+  return m;
+}
+
+/** The description of the labour line that goes with a kit block on a quote. */
+export const kitLabourDescription = (kitName: string) => `Labour: ${kitName}`;
+
+/**
+ * The labour line added with a kit: hours per kit x number of kits at the charge-out rate.
+ * It is an ordinary labour line, so it can be edited per quote and books to labour sales.
+ */
+export function kitLabourLine(
+  kitName: string,
+  minutesPerKit: number,
+  kitsQtyMilli: number,
+  ratePence: Pence,
+  optionLabel: string | null = null,
+) {
+  return {
+    kind: 'labour' as const,
+    description: kitLabourDescription(kitName),
+    qtyMilli: Math.max(1, Math.round((minutesPerKit * kitsQtyMilli) / 60)),
+    unitCostPence: null,
+    markupBp: null,
+    unitPricePence: ratePence,
+    optionLabel,
+    taxRateBp: 0,
+    kit: null,
+  };
+}
+
+/** Index of the labour line that belongs to the kit block at `at`, if it follows it. */
+export function kitLabourIndex(
+  lines: { kind: string; description: string; kit?: unknown }[],
+  at: number,
+  kitName: string,
+): number | null {
+  const next = lines[at + 1];
+  return next &&
+    next.kind === 'labour' &&
+    !next.kit &&
+    next.description === kitLabourDescription(kitName)
+    ? at + 1
+    : null;
 }
 
 export interface KitQuoteLine {
@@ -294,6 +370,10 @@ export interface KitSummaryDto {
   lineCount: number;
   costPence: Pence;
   sellPence: Pence;
+  /** Fitting minutes for the kit as a whole (not counting per-item time). */
+  kitLabourMinutes: number;
+  /** All fitting minutes for one kit: kit time plus per-item time. */
+  labourMinutes: number;
   /** The most recent cost change, if any: shown as "was £x". */
   lastChange: KitCostChangeDto | null;
 }

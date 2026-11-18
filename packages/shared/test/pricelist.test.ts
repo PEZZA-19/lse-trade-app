@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   itemSell,
   kitTotals,
+  kitLabourIndex,
+  kitLabourLine,
+  kitLabourMinutes,
+  kitUpdate,
+  quoteKitSnapshot,
+  snapshotFromKit,
   parseCsv,
   parseMarkup,
   priceItemKey,
@@ -215,5 +221,71 @@ describe('updates never blank what was not sent', () => {
       unitCostPence: 345,
       markupBp: null,
     });
+  });
+});
+
+describe('labour on kits', () => {
+  it('adds kit time to per-item time x quantity', () => {
+    expect(
+      kitLabourMinutes(30, [
+        { qtyMilli: 10000, labourMinutes: 2 },
+        { qtyMilli: 1500, labourMinutes: 15 },
+        { qtyMilli: 1000 },
+      ]),
+    ).toBe(30 + 20 + 23);
+  });
+
+  it('makes an ordinary labour line: hours per kit x kits at the rate', () => {
+    const l = kitLabourLine('Double socket', 90, 3000, 5500, 'Option A');
+    expect(l).toMatchObject({
+      kind: 'labour',
+      description: 'Labour: Double socket',
+      qtyMilli: 4500,
+      unitPricePence: 5500,
+      unitCostPence: null,
+      optionLabel: 'Option A',
+      kit: null,
+    });
+    expect(kitLabourLine('x', 0, 1000, 5500).qtyMilli).toBe(1);
+  });
+
+  it('finds the labour line straight after its kit block', () => {
+    const lines = [
+      { kind: 'material', description: 'Kit A', kit: {} },
+      { kind: 'labour', description: 'Labour: Kit A', kit: null },
+      { kind: 'material', description: 'Kit B', kit: {} },
+    ];
+    expect(kitLabourIndex(lines, 0, 'Kit A')).toBe(1);
+    expect(kitLabourIndex(lines, 2, 'Kit B')).toBeNull();
+  });
+
+  it('snapshots total fitting minutes', () => {
+    const snap = snapshotFromKit({
+      id: '00000000-0000-4000-8000-000000000001',
+      name: 'K',
+      costPence: 100,
+      sellPence: 130,
+      kitLabourMinutes: 10,
+      lines: [
+        {
+          itemId: '00000000-0000-4000-8000-000000000002',
+          code: null,
+          description: 'Socket',
+          unit: 'each',
+          qtyMilli: 2000,
+          unitCostPence: 50,
+          unitSellPence: 65,
+          labourMinutes: 15,
+        },
+      ],
+    });
+    expect(snap.labourMinutes).toBe(40);
+    expect(quoteKitSnapshot.parse(snap).labourMinutes).toBe(40);
+  });
+});
+
+describe('kitUpdate', () => {
+  it('a name-only edit leaves lines out (so they are not emptied)', () => {
+    expect(kitUpdate.parse({ name: 'New name' })).toEqual({ name: 'New name' });
   });
 });

@@ -1,6 +1,7 @@
 import {
   itemSell,
   kitTotals,
+  kitLabourMinutes,
   priceItemKey,
   priceRowsFromCsv,
   importChanges,
@@ -497,6 +498,7 @@ interface KitRow {
   id: string;
   name: string;
   description: string | null;
+  labourMinutes: number;
 }
 
 async function kitLines(tx: Tx, kitIds: string[], markup: number) {
@@ -513,9 +515,10 @@ async function kitLines(tx: Tx, kitIds: string[], markup: number) {
       markupBp: number | null;
       sellPricePence: string | null;
       isActive: boolean;
+      labourMinutes: number;
     }[]
   >`
-    SELECT kl.kit_id, kl.item_id, i.code, i.description, i.unit, kl.qty_milli, i.unit_cost_pence,
+    SELECT kl.kit_id, kl.item_id, i.code, i.description, i.unit, kl.qty_milli, kl.labour_minutes, i.unit_cost_pence,
            i.markup_bp, i.sell_price_pence, i.is_active
       FROM kit_lines kl JOIN price_list_items i ON i.id = kl.item_id
      WHERE kl.kit_id = ANY(${kitIds}::uuid[]) ORDER BY kl.kit_id, kl.position`;
@@ -544,6 +547,7 @@ async function kitLines(tx: Tx, kitIds: string[], markup: number) {
       lineCostPence: t.costPence,
       lineSellPence: t.sellPence,
       isActive: r.isActive,
+      labourMinutes: Number(r.labourMinutes),
     });
     out.set(r.kitId, list);
   }
@@ -586,13 +590,17 @@ function kitSummary(k: KitRow, lines: KitLineDto[], changes: KitCostChangeDto[])
     description: k.description,
     lineCount: lines.length,
     ...kitTotals(lines),
+    kitLabourMinutes: Number(k.labourMinutes),
+    labourMinutes: kitLabourMinutes(Number(k.labourMinutes), lines),
     lastChange: changes[0] ?? null,
   };
 }
 
 export async function listKits(tx: Tx): Promise<KitSummaryDto[]> {
   const markup = await defaultMarkup(tx);
-  const kits = await tx<KitRow[]>`SELECT id, name, description FROM kits ORDER BY lower(name)`;
+  const kits = await tx<
+    KitRow[]
+  >`SELECT id, name, description, labour_minutes FROM kits ORDER BY lower(name)`;
   const ids = kits.map((k) => k.id);
   const [lines, changes] = [await kitLines(tx, ids, markup), await kitChanges(tx, ids, 1)];
   return kits.map((k) => kitSummary(k, lines.get(k.id) ?? [], changes.get(k.id) ?? []));
@@ -600,7 +608,9 @@ export async function listKits(tx: Tx): Promise<KitSummaryDto[]> {
 
 export async function getKit(tx: Tx, id: string): Promise<KitDetailDto> {
   const markup = await defaultMarkup(tx);
-  const [k] = await tx<KitRow[]>`SELECT id, name, description FROM kits WHERE id = ${id}`;
+  const [k] = await tx<
+    KitRow[]
+  >`SELECT id, name, description, labour_minutes FROM kits WHERE id = ${id}`;
   if (!k) throw notFound('Kit');
   const lines = (await kitLines(tx, [id], markup)).get(id) ?? [];
   const changes = (await kitChanges(tx, [id], 50)).get(id) ?? [];
@@ -611,7 +621,7 @@ async function writeKitLines(
   tx: Tx,
   auth: Auth,
   kitId: string,
-  lines: { itemId: string; qtyMilli: number }[],
+  lines: { itemId: string; qtyMilli: number; labourMinutes?: number | undefined }[],
 ) {
   await tx`DELETE FROM kit_lines WHERE kit_id = ${kitId}`;
   if (!lines.length) return;
@@ -628,6 +638,7 @@ async function writeKitLines(
       item_id: l.itemId,
       position: i,
       qty_milli: l.qtyMilli,
+      labour_minutes: l.labourMinutes ?? 0,
     })),
   )}`;
 }
@@ -646,7 +657,8 @@ export async function createKit(
   let id: string;
   try {
     [{ id }] = (await tx`
-      INSERT INTO kits (tenant_id, name, description) VALUES (${auth.tenantId}, ${input.name}, ${input.description})
+      INSERT INTO kits (tenant_id, name, description, labour_minutes)
+      VALUES (${auth.tenantId}, ${input.name}, ${input.description}, ${input.labourMinutes ?? 0})
       RETURNING id`) as unknown as [{ id: string }];
   } catch (e) {
     throw kitNameTaken(e, input.name);
@@ -667,6 +679,7 @@ export async function updateKit(
   const cols: Record<string, unknown> = {};
   if (input.name !== undefined) cols.name = input.name;
   if (input.description !== undefined) cols.description = input.description;
+  if (input.labourMinutes !== undefined) cols.labour_minutes = input.labourMinutes;
   if (Object.keys(cols).length) {
     try {
       await tx`UPDATE kits SET ${tx(cols)} WHERE id = ${id}`;

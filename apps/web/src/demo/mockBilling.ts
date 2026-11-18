@@ -18,6 +18,7 @@ import {
   itemSell,
   kitInput,
   kitTotals,
+  kitLabourMinutes,
   kitUpdate,
   paymentCreate,
   percentOf,
@@ -60,7 +61,8 @@ interface Kit {
   id: string;
   name: string;
   description: string | null;
-  lines: { itemId: string; qtyMilli: number }[];
+  lines: { itemId: string; qtyMilli: number; labourMinutes?: number | undefined }[];
+  labourMinutes?: number | undefined;
 }
 interface Invoice {
   id: string;
@@ -347,6 +349,7 @@ function kitLines(c: BillingCtx, k: Kit): KitLineDto[] {
       lineCostPence: t.costPence,
       lineSellPence: t.sellPence,
       isActive: i.isActive,
+      labourMinutes: l.labourMinutes ?? 0,
     };
   });
 }
@@ -362,6 +365,8 @@ function kitSummary(c: BillingCtx, k: Kit): KitSummaryDto {
     description: k.description,
     lineCount: k.lines.length,
     ...kitCosts(c, k),
+    kitLabourMinutes: k.labourMinutes ?? 0,
+    labourMinutes: kitLabourMinutes(k.labourMinutes ?? 0, k.lines),
     lastChange: changesOf(c, k.id)[0] ?? null,
   };
 }
@@ -694,6 +699,7 @@ export function billingRoute(
         name: input.name,
         description: input.description,
         lines: input.lines,
+        labourMinutes: input.labourMinutes ?? 0,
       };
       c.b.kits.push(k);
       return kitDetail(c, k);
@@ -706,6 +712,7 @@ export function billingRoute(
       if (input.name !== undefined) k.name = input.name;
       if (input.description !== undefined) k.description = input.description;
       if (input.lines) k.lines = input.lines;
+      if (input.labourMinutes !== undefined) k.labourMinutes = input.labourMinutes;
       return kitDetail(c, k);
     }
     if (method === 'DELETE') {

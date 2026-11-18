@@ -41,7 +41,7 @@ import { quoteLinesToInput } from '../offline/fields';
 import { LineSheet } from './sheets/LineSheet';
 import { KitLineSheet, KitPickerSheet, componentsSummary } from './sheets/KitSheets';
 import { useKits } from '../api/billing';
-import { kitPriceChanged, type QuoteKitSnapshot } from '@lse/shared';
+import { kitLabourIndex, kitPriceChanged, type QuoteKitSnapshot } from '@lse/shared';
 
 const toInput = quoteLinesToInput;
 
@@ -566,35 +566,45 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
       />
       {addingKit && (
         <KitPickerSheet
+          labourRatePence={labourRate}
           onClose={() => setAddingKit(false)}
-          onAdd={(line) => {
-            commitLines([...lines, line]);
-            toast.show(`${line.description} added`);
+          onAdd={(added) => {
+            commitLines([...lines, ...added]);
+            toast.show(`${added[0]!.description} added`);
           }}
         />
       )}
-      {kitEditing !== null && lines[kitEditing]?.kit && (
-        <KitLineSheet
-          line={lines[kitEditing] as QuoteLineInput & { kit: QuoteKitSnapshot }}
-          onClose={() => setKitEditing(null)}
-          onReplace={(repl) => {
-            const at = kitEditing;
-            commitLines([...lines.slice(0, at), ...repl, ...lines.slice(at + 1)]);
-          }}
-          onRemove={() => {
-            const at = kitEditing;
-            const removed = lines[at]!;
-            const next = lines.filter((_, i) => i !== at);
-            commitLines(next);
-            toast.show('Kit removed', {
-              action: {
-                label: 'Undo',
-                onAction: () => commitLines([...next.slice(0, at), removed, ...next.slice(at)]),
-              },
-            });
-          }}
-        />
-      )}
+      {kitEditing !== null &&
+        lines[kitEditing]?.kit &&
+        (() => {
+          const at = kitEditing;
+          const block = lines[at] as QuoteLineInput & { kit: QuoteKitSnapshot };
+          const labourAt = kitLabourIndex(lines, at, block.kit.name);
+          const span = labourAt === null ? 1 : 2;
+          return (
+            <KitLineSheet
+              line={block}
+              labour={labourAt === null ? undefined : lines[labourAt]}
+              labourRatePence={labourRate}
+              onClose={() => setKitEditing(null)}
+              onReplace={(repl) => {
+                commitLines([...lines.slice(0, at), ...repl, ...lines.slice(at + span)]);
+              }}
+              onRemove={() => {
+                const removed = lines.slice(at, at + span);
+                const next = [...lines.slice(0, at), ...lines.slice(at + span)];
+                commitLines(next);
+                toast.show('Kit removed', {
+                  action: {
+                    label: 'Undo',
+                    onAction: () =>
+                      commitLines([...next.slice(0, at), ...removed, ...next.slice(at)]),
+                  },
+                });
+              }}
+            />
+          );
+        })()}
       <AcceptSheet
         open={accepting}
         onClose={() => setAccepting(false)}

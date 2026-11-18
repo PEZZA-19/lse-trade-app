@@ -190,3 +190,59 @@ test('add a kit to a draft quote as one block, then expand it', async ({ page })
     )
     .toEqual([3000, 6000]);
 });
+
+test('a kit with fitting time adds its own labour line, kept in step and editable per quote', async ({
+  page,
+}) => {
+  const api = await apiFor(page);
+  const stamp = Date.now();
+  const a = await api.post('/price-list', { description: `Spur ${stamp}`, unitCostPence: 300 });
+  const kit = await api.post('/kits', {
+    name: `Spur kit ${stamp}`,
+    labourMinutes: 30,
+    lines: [{ itemId: a.id, qtyMilli: 2000, labourMinutes: 15 }],
+  });
+  expect(kit.labourMinutes).toBe(60);
+  const customers = await api.get('/customers?q=Demo%20Farm');
+  const q = await api.post('/quotes', {
+    customerId: customers.items[0].id,
+    title: `Kit labour quote ${stamp}`,
+  });
+
+  await page.goto(`/quotes/${q.id}`);
+  await page.getByRole('button', { name: 'Add kit' }).click();
+  await page
+    .getByRole('dialog', { name: 'Add Kit' })
+    .getByRole('button', { name: new RegExp(kit.name) })
+    .click();
+  const add = page.getByRole('dialog', { name: kit.name });
+  await expect(add.getByLabel('Labour hours per kit')).toHaveValue('1');
+  await add.getByLabel('How many kits').fill('2');
+  await add.getByRole('button', { name: 'Add' }).click();
+  const saved = async () =>
+    (await api.get(`/quotes/${q.id}`)).current.lines.map(
+      (l: { kind: string; qtyMilli: number; unitPricePence: number | null }) =>
+        `${l.kind}:${l.qtyMilli}`,
+    );
+  await expect.poll(saved).toEqual(['material:2000', 'labour:2000']);
+
+  // Three kits and 1.5 h each at £60/h: the labour line follows.
+  const lines = page.getByRole('list', { name: 'Quote lines' });
+  await lines.getByRole('button', { name: new RegExp(`^${kit.name}`) }).click();
+  const edit = page.getByRole('dialog', { name: kit.name });
+  await edit.getByLabel('How many kits').fill('3');
+  await edit.getByLabel('Labour hours per kit').fill('1.5');
+  await edit.getByLabel('Charge-out rate (£/h)').fill('60');
+  await edit.getByRole('button', { name: 'Done' }).click();
+  await expect.poll(saved).toEqual(['material:3000', 'labour:4500']);
+  const labour = (await api.get(`/quotes/${q.id}`)).current.lines[1];
+  expect(labour).toMatchObject({ description: `Labour: ${kit.name}`, unitPricePence: 6000 });
+
+  // Removing the kit takes its labour line with it.
+  await lines.getByRole('button', { name: new RegExp(`^${kit.name}`) }).click();
+  await page
+    .getByRole('dialog', { name: kit.name })
+    .getByRole('button', { name: 'Remove Kit' })
+    .click();
+  await expect.poll(saved).toEqual([]);
+});
