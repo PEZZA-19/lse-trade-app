@@ -327,6 +327,18 @@ export function useQuoteCreditChoice(id: string) {
   });
 }
 
+/** Use the customer's credit when this job is invoiced (owner; the Approve sheet confirms). */
+export function useJobCreditChoice(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (useCredit: boolean | null) =>
+      api<{ useCredit: boolean | null }>('PUT', `/jobs/${id}/credit`, { useCredit }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.job(id) });
+    },
+  });
+}
+
 export function useConvertQuote(id: string) {
   const qc = useQueryClient();
   // One key per screen visit: a double tap or retry can never create two jobs.

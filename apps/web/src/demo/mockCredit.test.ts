@@ -5,6 +5,7 @@ import {
   type BusinessDto,
   type CustomerDetailDto,
   type InvoiceDetailDto,
+  type JobDetailDto,
 } from '@lse/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handle, resetDemo } from './mockApi';
@@ -115,7 +116,10 @@ describe('demo credit choice on work not yet invoiced (Joe, 18 Nov 2026, 10:27)'
     expect(inv.jobUseCredit).toBe(false);
     await send('PUT', `/jobs/${job.id}/credit`, { useCredit: true });
     expect((await get<InvoiceDetailDto>(`/invoices/${inv.id}`)).jobUseCredit).toBe(true);
+    const shown = await get<JobDetailDto>(`/jobs/${job.id}`);
+    expect(shown).toMatchObject({ useCredit: true, invoiced: false, customerCreditPence: 0 });
     await send('POST', `/invoices/${inv.id}/approve`);
+    expect((await get<JobDetailDto>(`/jobs/${job.id}`)).invoiced).toBe(true);
     await expect(send('PUT', `/jobs/${job.id}/credit`, { useCredit: false })).rejects.toThrow(
       /already been invoiced/,
     );

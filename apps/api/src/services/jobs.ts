@@ -11,9 +11,11 @@ import type {
   TimesheetDto,
   jobUpdate,
 } from '@lse/shared';
-import { minutesBetween, TIMER_MAX_AHEAD_MS, TIMER_MAX_BACKDATE_MS } from '@lse/shared';
+import { canSee, minutesBetween, TIMER_MAX_AHEAD_MS, TIMER_MAX_BACKDATE_MS } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
+import { availableCredits } from './invoices';
+import { accessOf } from './access';
 import { assertVersion, conflict, invalid, notFound } from '../lib/errors';
 import { isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
@@ -112,7 +114,8 @@ export async function listJobs(tx: Tx, query: JobListQuery): Promise<Page<JobSum
   return { items: rows.map(toSummary), total: count };
 }
 
-export async function getJob(tx: Tx, id: string): Promise<JobDetailDto> {
+/** Customer credit is shown only to people with Accounts access (as on the customer). */
+export async function getJob(tx: Tx, id: string, auth: Auth | null): Promise<JobDetailDto> {
   const [row] = await tx<JobRow[]>`${tx.unsafe(SUMMARY_SELECT)} WHERE j.id = ${id}`;
   if (!row) throw notFound('Job');
   const [extra] = await tx<
@@ -189,6 +192,22 @@ export async function getJob(tx: Tx, id: string): Promise<JobDetailDto> {
     timerStartedAt: timer ? isoNN(timer.startedAt) : null,
     timesheets: sheets,
     totalMinutes: sheets.reduce((n, t) => n + t.minutes, 0),
+    ...(auth && canSee(accessOf(auth), 'financials')
+      ? await creditState(tx, id, row.customerId)
+      : { customerCreditPence: 0, useCredit: null, invoiced: false }),
+  };
+}
+
+async function creditState(tx: Tx, jobId: string, customerId: string) {
+  const [j] = await tx<{ useCredit: boolean | null; invoiced: boolean }[]>`
+    SELECT use_credit,
+           EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status NOT IN ('draft', 'credit')) AS invoiced
+      FROM jobs j WHERE j.id = ${jobId}`;
+  const credits = await availableCredits(tx, customerId);
+  return {
+    customerCreditPence: credits.reduce((a, c) => a + c.remainingPence, 0),
+    useCredit: j?.useCredit ?? null,
+    invoiced: !!j?.invoiced,
   };
 }
 
@@ -214,7 +233,7 @@ export async function createJob(
     RETURNING id`;
   await recordCreated(tx, auth, job!.id, unassigned.id, 'created');
   await audit(tx, auth, 'create', 'job', job!.id, { number: num!.formatted });
-  return getJob(tx, job!.id);
+  return getJob(tx, job!.id, auth);
 }
 
 export async function updateJob(
@@ -228,7 +247,7 @@ export async function updateJob(
     { customerId: string; version: number }[]
   >`SELECT customer_id, version FROM jobs WHERE id = ${id} FOR UPDATE`;
   if (!current) throw notFound('Job');
-  await assertVersion(expectedVersion, current.version, () => getJob(tx, id));
+  await assertVersion(expectedVersion, current.version, () => getJob(tx, id, auth));
   const patch: Record<string, unknown> = {};
   if (input.title !== undefined) patch.title = input.title;
   if (input.description !== undefined) patch.description = input.description;
@@ -245,7 +264,7 @@ export async function updateJob(
   const stageId =
     input.stageId ?? (input.stageKey ? (await stageByKey(tx, input.stageKey)).id : undefined);
   if (stageId) await moveJob(tx, auth, id, stageId, 'manual');
-  return getJob(tx, id);
+  return getJob(tx, id, auth);
 }
 
 /* ----------- assignment, appointments, timer: minimal, but they drive the stages ----------- */
@@ -269,7 +288,7 @@ export async function assign(tx: Tx, auth: Auth, jobId: string, userId: string) 
     ON CONFLICT DO NOTHING`;
   await applyEvent(tx, auth, jobId, 'assigned');
   await audit(tx, auth, 'assign', 'job', jobId, { userId });
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }
 
 export async function unassign(tx: Tx, auth: Auth, jobId: string, userId: string) {
@@ -277,7 +296,7 @@ export async function unassign(tx: Tx, auth: Auth, jobId: string, userId: string
   await tx`DELETE FROM job_assignees WHERE job_id = ${jobId} AND user_id = ${userId}`;
   await audit(tx, auth, 'unassign', 'job', jobId, { userId });
   await applyEvent(tx, auth, jobId, 'last_unassigned');
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }
 
 /** Book an appointment. Unassigned / Assigned → Booked in. */
@@ -294,7 +313,7 @@ export async function createAppointment(
     VALUES (${auth.tenantId}, ${jobId}, ${input.userId ?? null}, ${input.startsAt}, ${input.endsAt}) RETURNING id`;
   await applyEvent(tx, auth, jobId, 'appointment_created');
   await audit(tx, auth, 'create', 'appointment', a!.id, { jobId });
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }
 
 /** Remove an appointment. If it was the last one, Booked in → Assigned / Unassigned. */
@@ -307,7 +326,7 @@ export async function deleteAppointment(tx: Tx, auth: Auth, appointmentId: strin
   await tx`DELETE FROM appointments WHERE id = ${appointmentId}`;
   await applyEvent(tx, auth, a.jobId, 'appointment_deleted');
   await audit(tx, auth, 'delete', 'appointment', appointmentId, { jobId: a.jobId });
-  return getJob(tx, a.jobId);
+  return getJob(tx, a.jobId, auth);
 }
 
 /** When the device says it happened, within reason; otherwise now. */
@@ -375,7 +394,7 @@ export async function startTimer(
     await audit(tx, auth, 'timer_start', 'job', jobId, {});
   }
   await applyEvent(tx, auth, jobId, 'timer_started');
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }
 
 /** Stop my timer on this job and record the time as a timesheet entry. Stopping twice is harmless. */
@@ -394,7 +413,7 @@ export async function stopTimer(
     await finishTimer(tx, running, at);
     await audit(tx, auth, 'timer_stop', 'job', jobId, {});
   }
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }
 
 /**
@@ -404,5 +423,5 @@ export async function stopTimer(
 export async function markFullyInvoicedAndPaid(tx: Tx, auth: Auth, jobId: string) {
   await lockJob(tx, jobId);
   await applyEvent(tx, auth, jobId, 'invoiced_and_paid');
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }

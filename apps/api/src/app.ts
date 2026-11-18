@@ -483,7 +483,7 @@ export function createApp(deps: AppDeps) {
     const result = await c.var.tx((tx) =>
       idempotent(tx, c.var.auth, key, `convert:${id}`, async () => {
         const { jobId } = await quotes.convertToJob(tx, c.var.auth, id);
-        return { status: 201, body: await jobs.getJob(tx, jobId) };
+        return { status: 201, body: await jobs.getJob(tx, jobId, c.var.auth) };
       }),
     );
     if (result.replayed) c.header('Idempotent-Replayed', 'true');
@@ -511,7 +511,7 @@ export function createApp(deps: AppDeps) {
   });
   app.get('/api/jobs/:id', async (c) => {
     const id = uuidParam(c);
-    return c.json(await c.var.tx((tx) => jobs.getJob(tx, id)));
+    return c.json(await c.var.tx((tx) => jobs.getJob(tx, id, c.var.auth)));
   });
   app.patch('/api/jobs/:id', async (c) => {
     const id = uuidParam(c);

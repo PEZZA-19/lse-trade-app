@@ -109,7 +109,7 @@ export async function addTimesheet(
             ${input.note ?? null})
     RETURNING id`;
   await audit(tx, auth, 'timesheet_add', 'job', jobId, { timesheetId: row!.id, userId });
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }
 
 export async function updateTimesheet(
@@ -140,7 +140,7 @@ export async function updateTimesheet(
     from: { startedAt: isoNN(s.startedAt), endedAt: isoNN(s.endedAt) },
     to: { startedAt: start, endedAt: end },
   });
-  return getJob(tx, s.jobId);
+  return getJob(tx, s.jobId, auth);
 }
 
 export async function deleteTimesheet(tx: Tx, auth: Auth, id: string) {
@@ -153,7 +153,7 @@ export async function deleteTimesheet(tx: Tx, auth: Auth, id: string) {
     startedAt: isoNN(s.startedAt),
     endedAt: isoNN(s.endedAt),
   });
-  return getJob(tx, s.jobId);
+  return getJob(tx, s.jobId, auth);
 }
 
 /* ----------------------- materials added by hand ----------------------- */
@@ -185,7 +185,7 @@ export async function addJobLine(
             'manual')
     RETURNING id`;
   await audit(tx, auth, 'job_line_add', 'job', jobId, { lineId: row!.id });
-  return getJob(tx, jobId);
+  return getJob(tx, jobId, auth);
 }
 
 async function manualLine(tx: Tx, id: string) {
@@ -243,7 +243,7 @@ export async function updateJobLine(
            total_pence = ${signedLineTotal(qty, sell)}
      WHERE id = ${id}`;
   await audit(tx, auth, 'job_line_edit', 'job', l.jobId, { lineId: id });
-  return getJob(tx, l.jobId);
+  return getJob(tx, l.jobId, auth);
 }
 
 export async function deleteJobLine(tx: Tx, auth: Auth, id: string) {
@@ -251,7 +251,7 @@ export async function deleteJobLine(tx: Tx, auth: Auth, id: string) {
   const l = await manualLine(tx, id);
   await tx`DELETE FROM job_lines WHERE id = ${id}`;
   await audit(tx, auth, 'job_line_delete', 'job', l.jobId, { lineId: id });
-  return getJob(tx, l.jobId);
+  return getJob(tx, l.jobId, auth);
 }
 
 /* --------------------------------- notes -------------------------------- */

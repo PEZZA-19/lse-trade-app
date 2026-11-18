@@ -399,6 +399,19 @@ describe('customer credit on work not yet invoiced (Joe, 18 Nov 2026, 10:27)', (
     await c.req('POST', `/api/quotes/${q.id}/send`);
     await c.req('POST', `/api/quotes/${q.id}/accept`, { acceptedOptions: [] });
     const j = (await c.req('POST', `/api/quotes/${q.id}/convert`)).body;
+    // The job shows the credit and the carried-over choice (Accounts access only).
+    expect((await c.req('GET', `/api/jobs/${j.id}`)).body).toMatchObject({
+      customerCreditPence: 15000,
+      useCredit: true,
+      invoiced: false,
+    });
+    const email = await addMember(c.tenantId, 'staff');
+    const [u] = await adminSql<{ id: string }[]>`SELECT id FROM users WHERE email = ${email}`;
+    await c.req('PUT', `/api/team/${u!.id}/access`, { isAdmin: false, areas: [] });
+    const worker = await clientFor(email, { tenantId: c.tenantId, userId: u!.id });
+    const seen = (await worker.req('GET', `/api/jobs/${j.id}`)).body;
+    expect(seen.customerCreditPence ?? 0).toBe(0); // prices are hidden from field workers too
+    expect(seen.useCredit).toBeNull();
     const inv = await draftFor(c, j.id);
     expect(inv).toMatchObject({ jobUseCredit: true, creditToUsePence: 15000 });
     // Still asks: approving without saying is refused.
@@ -424,6 +437,7 @@ describe('customer credit on work not yet invoiced (Joe, 18 Nov 2026, 10:27)', (
     const late = await c.req('PUT', `/api/jobs/${j.id}/credit`, { useCredit: false });
     expect(late.status).toBe(409);
     expect(late.body.error.code).toBe('job_invoiced');
+    expect((await c.req('GET', `/api/jobs/${j.id}`)).body.invoiced).toBe(true);
     const staff = await clientFor(await addMember(c.tenantId, 'staff'), c);
     const j2 = await job(c, cust.id, 'Gate', WORK_JOB(1000));
     expect((await staff.req('PUT', `/api/jobs/${j2.id}/credit`, { useCredit: true })).status).toBe(

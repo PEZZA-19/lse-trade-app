@@ -465,6 +465,14 @@ const jobDetail = (j: Job): JobDetailDto => ({
     .filter((a) => a.jobId === j.id)
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .map(({ jobId: _jobId, ...a }) => a),
+  customerCreditPence: availableCredits(billingCtx(), j.customerId).reduce(
+    (a, c) => a + c.remainingPence,
+    0,
+  ),
+  useCredit: j.useCredit ?? null,
+  invoiced: (db!.billing?.invoices ?? []).some(
+    (i) => i.jobId === j.id && i.status !== 'draft' && i.status !== 'credit',
+  ),
   timerRunning: db!.timers.some((t) => t.jobId === j.id && !t.stoppedAt),
   timerStartedAt: db!.timers.find((t) => t.jobId === j.id && !t.stoppedAt)?.startedAt ?? null,
   timesheets: db!.timesheets
@@ -572,7 +580,7 @@ function setJobCredit(jobId: string, useCredit: boolean | null) {
     fail(
       409,
       'job_invoiced',
-      'This job has already been invoiced, so it’s left as it is. The credit stays on the customer’s account for later work.',
+      'This job has already been invoiced. To use their credit on it, open the invoice and tap Use Customer Credit.',
     );
   job.useCredit = useCredit;
 }

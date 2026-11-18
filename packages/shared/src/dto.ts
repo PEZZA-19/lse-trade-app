@@ -178,6 +178,12 @@ export interface JobDetailDto extends JobSummaryDto {
   timerStartedAt: string | null;
   timesheets: TimesheetDto[];
   totalMinutes: number;
+  /** The customer's unused credit (owner/Accounts see it on the job). */
+  customerCreditPence: number;
+  /** The owner's choice to use that credit when this job is invoiced (null: not chosen). */
+  useCredit: boolean | null;
+  /** Any invoice for this job issued (not draft): the choice is then made on the invoice. */
+  invoiced: boolean;
 }
 
 export interface ApiErrorBody {

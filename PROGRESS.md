@@ -970,8 +970,10 @@ iPhone 14 and desktop.
 Migration 0030 (`quotes.use_credit`, `jobs.use_credit`). `PUT /api/quotes/:id/credit` and
 `PUT /api/jobs/:id/credit` (owner only; 409 `job_invoiced` once the job has an approved/sent
 invoice). The quote screen has a "Use their credit" switch under Totals; the invoice's Approve
-switch starts from that choice (on if none) and still has to be confirmed. Job screen switch: not
-built yet (the API is there).
+switch starts from that choice (on if none) and still has to be confirmed. Job screen: a
+"Customer credit" section (Accounts access; switch for the owner) when the customer has credit;
+once the job is invoiced it points to Use Customer Credit on the invoice. The job API now returns
+`customerCreditPence`, `useCredit`, `invoiced` (credit zero/hidden without Accounts access).
 
 ### Credit on an invoice already issued (Joe, 18 Nov 10:35, updates Q41)
 

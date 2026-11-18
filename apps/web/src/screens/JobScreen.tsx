@@ -11,6 +11,7 @@ import { formatDayShort, formatRange, formatTime } from '../lib/dates';
 import { AppointmentSheet, type AppointmentSheetState } from './sheets/AppointmentSheet';
 import { AssignSheet } from './sheets/AssignSheet';
 import { JobInvoicesSection } from './invoices/JobInvoicesSection';
+import { CreditSection } from './job/CreditSection';
 import { QuoteVsActual } from './job/QuoteVsActual';
 import { TimeSection } from './job/TimeSection';
 import { MaterialsSection } from './job/MaterialsSection';
@@ -199,6 +200,7 @@ export function JobScreen() {
       <TimeSection job={j} />
 
       {canSee(access, 'financials') && <JobInvoicesSection jobId={j.id} />}
+      {canSee(access, 'financials') && <CreditSection job={j} />}
 
       <Section header="Customer">
         <List>
