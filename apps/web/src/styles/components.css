@@ -615,6 +615,68 @@ select.field__input {
   color: var(--red);
 }
 
+/* Appointment jobs stay in the sheet's flow, theme and focus trap (no native popup). */
+.appointment-job-picker {
+  min-width: 0;
+}
+.appointment-job-picker__button {
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+.appointment-job-picker__value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--label);
+  text-align: left;
+}
+.appointment-job-picker__choices {
+  padding: var(--space-1) var(--space-4) var(--space-3);
+}
+.appointment-job-picker__list {
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  max-height: min(40dvh, calc(var(--tap) * 7));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--label);
+}
+.appointment-job-picker__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font: var(--text-body);
+  cursor: pointer;
+}
+.appointment-job-picker__option > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.appointment-job-picker__option > svg {
+  flex: 0 0 var(--space-5);
+  width: var(--space-5);
+  height: var(--space-5);
+}
+.appointment-job-picker__option.is-active {
+  background: var(--bg-fill);
+}
+.appointment-job-picker__option[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+.appointment-job-picker__list:focus-visible .appointment-job-picker__option.is-active {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* ============================== Sheet (modal) ============================== */
 .sheet {
   position: fixed;
