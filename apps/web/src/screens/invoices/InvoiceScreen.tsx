@@ -479,23 +479,35 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
         }
       />
 
-      <Section header="Details" footer={inv.termsText}>
+      <Section
+        header="Details"
+        footer={
+          isCredit
+            ? 'A customer credit comes off this customer’s next invoice. It isn’t paid out.'
+            : inv.termsText
+        }
+      >
         <List>
           {inv.issueDate && (
             <li>
-              <KeyValueRow label="Invoice date" value={shortDate(`${inv.issueDate}T12:00:00Z`)} />
+              <KeyValueRow
+                label={isCredit ? 'Credit date' : 'Invoice date'}
+                value={shortDate(`${inv.issueDate}T12:00:00Z`)}
+              />
             </li>
           )}
-          <li>
-            <KeyValueRow
-              label="Due"
-              value={
-                inv.dueDate
-                  ? shortDate(`${inv.dueDate}T12:00:00Z`)
-                  : `${inv.termsDays} days after approval`
-              }
-            />
-          </li>
+          {!isCredit && (
+            <li>
+              <KeyValueRow
+                label="Due"
+                value={
+                  inv.dueDate
+                    ? shortDate(`${inv.dueDate}T12:00:00Z`)
+                    : `${inv.termsDays} days after approval`
+                }
+              />
+            </li>
+          )}
           {inv.approvedAt && (
             <li>
               <KeyValueRow

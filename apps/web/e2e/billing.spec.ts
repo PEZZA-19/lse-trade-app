@@ -362,6 +362,10 @@ test('a job below £0 is issued as a customer credit and comes off the next invo
     .last()
     .click();
   await expect(page.getByRole('heading', { name: /^Credit Note CN-\d+$/ })).toBeVisible();
+  // A credit has no due date or payment terms: it comes off the next invoice.
+  await expect(page.getByText('Credit date')).toBeVisible();
+  await expect(page.getByText(/comes off this customer’s next invoice/)).toBeVisible();
+  await expect(page.getByText(/days after approval|Payment is due/)).toHaveCount(0);
 
   await page.goto(`/customers/${cust.id}`);
   await expect(page.getByRole('list', { name: 'Customer credit' })).toContainText('£150.00 to use');
