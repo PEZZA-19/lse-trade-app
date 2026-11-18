@@ -221,6 +221,9 @@ export async function getQuote(tx: Tx, id: string): Promise<QuoteDetailDto> {
       (a, c) => a + c.remainingPence,
       0,
     ),
+    useCredit:
+      (await tx<{ useCredit: boolean | null }[]>`SELECT use_credit FROM quotes WHERE id = ${id}`)[0]
+        ?.useCredit ?? null,
   };
 }
 
@@ -506,6 +509,8 @@ export async function convertToJob(
     await tx`INSERT INTO job_lines ${tx(rows)}`;
   }
   await tx`UPDATE quotes SET status = 'converted', converted_job_id = ${job!.id}, converted_at = now() WHERE id = ${id}`;
+  // The credit choice made on the quote carries to the job.
+  await tx`UPDATE jobs SET use_credit = (SELECT use_credit FROM quotes WHERE id = ${id}) WHERE id = ${job!.id}`;
   await audit(tx, auth, 'convert', 'quote', id, { jobId: job!.id, jobNumber: num!.formatted });
   return { jobId: job!.id, jobNumber: num!.formatted };
 }

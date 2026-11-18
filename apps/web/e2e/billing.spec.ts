@@ -410,4 +410,48 @@ test('a job below £0 is issued as a customer credit and comes off the next invo
   await sheet.getByRole('button', { name: 'Approve', exact: true }).last().click();
   await expect(page.getByText(/Customer credit CN-\d+ used/)).toBeVisible();
   await expect.poll(async () => (await api.get(`/invoices/${next.id}`)).balancePence).toBe(5000);
+
+  // Joe, 18 Nov 10:27: the choice can be made on a quote not yet invoiced, and carries through.
+  const more = await jobFor([
+    { kind: 'labour', description: 'Credit back', qtyMilli: 1000, unitPricePence: 10000 },
+  ]);
+  void more; // A second credit for this customer: £100 labour less £250 rent.
+  const credit2 = await api.patch(`/invoices/${more.id}`, {
+    lines: [
+      { kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 10000 },
+      { kind: 'material', description: 'Rent payments', qtyMilli: 1000, unitPricePence: -25000 },
+    ],
+  });
+  await api.post(`/invoices/${credit2.id}/approve`);
+  const q2 = await api.post('/quotes', {
+    customerId: cust.id,
+    title: 'Garden lights',
+    lines: [{ kind: 'labour', description: 'Garden', qtyMilli: 1000, unitPricePence: 30000 }],
+  });
+  await page.goto(`/quotes/${q2.id}`);
+  const onQuote = page.getByRole('switch', { name: 'Use their credit when this work is invoiced' });
+  await expect(onQuote).not.toBeChecked();
+  await onQuote.click();
+  await expect(onQuote).toBeChecked();
+  await expect(
+    page.getByText('Their credit will be used on the invoice for this work'),
+  ).toBeVisible();
+  await expect(page.getByText(/of their credit comes off the invoice for this work/)).toBeVisible();
+  // The quote itself isn't reduced.
+  await expect(page.getByText('£300.00').first()).toBeVisible();
+  await onQuote.click();
+  await expect(onQuote).not.toBeChecked();
+  await expect(page.getByText('Their credit stays on their account')).toBeVisible();
+  await api.post(`/quotes/${q2.id}/send`);
+  await api.post(`/quotes/${q2.id}/accept`, { acceptedOptions: [] });
+  const job2 = await api.post(`/quotes/${q2.id}/convert`);
+  const inv2 = await api.post(`/jobs/${job2.id}/invoices`, { source: 'quote', mode: 'whole' });
+  await page.goto(`/invoices/${inv2.id}`);
+  await page.getByRole('button', { name: 'Approve Invoice…' }).click();
+  const sheet2 = page.getByRole('dialog', { name: 'Approve Invoice' });
+  // "Keep it" on the quote: off here by default, and still asked.
+  await expect(
+    sheet2.getByRole('switch', { name: 'Use their credit on this invoice' }),
+  ).not.toBeChecked();
+  await expect(sheet2).toContainText('stays on their account for a later invoice');
 });

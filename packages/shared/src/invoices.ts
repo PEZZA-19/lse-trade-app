@@ -287,6 +287,8 @@ export interface InvoiceDetailDto extends InvoiceSummaryDto {
   creditsApplied: CreditUseDto[];
   /** Drafts: the customer's credit that approving would take off (0 if none). */
   creditToUsePence: Pence;
+  /** What the owner chose on the quote or job about using credit (sets the Approve switch). */
+  jobUseCredit: boolean | null;
   /** A customer credit: where it has been used so far. */
   creditUses: CreditUseDto[];
   /** Drafts: the number approving it now would give (another approval first would take it). */
@@ -337,3 +339,6 @@ export function approveDateProblem(issueDate: string, today: string): string {
     return 'The invoice date can’t be more than a year ago.';
   return '';
 }
+
+/** Use the customer's credit when this quote's or job's work is invoiced (null clears the choice). */
+export const creditChoice = z.object({ useCredit: z.boolean().nullable() });

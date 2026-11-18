@@ -36,6 +36,7 @@ import {
   EDITABLE_SYSTEM_STAGES,
   signedLineTotal,
   quoteAccept,
+  creditChoice,
   quoteCreate,
   quoteDisplayNumber,
   quoteRevisionUpdate,
@@ -112,12 +113,15 @@ interface Quote {
   currentRevision: number;
   acceptedRevision: number | null;
   convertedJobId: string | null;
+  /** Use the customer's credit when invoiced (Joe, 18 Nov 2026, 10:27). */
+  useCredit?: boolean | null;
   revisions: Rev[];
   createdAt: string;
   updatedAt: string;
 }
 interface Job {
   version?: number;
+  useCredit?: boolean | null;
   id: string;
   number: string;
   seq: number;
@@ -311,6 +315,7 @@ function quoteDetail(q: Quote): QuoteDetailDto {
       (a, c) => a + c.remainingPence,
       0,
     ),
+    useCredit: q.useCredit ?? null,
   };
 }
 /** A quote must never total less than £0 (Joe, 18 Nov 2026): same rule and words as the API. */
@@ -557,6 +562,21 @@ function settingsDto(): SettingsDto {
   };
 }
 
+/** Same rule as the API: once a job has been invoiced, its credit choice is left alone. */
+function setJobCredit(jobId: string, useCredit: boolean | null) {
+  const job = getJob(jobId);
+  const invoiced = (db!.billing?.invoices ?? []).some(
+    (i) => i.jobId === jobId && i.status !== 'draft' && i.status !== 'credit',
+  );
+  if (invoiced)
+    fail(
+      409,
+      'job_invoiced',
+      'This job has already been invoiced, so it’s left as it is. The credit stays on the customer’s account for later work.',
+    );
+  job.useCredit = useCredit;
+}
+
 function billingCtx(): BillingCtx {
   return {
     b: (db!.billing ??= freshBilling()),
@@ -576,6 +596,7 @@ function billingCtx(): BillingCtx {
         title: j.title,
         customerId: j.customerId,
         sourceQuoteId: j.sourceQuoteId,
+        useCredit: j.useCredit ?? null,
         lines: j.lines,
       };
     },
@@ -969,6 +990,12 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     const quote = getQuote(id!);
     const r = cur(quote);
     if (method === 'GET' && !sub) return quoteDetail(quote);
+    if (method === 'PUT' && sub === 'credit') {
+      const { useCredit } = parse(creditChoice, body);
+      if (quote.convertedJobId) setJobCredit(quote.convertedJobId, useCredit);
+      quote.useCredit = useCredit;
+      return quoteDetail(quote);
+    }
     if (method === 'PATCH' && !sub) {
       checkVersion(quote, () => quoteDetail(quote));
       if (quote.status !== 'draft')
@@ -1097,6 +1124,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
         recordCreated(job, 'created_from_quote');
         quote.status = 'converted';
         quote.convertedJobId = job.id;
+        job.useCredit = quote.useCredit ?? null;
         touch(quote);
         return jobDetail(job);
       }
@@ -1105,6 +1133,11 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     }
   }
 
+  if (method === 'PUT' && a === 'jobs' && sub === 'credit') {
+    const { useCredit } = parse(creditChoice, body);
+    setJobCredit(id!, useCredit);
+    return { useCredit };
+  }
   if (a === 'jobs') {
     if (method === 'GET' && !id) {
       const stageId = query.get('stageId');

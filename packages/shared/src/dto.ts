@@ -127,6 +127,8 @@ export interface QuoteDetailDto extends QuoteSummaryDto {
    * next invoice is approved, the app asks whether to use it.
    */
   customerCreditPence: number;
+  /** The owner's choice to use the customer's credit when this work is invoiced (null: not chosen). */
+  useCredit: boolean | null;
 }
 
 export interface JobSummaryDto {

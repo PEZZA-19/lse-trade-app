@@ -14,7 +14,9 @@ import {
   useMe,
   useQuote,
   useQuoteAction,
+  useQuoteCreditChoice,
   useReadiness,
+  useSession,
   useUpdateQuote,
 } from '../api/hooks';
 import { IconDoc, IconJobs, IconPlusCircle, IconQuotes } from '../components/icons';
@@ -76,6 +78,9 @@ export function QuoteScreen() {
 
 function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   const me = useMe();
+  const session = useSession();
+  const isOwner = session.data?.role === 'owner';
+  const creditChoice = useQuoteCreditChoice(q.id);
   const toast = useToast();
   const navigate = useNavigate();
   const update = useUpdateQuote(q.id);
@@ -525,7 +530,11 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
               {below}
             </span>
           ) : q.customerCreditPence > 0 ? (
-            `${q.customerName} has ${formatPence(q.customerCreditPence)} credit on account. It isn’t taken off quotes; when you approve their next invoice, you’ll be asked whether to use it.`
+            q.useCredit ? (
+              `Up to ${formatPence(Math.min(q.customerCreditPence, totals.totalPence))} of their credit comes off the invoice for this work; you’ll confirm when you approve it. The quote itself stays at ${formatPence(totals.totalPence)}.`
+            ) : (
+              `${q.customerName} has ${formatPence(q.customerCreditPence)} credit on account. It isn’t taken off the quote${isOwner ? '; switch on to use it on the invoice for this work' : ''}.`
+            )
           ) : undefined
         }
       >
@@ -544,6 +553,37 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
           <li>
             <KeyValueRow label="Total" value={formatPence(totals.totalPence)} strong />
           </li>
+          {isOwner && q.customerCreditPence > 0 && !below && (
+            <li>
+              <label className="row" style={{ cursor: 'pointer' }}>
+                <span className="row__main">
+                  <span className="row__title">Use their credit</span>
+                  <span className="row__sub" style={{ whiteSpace: 'normal' }}>
+                    {formatPence(q.customerCreditPence)} on account
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Use their credit when this work is invoiced"
+                  checked={q.useCredit === true}
+                  disabled={creditChoice.isPending}
+                  onChange={(e) =>
+                    creditChoice.mutate(e.target.checked, {
+                      onSuccess: (r) =>
+                        toast.show(
+                          r.useCredit
+                            ? 'Their credit will be used on the invoice for this work'
+                            : 'Their credit stays on their account',
+                        ),
+                      onError: (err) => toast.show(err.message, { tone: 'error' }),
+                    })
+                  }
+                  className="switch"
+                />
+              </label>
+            </li>
+          )}
         </List>
       </Section>
 

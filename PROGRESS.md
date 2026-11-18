@@ -673,10 +673,11 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
     it stays on the customer's account for a later invoice. Done in session 6 (see Q41).
 40. ANSWERED 18 Nov 2026 by Joe: a quote can never come to less than £0. Done in session 6: blocked
     in the app and by the server, with a clear message; minus lines are still fine above £0.
-41. Credit, how we read "if the job is quoted it's irrelevant … but will need a confirmation":
-    credit is never taken off a quote (the quote just shows "they have £X credit"); when you approve
-    their next invoice the app asks whether to use it (switch on by default) or keep it for later.
-    Is that what you meant?
+41. ANSWERED 18 Nov 2026, 10:27 by Joe: "You can apply the credit if the job hasn't been invoiced but
+    if it has don't worry about it." Done in session 6: on a quote or job not yet invoiced, the owner
+    can switch on "Use their credit" (the quote itself isn't reduced; the choice carries from quote
+    to job). It sets the default on the invoice's Approve sheet, which still confirms. Once a job has
+    an approved or sent invoice its choice can't change, and those invoices are never touched.
 42. Expenses you pay personally (not from the business bank) are recorded as money you put into the
     business (they reduce your drawings on the Balance Sheet). OK?
 43. If a booking is changed in the app and in Google Calendar before they sync, Google's change wins
@@ -953,8 +954,22 @@ All four of Joe's 10:02 decisions are done, plus expenses and wages.
 Tests: API 235, shared 181 (+1 skipped), web unit 57; e2e billing, calendar and business all pass on
 iPhone 14 and desktop.
 
+### Credit on work not yet invoiced (Joe, 18 Nov 10:27, Q41)
+
+Migration 0030 (`quotes.use_credit`, `jobs.use_credit`). `PUT /api/quotes/:id/credit` and
+`PUT /api/jobs/:id/credit` (owner only; 409 `job_invoiced` once the job has an approved/sent
+invoice). The quote screen has a "Use their credit" switch under Totals; the invoice's Approve
+switch starts from that choice (on if none) and still has to be confirmed. Job screen switch: not
+built yet (the API is there).
+
+### Bank statements (in progress)
+
+Step 1 done: CSV import (migration 0029, `POST /api/bank/imports`, `GET /api/bank/transactions`).
+Reads Lloyds, Nationwide, Starling, Monzo, Barclays, HSBC (no headings) and similar; owner only;
+re-importing or overlapping statements adds nothing twice. No screen yet.
+
 ## Next (after session 6)
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
 2. Bank statement import (CSV) and reconciliation; refunds.
-3. Answers needed: Q33, Q34, Q35, Q38, Q41–Q44.
+3. Answers needed: Q33, Q34, Q35, Q38, Q42–Q44.

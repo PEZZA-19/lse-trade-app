@@ -248,6 +248,10 @@ export async function getInvoice(tx: Tx, id: string): Promise<InvoiceDetailDto> 
             (await availableCredits(tx, r.customerId)).reduce((a, c) => a + c.remainingPence, 0),
           )
         : 0,
+    jobUseCredit:
+      (
+        await tx<{ useCredit: boolean | null }[]>`SELECT use_credit FROM jobs WHERE id = ${r.jobId}`
+      )[0]?.useCredit ?? null,
     nextNumber:
       r.status !== 'draft'
         ? null
@@ -840,4 +844,45 @@ export async function jobInvoicing(tx: Tx, jobId: string): Promise<JobInvoicingD
     unbilledMaterialsPence: u.lines.reduce((a, l) => a + l.totalPence, 0),
     invoices: await listInvoices(tx, { jobId }),
   };
+}
+
+/* ------------------- credit choice on quotes and jobs --------------------- */
+// Joe, 18 Nov 2026, 10:27: "You can apply the credit if the job hasn't been invoiced but if it has
+// don't worry about it." The choice sets the default on the Approve sheet, which still confirms.
+
+export async function setJobCreditChoice(
+  tx: Tx,
+  auth: Auth,
+  jobId: string,
+  useCredit: boolean | null,
+): Promise<{ useCredit: boolean | null }> {
+  assertOwnerDecision(auth, 'choose how customer credit is used');
+  const [j] = await tx<{ id: string }[]>`SELECT id FROM jobs WHERE id = ${jobId} FOR UPDATE`;
+  if (!j) throw notFound('Job');
+  const [invoiced] = await tx`
+    SELECT 1 FROM invoices WHERE job_id = ${jobId} AND status NOT IN ('draft', 'credit') LIMIT 1`;
+  if (invoiced)
+    throw conflict(
+      'job_invoiced',
+      'This job has already been invoiced, so it’s left as it is. The credit stays on the customer’s account for later work.',
+    );
+  await tx`UPDATE jobs SET use_credit = ${useCredit} WHERE id = ${jobId}`;
+  await audit(tx, auth, 'credit_choice', 'job', jobId, { useCredit });
+  return { useCredit };
+}
+
+export async function setQuoteCreditChoice(
+  tx: Tx,
+  auth: Auth,
+  quoteId: string,
+  useCredit: boolean | null,
+): Promise<void> {
+  assertOwnerDecision(auth, 'choose how customer credit is used');
+  const [q] = await tx<{ convertedJobId: string | null }[]>`
+    SELECT converted_job_id FROM quotes WHERE id = ${quoteId} FOR UPDATE`;
+  if (!q) throw notFound('Quote');
+  // Once it's a job, the job holds the choice (and refuses if it's been invoiced).
+  if (q.convertedJobId) await setJobCreditChoice(tx, auth, q.convertedJobId, useCredit);
+  await tx`UPDATE quotes SET use_credit = ${useCredit} WHERE id = ${quoteId}`;
+  await audit(tx, auth, 'credit_choice', 'quote', quoteId, { useCredit });
 }

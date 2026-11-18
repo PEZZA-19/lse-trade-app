@@ -82,3 +82,42 @@ describe('demo customer credit (mirrors the server)', () => {
     expect(v('Net assets')).toBe(v('Total equity'));
   });
 });
+
+describe('demo credit choice on work not yet invoiced (Joe, 18 Nov 2026, 10:27)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetDemo();
+  });
+
+  it('chosen on the quote, carried to the job and the invoice; refused once invoiced', async () => {
+    const cust = await send<CustomerDetailDto>('POST', '/customers', {
+      name: 'Choice Test',
+      email: 'choice@example.com',
+    });
+    const work = [{ kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 10000 }];
+    const q = await send<{ id: string; useCredit: boolean | null }>('POST', '/quotes', {
+      customerId: cust.id,
+      title: 'Work',
+      lines: work,
+    });
+    expect(q.useCredit).toBeNull();
+    const set = await send<{ useCredit: boolean | null }>('PUT', `/quotes/${q.id}/credit`, {
+      useCredit: false,
+    });
+    expect(set.useCredit).toBe(false);
+    await send('POST', `/quotes/${q.id}/send`);
+    await send('POST', `/quotes/${q.id}/accept`, { acceptedOptions: [] });
+    const job = await send<{ id: string }>('POST', `/quotes/${q.id}/convert`);
+    const inv = await send<InvoiceDetailDto>('POST', `/jobs/${job.id}/invoices`, {
+      source: 'quote',
+      mode: 'whole',
+    });
+    expect(inv.jobUseCredit).toBe(false);
+    await send('PUT', `/jobs/${job.id}/credit`, { useCredit: true });
+    expect((await get<InvoiceDetailDto>(`/invoices/${inv.id}`)).jobUseCredit).toBe(true);
+    await send('POST', `/invoices/${inv.id}/approve`);
+    await expect(send('PUT', `/jobs/${job.id}/credit`, { useCredit: false })).rejects.toThrow(
+      /already been invoiced/,
+    );
+  });
+});

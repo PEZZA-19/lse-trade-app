@@ -102,8 +102,9 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   const owing = !isCredit && inv.status !== 'paid' && inv.balancePence !== inv.totalPence && !draft;
   const lines = toInput(inv);
   const creditToUse = inv.creditToUsePence;
-  // Asked every time there's credit to use; on by default, and the sheet says what it does.
-  const [useCredit, setUseCredit] = useState(true);
+  // Asked every time there's credit to use; the default is what was chosen on the quote or job
+  // (on if nothing was chosen), and the sheet says what it does.
+  const [useCredit, setUseCredit] = useState(inv.jobUseCredit ?? true);
 
   const saveLines = (next: InvoiceLineInput[]) =>
     update.mutate(

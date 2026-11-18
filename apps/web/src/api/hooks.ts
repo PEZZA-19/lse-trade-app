@@ -314,6 +314,19 @@ export function useQuoteAction(id: string) {
   });
 }
 
+/** Use the customer's credit when this quote's work is invoiced (owner; the Approve sheet confirms). */
+export function useQuoteCreditChoice(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (useCredit: boolean | null) =>
+      api<QuoteDetailDto>('PUT', `/quotes/${id}/credit`, { useCredit }),
+    onSuccess: (q) => {
+      qc.setQueryData(keys.quote(id), q);
+      void qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+}
+
 export function useConvertQuote(id: string) {
   const qc = useQueryClient();
   // One key per screen visit: a double tap or retry can never create two jobs.

@@ -165,6 +165,7 @@ export interface BillingCtx {
     title: string;
     customerId: string;
     sourceQuoteId: string | null;
+    useCredit: boolean | null;
     lines: JobLineDto[];
   };
   jobIds: () => string[];
@@ -502,6 +503,7 @@ function detail(c: BillingCtx, i: Invoice): InvoiceDetailDto {
             availableCredits(c, j.customerId).reduce((a, x) => a + x.remainingPence, 0),
           )
         : 0,
+    jobUseCredit: j.useCredit,
     nextNumber:
       i.status !== 'draft'
         ? null

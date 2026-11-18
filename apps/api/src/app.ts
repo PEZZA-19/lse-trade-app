@@ -46,6 +46,7 @@ import {
   billPaymentCreate,
   expenseCreate,
   bankImportCreate,
+  creditChoice,
   bankTxQuery,
   expenseQuery,
   budgetUpdate,
@@ -438,6 +439,23 @@ export function createApp(deps: AppDeps) {
   app.post('/api/quotes/:id/send', async (c) => {
     const id = uuidParam(c);
     return c.json(await c.var.tx((tx) => quotes.markSent(tx, c.var.auth, id)));
+  });
+  app.put('/api/quotes/:id/credit', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(creditChoice, await jsonBody(c.req));
+    return c.json(
+      await c.var.tx(async (tx) => {
+        await invoices.setQuoteCreditChoice(tx, c.var.auth, id, input.useCredit);
+        return quotes.getQuote(tx, id);
+      }),
+    );
+  });
+  app.put('/api/jobs/:id/credit', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(creditChoice, await jsonBody(c.req));
+    return c.json(
+      await c.var.tx((tx) => invoices.setJobCreditChoice(tx, c.var.auth, id, input.useCredit)),
+    );
   });
   app.post('/api/quotes/:id/revise', async (c) => {
     const id = uuidParam(c);

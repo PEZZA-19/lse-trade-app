@@ -335,3 +335,59 @@ describe('customer credit: Joe’s rules (18 Nov 2026)', () => {
     if (fv.status === 200) expect(fv.body.customerCreditPence).toBe(0);
   });
 });
+
+describe('customer credit on work not yet invoiced (Joe, 18 Nov 2026, 10:27)', () => {
+  it('chosen on the quote: carries to the job and sets the invoice’s Approve default, which still confirms', async () => {
+    const c = await client();
+    await ready(c);
+    const cust = await seedCustomer(c);
+    const { draft: credit } = await creditDraft(c, cust.id);
+    await c.req('POST', `/api/invoices/${credit.id}/approve`);
+    const q = (
+      await c.req('POST', '/api/quotes', {
+        customerId: cust.id,
+        title: 'Porch',
+        lines: WORK_JOB(20000),
+      })
+    ).body;
+    expect(q.useCredit).toBeNull();
+    const set = await c.req('PUT', `/api/quotes/${q.id}/credit`, { useCredit: true });
+    expect(set.status, JSON.stringify(set.body)).toBe(200);
+    expect(set.body).toMatchObject({ useCredit: true, customerCreditPence: 15000 });
+    // The quote itself is never reduced.
+    expect(set.body.current.totals.totalPence ?? set.body.totalPence).toBe(20000);
+    await c.req('POST', `/api/quotes/${q.id}/send`);
+    await c.req('POST', `/api/quotes/${q.id}/accept`, { acceptedOptions: [] });
+    const j = (await c.req('POST', `/api/quotes/${q.id}/convert`)).body;
+    const inv = await draftFor(c, j.id);
+    expect(inv).toMatchObject({ jobUseCredit: true, creditToUsePence: 15000 });
+    // Still asks: approving without saying is refused.
+    const ask = await c.req('POST', `/api/invoices/${inv.id}/approve`);
+    expect(ask.status).toBe(422);
+    const ok = await c.req('POST', `/api/invoices/${inv.id}/approve`, { useCredit: true });
+    expect(ok.body).toMatchObject({ status: 'approved', balancePence: 5000 });
+  });
+
+  it('chosen on the job; refused once the job has been invoiced; owner only', async () => {
+    const c = await client();
+    await ready(c);
+    const cust = await seedCustomer(c);
+    const j = await job(c, cust.id, 'Shed', WORK_JOB(9000));
+    const keep = await c.req('PUT', `/api/jobs/${j.id}/credit`, { useCredit: false });
+    expect(keep.status, JSON.stringify(keep.body)).toBe(200);
+    expect(keep.body).toEqual({ useCredit: false });
+    const inv = await draftFor(c, j.id);
+    expect(inv.jobUseCredit).toBe(false);
+    // A draft invoice can still change the choice; an approved one can't.
+    expect((await c.req('PUT', `/api/jobs/${j.id}/credit`, { useCredit: true })).status).toBe(200);
+    await c.req('POST', `/api/invoices/${inv.id}/approve`);
+    const late = await c.req('PUT', `/api/jobs/${j.id}/credit`, { useCredit: false });
+    expect(late.status).toBe(409);
+    expect(late.body.error.code).toBe('job_invoiced');
+    const staff = await clientFor(await addMember(c.tenantId, 'staff'), c);
+    const j2 = await job(c, cust.id, 'Gate', WORK_JOB(1000));
+    expect((await staff.req('PUT', `/api/jobs/${j2.id}/credit`, { useCredit: true })).status).toBe(
+      403,
+    );
+  });
+});
