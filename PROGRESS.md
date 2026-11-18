@@ -1059,14 +1059,13 @@ Open questions (not guessed):
 - Q47. Any GST/VAT in the credit is treated as part of the cost reduction (fine while not
   registered; needs a rule if that changes).
 
-## Where session 6 stopped (18 Nov 2026, 11:30 Guernsey, usage 90.5%)
+## Where session 6 stopped (18 Nov 2026, ~11:55 Guernsey, usage ~92.5%)
 
-Stopped cleanly after the bank feature (steps 1–7) and the job-screen credit switch; everything is
-committed (last: job credit section). Tests: API 247, shared 197 (+1 skipped), web unit 63,
-e2e 84/84 (iPhone 14 + desktop). Private demo rebuilt 11:26 with real jobs (smoke: ERRORS none)
-and zipped to both usual paths; Joe's PC was offline, so it isn't in his Downloads yet.
-Nothing half-built. Next pick-up: refunds (when Joe says go), or answers to Q33/Q34/Q35/Q38.
-Q34 (opening bank balance) matters now: "Check against your bank" needs it to show no difference.
+Stopped cleanly after Joe's 11:34 answers (payments by anyone with Accounts access; credit on an
+invoiced job lowers its costs). Everything committed. Tests: API 247, shared 197 (+1 skipped), web
+unit 63, e2e 84/84 (iPhone 14 + desktop). Private demo rebuilt with real jobs and zipped to both
+usual paths. Nothing half-built. Next: refunds (when Joe says go), answers to Q33/Q34/Q35/Q38 and
+Q45–Q47. Q34 (opening bank balance) matters for "Check against your bank".
 
 ## Next (after session 6)
 
