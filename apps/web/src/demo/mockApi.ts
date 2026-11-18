@@ -796,6 +796,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
     method,
     seg,
     body,
+    query,
   );
   if (books !== undefined) return books;
   const bills = billsRoute(billingCtx(), method, seg, query, body);

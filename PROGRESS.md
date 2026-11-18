@@ -982,7 +982,7 @@ what they owe and is used up, but the invoice's lines, total and PDF stay as bil
 after-issue credit out). The credit was already in the P&L as reduced sales when it was issued, so
 using it doesn't change profit again; the books still balance. `POST /api/invoices/:id/use-credit`.
 
-### Bank statements (in progress)
+### Bank statements (steps 1–3 done)
 
 Step 1 done: CSV import (migration 0029, `POST /api/bank/imports`, `GET /api/bank/transactions`).
 Reads Lloyds, Nationwide, Starling, Monzo, Barclays, HSBC (no headings) and similar; owner only;
@@ -994,11 +994,21 @@ ranked by date and by names or numbers on the line ("strong" = a name/number and
 `POST /api/bank/transactions/:id/match`, `PUT /api/bank/transactions/:id/status` (unmatched /
 ignored, e.g. transfers between your own accounts). One bank line per payment/expense. Anyone with
 Accounts access can import and match (same rule as expenses, Q44). Matching never changes the
-books. No screen yet (step 3).
+books.
+
+Step 3 done: the screen. Business › Bank and Cash › "Bank statement: import and match" opens
+**Bank Statement**: Import Bank Statement (CSV) (shows new / already imported and any skipped lines),
+then To Match / Matched / Ignored. Each line shows its suggestions with Match (likely ones
+highlighted), Ignore, Unmatch and Restore. Mirrored in the demo (works in the private file demo).
+
+Still to do for the bank: "Add as expense" straight from an unmatched money-out line; a
+reconciliation summary (bank closing balance vs app's Bank and Cash) using the CSV's balance
+column; record a customer payment from an unmatched money-in line.
 
 ## Next (after session 6)
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
-2. Bank statement import (CSV) and reconciliation; refunds.
+2. Bank: "Add as expense" from a bank line, reconciliation summary (closing balance check),
+   record a payment from a bank line. Then refunds (not started, as asked).
 3. Answers needed: Q33, Q34, Q35, Q38. Q41–Q44 answered 18 Nov (credit, expenses, conflicts,
    expense access).

@@ -1,4 +1,4 @@
-import { overview, parsePounds, type OpenItem } from '@lse/shared';
+import { canSee, overview, parsePounds, type OpenItem } from '@lse/shared';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useAccess } from '../../api/hooks';
@@ -57,6 +57,11 @@ export function BusinessScreen() {
           </header>
           <p className="biz-figure">{money(o.bankPence)}</p>
           <p className="biz-sub">Business bank account, from payments recorded in the app</p>
+          {canSee(access, 'financials') && (
+            <Link to="/business/bank" className="biz-card__more" style={{ marginBottom: 8 }}>
+              Bank statement: import and match <IconChevronRight width={14} height={14} />
+            </Link>
+          )}
           {!o.hasOpening ? (
             <div className="biz-callout" role="note">
               <p>Add the bank balance on the day your records start, so this matches your bank.</p>

@@ -15,6 +15,7 @@ import {
   type LedgerBudget,
   type QuoteSummaryDto,
 } from '@lse/shared';
+import { bankRoute, type DemoBankLine } from './mockBank';
 
 /** Demo-only books: the bits the real server keeps in business_books, budgets and bill payments. */
 export interface BusinessDb {
@@ -23,6 +24,8 @@ export interface BusinessDb {
   billPayments: (BillPaymentDto & { billId: string })[];
   /** Expenses and wages (older saved demos don't have it yet). */
   expenses?: ExpenseDto[];
+  /** Imported bank statement lines (older saved demos don't have it yet). */
+  bank?: DemoBankLine[];
 }
 export const freshBusiness = (): BusinessDb => ({
   opening: null,
@@ -160,8 +163,11 @@ export function businessRoute(
   method: string,
   seg: string[],
   body: unknown,
+  query?: URLSearchParams,
 ): unknown {
   const [a, id, sub] = seg;
+  if (a === 'bank')
+    return bankRoute({ ...c, books: () => demoBusiness(c) }, method, seg, query, body);
   if (a === 'business') {
     if (method === 'GET' && !id) return demoBusiness(c);
     if (method === 'PUT' && id === 'opening') {

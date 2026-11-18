@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 test('business overview and Xero-style reports, from More', async ({ page }) => {
   await page.goto('/more');
@@ -71,4 +71,71 @@ test('expenses and wages: add one, it shows in the totals and the P&L, remove it
     .click();
   await expect(page.getByText('Expense removed')).toBeVisible();
   await expect(page.getByText(`Ferry ${stamp}`)).toHaveCount(0);
+});
+
+async function postJson(page: Page, p: string, data: unknown) {
+  const session = await (await page.request.get('/api/auth/session')).json();
+  const r = await page.request.post(`/api${p}`, {
+    data,
+    headers: { 'x-csrf-token': session.csrfToken as string },
+  });
+  return r.json();
+}
+
+test('bank statement: import a CSV, match a line to an expense, unmatch, ignore', async ({
+  page,
+}) => {
+  const stamp = Date.now();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+    new Date(),
+  );
+  const [y, m, d] = today.split('-');
+  const pence = 1000 + (stamp % 9000);
+  const pounds = (pence / 100).toFixed(2);
+  await postJson(page, '/expenses', {
+    date: today,
+    payee: `Fuel ${stamp}`,
+    account: '449',
+    amountPence: pence,
+  });
+  await page.goto('/business');
+  await page.getByRole('link', { name: /Bank statement: import and match/ }).click();
+  await expect(page.getByRole('heading', { name: 'Bank Statement', level: 1 })).toBeVisible();
+  const csv = [
+    'Date,Description,Amount',
+    `${d}/${m}/${y},FUEL ${stamp} STATION,-${pounds}`,
+    `${d}/${m}/${y},TRANSFER ${stamp},-5.00`,
+    'nonsense,row,1',
+  ].join('\n');
+  await page.getByLabel('Bank statement CSV file').setInputFiles({
+    name: 'statement.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(csv),
+  });
+  await expect(page.getByText('2 bank lines imported')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Last import' })).toContainText('Line 4 skipped');
+
+  const lines = page.getByRole('list', { name: 'Bank lines' });
+  await expect(lines).toContainText(`FUEL ${stamp} STATION`);
+  await page
+    .getByRole('button', { name: new RegExp(`^Match FUEL ${stamp} STATION to Fuel ${stamp}`) })
+    .click();
+  await expect(page.getByText('Matched', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText(`FUEL ${stamp} STATION`)).toHaveCount(0);
+  await page.getByRole('button', { name: `Ignore TRANSFER ${stamp}` }).click();
+  await expect(page.getByText(`TRANSFER ${stamp}`)).toHaveCount(0);
+
+  await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Matched' }).click();
+  await expect(lines).toContainText(`Fuel ${stamp}`);
+  await page.getByRole('button', { name: `Unmatch FUEL ${stamp} STATION` }).click();
+  await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'To Match' }).click();
+  await expect(lines).toContainText(`FUEL ${stamp} STATION`);
+
+  // Importing the same file again adds nothing twice.
+  await page.getByLabel('Bank statement CSV file').setInputFiles({
+    name: 'statement.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(csv),
+  });
+  await expect(page.getByText('Nothing new: these lines were already imported')).toBeVisible();
 });

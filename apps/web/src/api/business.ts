@@ -1,4 +1,7 @@
 import type {
+  BankImportResultDto,
+  BankMatchKind,
+  BankTransactionDto,
   BillPaymentCreate,
   BillPaymentDto,
   BudgetUpdate,
@@ -94,5 +97,40 @@ export function useDeleteExpense() {
       void qc.invalidateQueries({ queryKey: expensesKey });
       void qc.invalidateQueries({ queryKey: businessKey });
     },
+  });
+}
+
+/* ----------------------------- bank statements ----------------------------- */
+
+const bankKey = ['bank'] as const;
+
+export const useBankLines = (status: 'unmatched' | 'matched' | 'ignored', enabled = true) =>
+  useQuery({
+    queryKey: [...bankKey, status],
+    queryFn: () => api<BankTransactionDto[]>('GET', `/bank/transactions?status=${status}`),
+    enabled,
+  });
+
+export function useImportStatement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { fileName: string; csv: string }) =>
+      api<BankImportResultDto>('POST', '/bank/imports', input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: bankKey }),
+  });
+}
+
+export function useBankLineAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      a:
+        | { id: string; match: { kind: BankMatchKind; id: string } }
+        | { id: string; status: 'unmatched' | 'ignored' },
+    ) =>
+      'match' in a
+        ? api<null>('POST', `/bank/transactions/${a.id}/match`, a.match)
+        : api<null>('PUT', `/bank/transactions/${a.id}/status`, { status: a.status }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: bankKey }),
   });
 }
