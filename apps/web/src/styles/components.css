@@ -626,6 +626,10 @@ select.field__input {
 .appointment-job-picker__value {
   flex: 1;
   min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--label);
   text-align: left;

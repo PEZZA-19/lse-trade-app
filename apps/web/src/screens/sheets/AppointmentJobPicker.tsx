@@ -115,7 +115,7 @@ export function AppointmentJobPicker(props: {
                 pick(active);
               } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
-                const now = Date.now();
+                const now = e.timeStamp;
                 const text =
                   (now - typeahead.current.time < 700 ? typeahead.current.text : '') +
                   e.key.toLowerCase();

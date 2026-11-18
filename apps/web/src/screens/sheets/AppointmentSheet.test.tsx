@@ -1,5 +1,5 @@
 import type { JobSummaryDto } from '@lse/shared';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -75,7 +75,7 @@ describe('Schedule appointment job picker', () => {
     const list = screen.getByRole('listbox', { name: 'Job' });
     expect(screen.getByRole('dialog', { name: 'New appointment' })).toContainElement(list);
     expect(list).toHaveFocus();
-    expect(screen.getAllByRole('option')).toHaveLength(30);
+    expect(within(list).getAllByRole('option')).toHaveLength(30);
     expect(screen.getByRole('button', { name: 'Book' })).toBeDisabled();
     await user.keyboard('{End}{ArrowUp}{Home}{ArrowDown}{Enter}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
@@ -132,11 +132,13 @@ describe('Schedule appointment job picker', () => {
     const user = await openPicker();
     expect(screen.getByRole('status')).toHaveTextContent('Loading jobs…');
     mocks.loading = false;
-    await user.keyboard('{Escape}');
+    await user.keyboard('{Escape}{Escape}');
+    await user.click(screen.getByRole('button', { name: 'New appointment' }));
     await user.click(screen.getByRole('button', { name: 'Job Choose a job…' }));
     expect(screen.getByRole('status')).toHaveTextContent('No active jobs to book.');
     mocks.loadError = true;
-    await user.keyboard('{Escape}');
+    await user.keyboard('{Escape}{Escape}');
+    await user.click(screen.getByRole('button', { name: 'New appointment' }));
     await user.click(screen.getByRole('button', { name: 'Job Choose a job…' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Jobs could not be loaded.');
     await user.click(screen.getByRole('button', { name: 'Try again' }));
