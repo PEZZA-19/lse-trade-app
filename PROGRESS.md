@@ -1010,13 +1010,19 @@ column): the bank's closing balance on the statement's last day vs the app's Ban
 end of that day, and the difference (with a hint: unrecorded money in/out, or the opening balance).
 Shared `closingBalance` / `reconcileBank` handle banks listing newest-first or oldest-first.
 
-Still to do for the bank: record a customer payment from an unmatched money-in line, and a supplier
-bill payment from a money-out line (today: record them on the invoice or bill, then Match).
+Step 6 done: **Record Payment** on an unmatched money-in line (owner only, like recording a
+payment on the invoice; Accounts users see "ask the owner"). Pick a sent / part-paid invoice
+with at least that much owed (same amount listed first); the payment is recorded as a bank
+transfer on the bank's date with the bank's description as the reference, and the line is
+matched in the same step. Paid in full completes the job as usual. Demo mirrors it.
+`POST /api/bank/transactions/:id/payment {invoiceId}`.
+
+Still to do for the bank: a supplier bill payment from a money-out line (today: record it on the
+bill, then Match). Refunds not started (as asked).
 
 ## Next (after session 6)
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
-2. Bank: record a customer payment straight from a money-in bank line; supplier bill payment from a
-   money-out line. Then refunds (not started, as asked). Then refunds (not started, as asked).
+2. Bank: supplier bill payment from a money-out line. Then refunds (not started, as asked). Then refunds (not started, as asked).
 3. Answers needed: Q33, Q34, Q35, Q38. Q41–Q44 answered 18 Nov (credit, expenses, conflicts,
    expense access).

@@ -36,7 +36,7 @@ export const freshBusiness = (): BusinessDb => ({
 
 export interface BusinessCtx {
   db: BusinessDb;
-  call: (method: string, path: string) => unknown;
+  call: (method: string, path: string, body?: unknown) => unknown;
   jobs: { stageId: string; lines: { totalPence: number }[] }[];
   stages: {
     id: string;

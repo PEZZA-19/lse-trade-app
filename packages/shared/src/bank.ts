@@ -442,6 +442,10 @@ export const bankLineExpense = z.object({
 });
 export type BankLineExpense = z.input<typeof bankLineExpense>;
 
+/** Money in on the bank → a customer's payment against one of their sent invoices. */
+export const bankLinePayment = z.object({ invoiceId: z.string().uuid() });
+export type BankLinePayment = z.input<typeof bankLinePayment>;
+
 /* ----------------------------- reconciliation ----------------------------- */
 
 /**

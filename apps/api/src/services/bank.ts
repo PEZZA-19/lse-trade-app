@@ -21,7 +21,7 @@ import type { Tx } from '../db/client';
 import { AppError, conflict, notFound } from '../lib/errors';
 import { iso, type Auth } from '../lib/types';
 import { audit } from './audit';
-import { today } from './invoices';
+import { recordPayment, today } from './invoices';
 import { createExpense } from './expenses';
 
 export async function importStatement(
@@ -237,8 +237,10 @@ export async function listTransactions(
 }
 
 async function lockLine(tx: Tx, id: string) {
-  const [r] = await tx<{ id: string; date: string; amountPence: string; status: BankTxStatus }[]>`
-    SELECT id, posted_on::text AS date, amount_pence, status FROM bank_transactions WHERE id = ${id} FOR UPDATE`;
+  const [r] = await tx<
+    { id: string; date: string; description: string; amountPence: string; status: BankTxStatus }[]
+  >`
+    SELECT id, posted_on::text AS date, description, amount_pence, status FROM bank_transactions WHERE id = ${id} FOR UPDATE`;
   if (!r) throw notFound('Bank line');
   return { ...r, amountPence: Number(r.amountPence) };
 }
@@ -324,4 +326,33 @@ export async function expenseFromLine(
   const e = await createExpense(tx, auth, { ...input, date: line.date, amountPence });
   await matchLine(tx, auth, id, { kind: 'expense', id: e.id });
   return e;
+}
+
+/**
+ * Record a customer payment straight from a money-in line (bank transfer, the line's date and
+ * amount, the bank's description as the reference) and match the line to it, in one step.
+ * Recording a payment is the owner's decision, as on the invoice.
+ */
+export async function paymentFromLine(
+  tx: Tx,
+  auth: Auth,
+  id: string,
+  input: { invoiceId: string },
+): Promise<{ invoiceId: string; paymentId: string; jobCompleted: boolean }> {
+  const line = await lockLine(tx, id);
+  if (line.status !== 'unmatched')
+    throw conflict('already_matched', 'This bank line is already matched or ignored.');
+  if (line.amountPence <= 0)
+    throw new AppError(422, 'money_out', 'Only money coming in can be a customer’s payment.');
+  const inv = await recordPayment(tx, auth, input.invoiceId, {
+    amountPence: line.amountPence,
+    paidOn: line.date,
+    method: 'bank_transfer',
+    reference: line.description.slice(0, 200) || null,
+  });
+  const [p] = await tx<{ id: string }[]>`
+    SELECT id FROM payments WHERE invoice_id = ${input.invoiceId} AND recorded_by = ${auth.userId}
+    ORDER BY created_at DESC LIMIT 1`;
+  await matchLine(tx, auth, id, { kind: 'payment', id: p!.id });
+  return { invoiceId: input.invoiceId, paymentId: p!.id, jobCompleted: inv.jobCompleted };
 }

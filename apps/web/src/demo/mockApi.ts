@@ -779,9 +779,9 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
   const books = businessRoute(
     {
       db: (db!.business ??= freshBusiness()),
-      call: (m, p) => {
+      call: (m, p, b) => {
         const u = new URL(p, 'http://demo');
-        return route(m, u.pathname, u.searchParams, undefined);
+        return route(m, u.pathname, u.searchParams, b);
       },
       jobs: db!.jobs,
       stages: db!.stages,

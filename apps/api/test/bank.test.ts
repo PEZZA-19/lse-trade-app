@@ -281,3 +281,83 @@ describe('bank line to expense', () => {
     expect(tax.status).toBe(422);
   });
 });
+
+describe('payment from a bank line', () => {
+  it('records the customer payment from money in and matches it, owner only', async () => {
+    const c = await client();
+    const cust = await seedCustomer(c);
+    await c.req('PATCH', '/api/settings', {
+      bankAccountName: 'Test Electrical',
+      bankSortCode: '400000',
+      bankAccountNumber: '12345678',
+    });
+    const lines = [
+      { kind: 'labour', description: 'Rewire', qtyMilli: 1000, unitPricePence: 45000 },
+    ];
+    const q = (await c.req('POST', '/api/quotes', { customerId: cust.id, title: 'Rewire', lines }))
+      .body;
+    await c.req('POST', `/api/quotes/${q.id}/send`);
+    await c.req('POST', `/api/quotes/${q.id}/accept`, { acceptedOptions: [] });
+    const job = (await c.req('POST', `/api/quotes/${q.id}/convert`)).body;
+    const inv = (
+      await c.req('POST', `/api/jobs/${job.id}/invoices`, { source: 'quote', mode: 'whole' })
+    ).body;
+    await c.req('POST', `/api/invoices/${inv.id}/approve`);
+    await c.req('POST', `/api/invoices/${inv.id}/mark-sent`);
+    const csv = [
+      'Date,Description,Amount',
+      `${day(0)},FP SMITH PART,200.00`,
+      `${day(0)},FP SMITH REST,250.00`,
+      `${day(0)},TOO MUCH,999.00`,
+      `${day(0)},SHOP,-5.00`,
+    ].join('\n');
+    await c.req('POST', '/api/bank/imports', { fileName: 'p.csv', csv });
+    const list = (await c.req('GET', '/api/bank/transactions')).body as BankTransactionDto[];
+    const by = (p: number) => list.find((x) => x.amountPence === p)!;
+
+    // Someone with Accounts access but not the owner can't record a payment.
+    const { s, id } = await staff(c);
+    await c.req('PUT', `/api/team/${id}/access`, { isAdmin: false, areas: ['financials'] });
+    expect((await s.req('GET', '/api/bank/transactions')).status).toBe(200);
+    const denied = await s.req('POST', `/api/bank/transactions/${by(20000).id}/payment`, {
+      invoiceId: inv.id,
+    });
+    expect(denied.status).toBe(403);
+
+    const part = await c.req('POST', `/api/bank/transactions/${by(20000).id}/payment`, {
+      invoiceId: inv.id,
+    });
+    expect(part.status, JSON.stringify(part.body)).toBe(201);
+    let detail = (await c.req('GET', `/api/invoices/${inv.id}`)).body;
+    expect(detail.status).toBe('part_paid');
+    expect(detail.payments[0]).toMatchObject({
+      amountPence: 20000,
+      method: 'bank_transfer',
+      reference: 'FP SMITH PART',
+    });
+    // More than is owed, money out, or a line already used: refused, nothing recorded.
+    const over = await c.req('POST', `/api/bank/transactions/${by(99900).id}/payment`, {
+      invoiceId: inv.id,
+    });
+    expect(over.status).toBe(422);
+    expect(
+      (await c.req('POST', `/api/bank/transactions/${by(-500).id}/payment`, { invoiceId: inv.id }))
+        .status,
+    ).toBe(422);
+    expect(
+      (await c.req('POST', `/api/bank/transactions/${by(20000).id}/payment`, { invoiceId: inv.id }))
+        .status,
+    ).toBe(409);
+    const rest = await c.req('POST', `/api/bank/transactions/${by(25000).id}/payment`, {
+      invoiceId: inv.id,
+    });
+    expect(rest.status).toBe(201);
+    detail = (await c.req('GET', `/api/invoices/${inv.id}`)).body;
+    expect(detail.status).toBe('paid');
+    expect(detail.payments).toHaveLength(2);
+    const matched = (await c.req('GET', '/api/bank/transactions?status=matched'))
+      .body as BankTransactionDto[];
+    expect(matched).toHaveLength(2);
+    expect(matched.every((x) => x.matchedTo?.kind === 'payment')).toBe(true);
+  });
+});

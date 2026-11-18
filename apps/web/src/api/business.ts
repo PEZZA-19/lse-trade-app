@@ -137,6 +137,22 @@ export function useBankLineAction() {
 }
 
 /** Money out on the bank recorded as an expense and matched in one go. */
+export function usePaymentFromBankLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, invoiceId }: { id: string; invoiceId: string }) =>
+      api<{ invoiceId: string; paymentId: string; jobCompleted: boolean }>(
+        'POST',
+        `/bank/transactions/${id}/payment`,
+        { invoiceId },
+      ),
+    onSuccess: () => {
+      // Payments touch invoices, jobs and the books: refresh everything.
+      void qc.invalidateQueries();
+    },
+  });
+}
+
 export function useExpenseFromBankLine() {
   const qc = useQueryClient();
   return useMutation({

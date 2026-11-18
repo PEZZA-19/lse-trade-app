@@ -48,6 +48,7 @@ import {
   bankImportCreate,
   bankLineStatus,
   bankLineExpense,
+  bankLinePayment,
   bankMatch,
   creditChoice,
   bankTxQuery,
@@ -984,6 +985,11 @@ export function createApp(deps: AppDeps) {
     const id = uuidParam(c);
     const input = parse(bankLineExpense, await jsonBody(c.req));
     return c.json(await c.var.tx((tx) => bank.expenseFromLine(tx, c.var.auth, id, input)), 201);
+  });
+  app.post('/api/bank/transactions/:id/payment', async (c) => {
+    const id = uuidParam(c);
+    const input = parse(bankLinePayment, await jsonBody(c.req));
+    return c.json(await c.var.tx((tx) => bank.paymentFromLine(tx, c.var.auth, id, input)), 201);
   });
   app.put('/api/bank/transactions/:id/status', async (c) => {
     const id = uuidParam(c);

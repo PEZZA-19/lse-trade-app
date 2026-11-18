@@ -7,6 +7,8 @@ import {
   accountByCode,
   bankImportCreate,
   bankLineExpense,
+  bankLinePayment,
+  type InvoiceDetailDto,
   bankLineStatus,
   bankMatch,
   formatPence,
@@ -211,6 +213,22 @@ export function bankRoute(
     const e = c.addExpense({ ...input, date: line.date, amountPence: -line.amountPence });
     Object.assign(line, { status: 'matched', matchKind: 'expense', matchId: e.id });
     return e;
+  }
+  if (method === 'POST' && sub === 'payment' && line) {
+    const { invoiceId } = c.parse(bankLinePayment, body);
+    if (line.status !== 'unmatched')
+      c.fail(409, 'already_matched', 'This bank line is already matched or ignored.');
+    if (line.amountPence <= 0)
+      c.fail(422, 'money_out', 'Only money coming in can be a customer’s payment.');
+    const inv = c.call('POST', `/invoices/${invoiceId}/payments`, {
+      amountPence: line.amountPence,
+      paidOn: line.date,
+      method: 'bank_transfer',
+      reference: line.description.slice(0, 200) || null,
+    }) as InvoiceDetailDto & { jobCompleted: boolean };
+    const paymentId = inv.payments[inv.payments.length - 1]!.id;
+    Object.assign(line, { status: 'matched', matchKind: 'payment', matchId: paymentId });
+    return { invoiceId, paymentId, jobCompleted: inv.jobCompleted };
   }
   if (method === 'PUT' && sub === 'status' && line) {
     const { status } = c.parse(bankLineStatus, body);

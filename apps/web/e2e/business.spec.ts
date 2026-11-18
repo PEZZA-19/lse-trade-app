@@ -162,3 +162,29 @@ test('bank statement: import a CSV, match a line to an expense, unmatch, ignore'
   });
   await expect(page.getByText('Nothing new: these lines were already imported')).toBeVisible();
 });
+
+test('bank statement: record a customer payment from money in', async ({ page }) => {
+  const stamp = Date.now();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+    new Date(),
+  );
+  const [y, m, d] = today.split('-');
+  await page.goto('/business/bank');
+  await expect(page.getByRole('heading', { name: 'Bank Statement', level: 1 })).toBeVisible();
+  await page.getByLabel('Bank statement CSV file').setInputFiles({
+    name: 'in.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(`Date,Description,Amount\n${d}/${m}/${y},FP PAYIN ${stamp},0.01\n`),
+  });
+  await page
+    .getByRole('button', { name: `Record FP PAYIN ${stamp} as a customer payment` })
+    .click();
+  const sheet = page.getByRole('dialog', { name: 'Record Payment' });
+  await expect(sheet).toContainText('recorded as a bank transfer on that day');
+  await sheet.getByRole('list', { name: 'Invoices to pay' }).getByRole('radio').first().check();
+  await sheet.getByRole('button', { name: 'Record', exact: true }).click();
+  await expect(page.getByText(/^Payment recorded on /)).toBeVisible();
+  await expect(page.getByText(`FP PAYIN ${stamp}`)).toHaveCount(0);
+  await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Matched' }).click();
+  await expect(page.getByRole('list', { name: 'Bank lines' })).toContainText(`FP PAYIN ${stamp}`);
+});

@@ -1,4 +1,10 @@
-import type { BankImportResultDto, BankTransactionDto, ExpenseDto } from '@lse/shared';
+import type {
+  BankImportResultDto,
+  BankTransactionDto,
+  ExpenseDto,
+  InvoiceDetailDto,
+  InvoiceSummaryDto,
+} from '@lse/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handle, resetDemo } from './mockApi';
 
@@ -64,5 +70,39 @@ describe('demo bank statements (mirror the server)', () => {
     });
     expect(e).toMatchObject({ amountPence: 8650, date: today, account: '493' });
     expect(await send('GET', '/bank/transactions?status=unmatched')).toEqual([]);
+  });
+
+  it('records a customer payment from money in and matches it', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
+      new Date(),
+    );
+    const [y, m, d] = today.split('-');
+    const inv = (await send<InvoiceSummaryDto[]>('GET', '/invoices?filter=outstanding')).find(
+      (i) => (i.status === 'sent' || i.status === 'part_paid') && i.balancePence > 100,
+    );
+    expect(inv, 'the demo has a sent invoice').toBeTruthy();
+    const csv = `Date,Description,Amount\n${d}/${m}/${y},FP CUSTOMER,1.00\n${d}/${m}/${y},SHOP,-1.00\n`;
+    await send('POST', '/bank/imports', { fileName: 'p.csv', csv });
+    const list = await send<BankTransactionDto[]>('GET', '/bank/transactions?status=unmatched');
+    const inn = list.find((l) => l.amountPence === 100)!;
+    const out = list.find((l) => l.amountPence === -100)!;
+    await expect(
+      send('POST', `/bank/transactions/${out.id}/payment`, { invoiceId: inv!.id }),
+    ).rejects.toMatchObject({ status: 422 });
+    const r = await send<{ paymentId: string }>('POST', `/bank/transactions/${inn.id}/payment`, {
+      invoiceId: inv!.id,
+    });
+    const detail = await send<InvoiceDetailDto>('GET', `/invoices/${inv!.id}`);
+    expect(detail.payments.at(-1)).toMatchObject({
+      id: r.paymentId,
+      amountPence: 100,
+      method: 'bank_transfer',
+      reference: 'FP CUSTOMER',
+    });
+    const matched = await send<BankTransactionDto[]>('GET', '/bank/transactions?status=matched');
+    expect(matched.map((l) => l.matchedTo?.kind)).toEqual(['payment']);
+    await expect(
+      send('POST', `/bank/transactions/${inn.id}/payment`, { invoiceId: inv!.id }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });

@@ -11,6 +11,7 @@ import {
   useBankLines,
   useBusiness,
   useImportStatement,
+  usePaymentFromBankLine,
 } from '../../api/business';
 import { useAccess } from '../../api/hooks';
 import { IconBusiness } from '../../components/icons';
@@ -26,6 +27,9 @@ import {
   Segmented,
 } from '../../components/ui';
 import { AddExpenseSheet } from './ExpensesScreen';
+import { useSession } from '../../api/hooks';
+import { useInvoices } from '../../api/billing';
+import { Sheet } from '../../components/Sheet';
 import { money, shortDate } from './format';
 
 type Tab = 'unmatched' | 'matched' | 'ignored';
@@ -49,6 +53,8 @@ export function BankScreen() {
   const file = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<BankImportResultDto | null>(null);
   const [expenseFor, setExpenseFor] = useState<BankTransactionDto | null>(null);
+  const [paymentFor, setPaymentFor] = useState<BankTransactionDto | null>(null);
+  const isOwner = useSession().data?.role === 'owner';
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Guernsey' }).format(
     new Date(),
   );
@@ -214,11 +220,13 @@ export function BankScreen() {
                 busy={act.isPending}
                 run={run}
                 onExpense={setExpenseFor}
+                onPayment={isOwner ? setPaymentFor : undefined}
               />
             ))}
           </List>
         </Section>
       )}
+      {paymentFor && <PaymentFromBankSheet line={paymentFor} onClose={() => setPaymentFor(null)} />}
       {expenseFor && (
         <AddExpenseSheet today={today} fromBank={expenseFor} onClose={() => setExpenseFor(null)} />
       )}
@@ -232,11 +240,14 @@ function BankLine({
   busy,
   run,
   onExpense,
+  onPayment,
 }: {
   l: BankTransactionDto;
   canEdit: boolean;
   busy: boolean;
   onExpense: (l: BankTransactionDto) => void;
+  /** Owner only: recording a payment is the owner's decision. */
+  onPayment?: (l: BankTransactionDto) => void;
   run: (a: Parameters<ReturnType<typeof useBankLineAction>['mutate']>[0], done: string) => void;
 }) {
   const inn = l.amountPence > 0;
@@ -279,7 +290,9 @@ function BankLine({
           {canEdit && l.status === 'unmatched' && l.suggestions.length === 0 && (
             <span className="row__sub" style={{ whiteSpace: 'normal' }}>
               {inn
-                ? 'No payment in the app matches. Record the payment on its invoice, then it’ll be suggested.'
+                ? onPayment
+                  ? 'No payment in the app matches. Tap Record Payment to pick the invoice it pays.'
+                  : 'No payment in the app matches. Ask the owner to record it on its invoice, then it’ll be suggested.'
                 : 'Nothing in the app matches. Add it as an expense, or record the supplier bill payment, then it’ll be suggested.'}
             </span>
           )}
@@ -297,6 +310,16 @@ function BankLine({
               onClick={() => onExpense(l)}
             >
               Add as Expense
+            </Button>
+          )}
+          {canEdit && l.status === 'unmatched' && inn && onPayment && (
+            <Button
+              variant="plain"
+              disabled={busy}
+              aria-label={`Record ${l.description} as a customer payment`}
+              onClick={() => onPayment(l)}
+            >
+              Record Payment
             </Button>
           )}
           {canEdit && l.status === 'unmatched' && (
@@ -327,5 +350,96 @@ function BankLine({
         </span>
       </div>
     </li>
+  );
+}
+
+/** Pick the sent invoice this money-in line pays; exact balances first, then any it fits. */
+function PaymentFromBankSheet({
+  line,
+  onClose,
+}: {
+  line: BankTransactionDto;
+  onClose: () => void;
+}) {
+  const invoices = useInvoices('outstanding');
+  const pay = usePaymentFromBankLine();
+  const toast = useToast();
+  const [picked, setPicked] = useState<string | null>(null);
+  const open = (invoices.data ?? [])
+    .filter((i) => (i.status === 'sent' || i.status === 'part_paid') && i.balancePence > 0)
+    .map((i) => ({ ...i, exact: i.balancePence === line.amountPence }))
+    .sort(
+      (a, b) => Number(b.exact) - Number(a.exact) || (a.number ?? '').localeCompare(b.number ?? ''),
+    );
+  const fits = open.filter((i) => i.balancePence >= line.amountPence);
+  const chosen = fits.find((i) => i.id === picked);
+  const save = () =>
+    chosen &&
+    pay.mutate(
+      { id: line.id, invoiceId: chosen.id },
+      {
+        onSuccess: (r) => {
+          toast.show(
+            r.jobCompleted
+              ? `Payment recorded on ${chosen.number}. Paid in full, so the job is complete.`
+              : `Payment recorded on ${chosen.number} and matched.`,
+          );
+          onClose();
+        },
+        onError: (e) => toast.show(e.message, { tone: 'error' }),
+      },
+    );
+  return (
+    <Sheet
+      open
+      title="Record Payment"
+      onClose={onClose}
+      action={
+        <Button onClick={save} disabled={!chosen || pay.isPending}>
+          Record
+        </Button>
+      }
+    >
+      <p className="section__footer" style={{ marginTop: 0 }}>
+        {money(line.amountPence)} in on {shortDate(line.date)} · {line.description}. It’s recorded
+        as a bank transfer on that day and matched to this line.
+      </p>
+      {!invoices.data ? (
+        <ListSkeleton rows={3} />
+      ) : fits.length === 0 ? (
+        <p className="section__footer">
+          No sent invoice has {money(line.amountPence)} or more still owed. Send the invoice first,
+          or if it’s a refund or transfer, Ignore the line.
+        </p>
+      ) : (
+        <Section header="Which invoice does it pay?">
+          <List label="Invoices to pay">
+            {fits.map((i) => (
+              <li key={i.id}>
+                <label className="row" style={{ cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="bank-pay-invoice"
+                    checked={picked === i.id}
+                    onChange={() => setPicked(i.id)}
+                    aria-label={`${i.number} ${i.customerName}`}
+                  />
+                  <span className="row__main">
+                    <span className="row__title">
+                      {i.number} · {i.customerName}
+                    </span>
+                    <span className="row__sub">
+                      {i.jobTitle}
+                      {i.exact ? ' · Same amount' : ' · Part payment'}
+                    </span>
+                  </span>
+                  <span className="row__meta num">{money(i.balancePence)} owed</span>
+                </label>
+              </li>
+            ))}
+          </List>
+        </Section>
+      )}
+    </Sheet>
   );
 }
