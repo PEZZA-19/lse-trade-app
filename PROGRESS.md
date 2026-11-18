@@ -806,3 +806,8 @@ so You Owe is £0 there until they are.
   discard → restored, app move/delete out, calendar delete → approve, per-person), e2e (setup state).
 - **Not yet**: the Google and Microsoft adapters and OAuth sign-in (need Q38), push notifications /
   a schedule so it runs without "Sync Now", token encryption key handling in the Worker.
+
+## Joe's decisions (18 Nov 2026, 06:20)
+- Jobs 14 and 108 (totals below £0): treat as a **credit** for the customer (customer credit balance / credit note style, applied to their next invoice), not a refund.
+- Kit labour: keep it **optional** per kit; a kit can be items only, labour only, or both. Don't force a labour line when a kit is added.
+- Calendar: two-way sync with **Google Calendar** only for now (no Outlook). Build the Google sign-in/connection next.
