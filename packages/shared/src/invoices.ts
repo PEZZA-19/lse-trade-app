@@ -317,7 +317,15 @@ export interface JobInvoicingDto {
  * already sent from another system). Never in the future, and at most a year back.
  */
 export const invoiceApprove = z
-  .object({ issueDate: z.iso.date().optional() })
+  .object({
+    issueDate: z.iso.date().optional(),
+    /**
+     * The customer has credit to use (Joe, 18 Nov 2026): never taken off silently. true = take it
+     * off this invoice; false = keep it on their account for a later invoice. Required when
+     * the invoice shows creditToUsePence > 0.
+     */
+    useCredit: z.boolean().optional(),
+  })
   .optional()
   .default({});
 export type InvoiceApprove = z.input<typeof invoiceApprove>;

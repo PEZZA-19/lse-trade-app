@@ -209,6 +209,7 @@ function quote(): QuoteDetailDto {
     id: 'q1',
     number: 'Q-0012',
     displayNumber: 'Q-0012 rev B',
+    customerCreditPence: 0,
     status: 'draft',
     customerId: 'c1',
     customerName: 'Alex Example',

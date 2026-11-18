@@ -40,6 +40,7 @@ import {
   quoteDisplayNumber,
   quoteRevisionUpdate,
   quoteTotals,
+  quoteBelowZeroProblem,
   revisionLetter,
   runDemoScript,
   siteInput,
@@ -306,7 +307,16 @@ function quoteDetail(q: Quote): QuoteDetailDto {
       supersededAt: x.supersededAt,
     })),
     current: { ...r, revisionLetter: revisionLetter(r.revision), lines, totals: revTotals(r) },
+    customerCreditPence: availableCredits(billingCtx(), q.customerId).reduce(
+      (a, c) => a + c.remainingPence,
+      0,
+    ),
   };
+}
+/** A quote must never total less than £0 (Joe, 18 Nov 2026): same rule and words as the API. */
+function checkNotBelowZero(r: Parameters<typeof revTotals>[0]) {
+  const problem = quoteBelowZeroProblem(revTotals({ ...r, acceptedOptions: [] }));
+  if (problem) fail(422, 'quote_below_zero', problem, { fields: { lines: problem } });
 }
 const DEMO_USER = { id: '00000000-0000-4000-8000-00000000d0e0', name: 'Joe' };
 /** Fictional staff member so assigning and the scheduler have more than one person. */
@@ -952,6 +962,7 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
           },
         ],
       };
+      checkNotBelowZero(quote.revisions[0]!);
       db!.quotes.push(quote);
       return quoteDetail(quote);
     }
@@ -976,7 +987,10 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       if (p.title !== undefined) r.title = p.title;
       if (p.notes !== undefined) r.notes = p.notes;
       if (p.validDays !== undefined) r.validDays = p.validDays;
-      if (p.lines !== undefined) r.lines = normalise(p.lines);
+      if (p.lines !== undefined) {
+        checkNotBelowZero({ ...r, lines: normalise(p.lines) });
+        r.lines = normalise(p.lines);
+      }
       touch(quote);
       return quoteDetail(quote);
     }
@@ -987,9 +1001,9 @@ function route(method: string, path: string, query: URLSearchParams, body: unkno
       if (sub === 'send') {
         transition(['draft'], `Only a draft can be sent; this quote is ${quote.status}.`);
         if (!r.lines.length) fail(422, 'validation_failed', 'Add at least one line before sending');
-        // Below £0 is allowed: the job becomes a customer credit.
         if (revTotals({ ...r, acceptedOptions: [] }).corePence === 0)
           fail(422, 'validation_failed', 'This quote totals £0. Add prices before sending.');
+        checkNotBelowZero(r);
         const ready = readiness(settingsDto()).quote;
         if (!ready.ready)
           fail(

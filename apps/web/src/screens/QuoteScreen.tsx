@@ -2,6 +2,7 @@ import {
   formatPence,
   formatQty,
   quoteTotals,
+  quoteBelowZeroProblem,
   type QuoteDetailDto,
   type QuoteLineInput,
 } from '@lse/shared';
@@ -130,10 +131,19 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   const serverLines = q.current.lines;
   const optionLabels = Object.keys(totals.options);
 
-  const commitLines = (next: QuoteLineInput[]) => {
+  /** Saves the lines, unless they'd take the quote below £0 (Joe, 18 Nov 2026): then says why. */
+  const commitLines = (next: QuoteLineInput[]): boolean => {
+    const problem = belowZero(next, defaultMarkupBp);
+    if (problem) {
+      toast.show(problem, { tone: 'error' });
+      return false;
+    }
     setLines(next);
     saver.save({ lines: next });
+    return true;
   };
+  // A quote made before the rule could already be below £0: say so, and it can't be sent.
+  const below = belowZero(lines, defaultMarkupBp);
 
   const run = (a: 'send' | 'revise' | 'decline', done: string) =>
     action.mutate(
@@ -170,7 +180,9 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
           block
           onClick={() => run('send', 'Marked as sent')}
           loading={action.isPending}
-          disabled={busy || lines.length === 0 || totals.corePence <= 0 || notReady || unsynced}
+          disabled={
+            busy || lines.length === 0 || totals.corePence <= 0 || !!below || notReady || unsynced
+          }
         >
           Mark as sent
         </Button>
@@ -224,8 +236,9 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
   }[q.status];
 
   const hint = {
-    draft:
-      lines.length === 0
+    draft: below
+      ? 'A quote can’t come to less than £0, so it can’t be sent yet.'
+      : lines.length === 0
         ? 'Add your lines, then mark it as sent once it’s gone to the customer.'
         : 'This records that you’ve sent it. Emailing from the app comes later, always after your approval.',
     sent: 'Record which extras they chose. You can turn it into a job straight after.',
@@ -428,9 +441,11 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
             ? `Add your ${readinessMissing.map((m) => m.label.toLowerCase()).join(', ')} in Settings before sharing, so the customer knows who it’s from.`
             : unsynced
               ? 'Your latest changes haven’t reached the server yet. Share once they have synced.'
-              : lines.length === 0 || totals.corePence <= 0
-                ? 'Add some work to the quote before sharing it.'
-                : null
+              : below
+                ? below
+                : lines.length === 0 || totals.corePence <= 0
+                  ? 'Add some work to the quote before sharing it.'
+                  : null
         }
         afterShare={q.status === 'draft' ? 'Sent it? Tap Mark as sent to record it.' : undefined}
       />
@@ -502,7 +517,18 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
         </Section>
       ))}
 
-      <Section header="Totals">
+      <Section
+        header="Totals"
+        footer={
+          below ? (
+            <span role="alert" style={{ color: 'var(--red)' }}>
+              {below}
+            </span>
+          ) : q.customerCreditPence > 0 ? (
+            `${q.customerName} has ${formatPence(q.customerCreditPence)} credit on account. It isn’t taken off quotes; when you approve their next invoice, you’ll be asked whether to use it.`
+          ) : undefined
+        }
+      >
         <List>
           <li>
             <KeyValueRow label="Main work" value={formatPence(totals.corePence)} />
@@ -556,7 +582,7 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
                 const removed = lines[editing]!;
                 const at = editing;
                 const next = lines.filter((_, i) => i !== at);
-                commitLines(next);
+                if (!commitLines(next)) return;
                 toast.show('Line deleted', {
                   action: {
                     label: 'Undo',
@@ -572,8 +598,7 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
           labourRatePence={labourRate}
           onClose={() => setAddingKit(false)}
           onAdd={(added) => {
-            commitLines([...lines, ...added]);
-            toast.show(`${added[0]!.description} added`);
+            if (commitLines([...lines, ...added])) toast.show(`${added[0]!.description} added`);
           }}
         />
       )}
@@ -596,7 +621,7 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
               onRemove={() => {
                 const removed = lines.slice(at, at + span);
                 const next = [...lines.slice(0, at), ...lines.slice(at + span)];
-                commitLines(next);
+                if (!commitLines(next)) return;
                 toast.show('Kit removed', {
                   action: {
                     label: 'Undo',
@@ -617,6 +642,23 @@ function QuoteEditor({ quote: q }: { quote: QuoteDetailDto }) {
         onAccepted={() => toast.show('Accepted. You can now create the job.')}
       />
     </Page>
+  );
+}
+
+/** The shared below-£0 rule on lines being edited ('' when fine). */
+function belowZero(lines: QuoteLineInput[], markupBp: number): string {
+  return quoteBelowZeroProblem(
+    quoteTotals(
+      lines.map((l) => ({
+        kind: l.kind,
+        qtyMilli: l.qtyMilli ?? 1000,
+        unitCostPence: l.unitCostPence ?? null,
+        markupBp: l.markupBp ?? null,
+        unitPricePence: l.unitPricePence ?? null,
+        optionLabel: l.optionLabel ?? null,
+      })),
+      { markupBp },
+    ),
   );
 }
 

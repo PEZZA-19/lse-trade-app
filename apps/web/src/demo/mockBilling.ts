@@ -887,7 +887,7 @@ export function billingRoute(
         c.fail(422, 'not_ready', `Before approving, add: ${d.approvalBlockers.join(', ')}.`, {
           missing: d.approvalBlockers,
         });
-      const { issueDate } = c.parse(invoiceApprove, body);
+      const { issueDate, useCredit } = c.parse(invoiceApprove, body);
       if (issueDate) {
         const problem = approveDateProblem(issueDate, today());
         if (problem) c.fail(422, 'validation_failed', problem, { fields: { issueDate: problem } });
@@ -906,6 +906,18 @@ export function billingRoute(
         if (settled(c, inv.jobId)) c.completeJob(inv.jobId);
         return detail(c, inv);
       }
+      // Customer credit is never used silently (Joe, 18 Nov 2026): the approve sheet asks.
+      const creditAvailable = availableCredits(c, c.job(inv.jobId).customerId, t).reduce(
+        (a, x) => a + x.remainingPence,
+        0,
+      );
+      if (creditAvailable > 0 && useCredit === undefined)
+        c.fail(
+          422,
+          'credit_choice_needed',
+          `${d.customerName} has ${formatPence(creditAvailable)} credit. Choose whether to take it off this invoice or keep it for later.`,
+          { creditAvailablePence: creditAvailable },
+        );
       const n = (c.b.invoiceCount[inv.jobId] ?? 0) + 1;
       c.b.invoiceCount[inv.jobId] = n;
       Object.assign(inv, {
@@ -916,7 +928,7 @@ export function billingRoute(
         approvedAt: c.now(),
       });
       inv.version += 1;
-      applyCredits(c, inv, t);
+      if (useCredit) applyCredits(c, inv, t);
       return detail(c, inv);
     }
     if (method === 'POST' && sub === 'mark-sent') {

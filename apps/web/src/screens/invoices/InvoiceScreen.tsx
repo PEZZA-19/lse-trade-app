@@ -102,6 +102,8 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
   const owing = !isCredit && inv.status !== 'paid' && inv.balancePence !== inv.totalPence && !draft;
   const lines = toInput(inv);
   const creditToUse = inv.creditToUsePence;
+  // Asked every time there's credit to use; on by default, and the sheet says what it does.
+  const [useCredit, setUseCredit] = useState(true);
 
   const saveLines = (next: InvoiceLineInput[]) =>
     update.mutate(
@@ -113,18 +115,26 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
     setConfirm(null);
   };
   const run = (action: 'approve' | 'mark-sent') =>
-    decide.mutate(action, {
-      onSuccess: (r) => {
-        toast.show(
-          action === 'approve'
-            ? r.status === 'credit'
-              ? `Issued · Credit note ${r.number}`
-              : `Approved · Invoice ${r.number}`
-            : `Invoice ${r.number} marked as sent`,
-        );
-        setConfirm(null);
+    decide.mutate(
+      {
+        action,
+        ...(action === 'approve' && creditToUse > 0 ? { useCredit } : {}),
       },
-    });
+      {
+        onSuccess: (r) => {
+          toast.show(
+            action === 'approve'
+              ? r.status === 'credit'
+                ? `Issued · Credit note ${r.number}`
+                : r.creditedPence > 0
+                  ? `Approved · Invoice ${r.number} · ${formatPence(r.creditedPence)} credit used`
+                  : `Approved · Invoice ${r.number}`
+              : `Invoice ${r.number} marked as sent`,
+          );
+          setConfirm(null);
+        },
+      },
+    );
 
   const visibleLines = inv.lines
     .map((l, i) => [l, i] as const)
@@ -546,7 +556,7 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
           <li>
             It becomes credit note <strong>{inv.nextNumber ?? 'CN'}</strong> and is locked.
           </li>
-          <li>It comes off their next invoice when you approve it. No money is paid out.</li>
+          <li>When you approve their next invoice, you’ll be asked whether to use it. No money is paid out.</li>
           <li>Nothing is sent to the customer.</li>
         </ul>
       </ConfirmSheet>
@@ -568,13 +578,39 @@ function InvoiceView({ inv }: { inv: InvoiceDetailDto }) {
             It becomes invoice <strong>{inv.nextNumber ?? inv.jobNumber}</strong> and is locked.
           </li>
           <li>Due {inv.termsDays} days from today.</li>
-          {creditToUse > 0 && (
+          {creditToUse > 0 && useCredit && (
             <li>
-              Their customer credit of <strong>{formatPence(creditToUse)}</strong> comes off it.
+              <strong>{formatPence(creditToUse)}</strong> of their customer credit comes off it, so
+              they owe <strong>{formatPence(inv.totalPence - creditToUse)}</strong>.
             </li>
+          )}
+          {creditToUse > 0 && !useCredit && (
+            <li>Their customer credit stays on their account for a later invoice.</li>
           )}
           <li>Nothing is sent to the customer.</li>
         </ul>
+        {creditToUse > 0 && (
+          <List className="form-list" label="Customer credit">
+            <li>
+              <label className="row" style={{ cursor: 'pointer' }}>
+                <span className="row__main">
+                  <span className="row__title">Use their credit</span>
+                  <span className="row__sub" style={{ whiteSpace: 'normal' }}>
+                    {formatPence(creditToUse)} available on account
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Use their credit on this invoice"
+                  checked={useCredit}
+                  onChange={(e) => setUseCredit(e.target.checked)}
+                  className="switch"
+                />
+              </label>
+            </li>
+          </List>
+        )}
       </ConfirmSheet>
       <ConfirmSheet
         open={confirm === 'send'}

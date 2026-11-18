@@ -691,7 +691,9 @@ export function createApp(deps: AppDeps) {
     const id = uuidParam(c);
     const input = parse(invoiceApprove, await optionalJsonBody(c.req));
     return c.json(
-      await c.var.tx((tx) => invoices.approve(tx, c.var.auth, id, ifMatch(c), input.issueDate)),
+      await c.var.tx((tx) =>
+        invoices.approve(tx, c.var.auth, id, ifMatch(c), input.issueDate, input.useCredit),
+      ),
     );
   });
   app.post('/api/invoices/:id/mark-sent', async (c) => {

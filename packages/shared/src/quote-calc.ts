@@ -1,4 +1,4 @@
-import { lineTotal, sellFromCost, type Pence } from './money';
+import { formatPence, lineTotal, sellFromCost, type Pence } from './money';
 
 export type LineKind = 'labour' | 'material' | 'carriage' | 'pc_sum';
 
@@ -76,4 +76,19 @@ export function quoteTotals(
     .filter(([label]) => accepted.has(label))
     .reduce((sum, [, v]) => sum + v, 0);
   return { corePence, options, totalPence: corePence + acceptedTotal, costPence };
+}
+
+/**
+ * A quote must never total less than £0 (Joe, 18 Nov 2026). Minus lines are fine while the total
+ * stays at or above £0, whichever optional extras the customer picks. '' when allowed, else the
+ * reason in plain English (shared by the server, the screen and the demo).
+ */
+export function quoteBelowZeroProblem(t: Pick<QuoteTotals, 'corePence' | 'options'>): string {
+  if (t.corePence < 0)
+    return `A quote can’t come to less than £0. This one comes to ${formatPence(t.corePence)}: take some of the minus lines off, or add the work they’re set against.`;
+  const minus = Object.entries(t.options).filter(([, v]) => v < 0);
+  const lowest = t.corePence + minus.reduce((a, [, v]) => a + v, 0);
+  if (lowest < 0)
+    return `A quote can’t come to less than £0. With the option${minus.length > 1 ? 's' : ''} ${minus.map(([k]) => `“${k}”`).join(' and ')} it would come to ${formatPence(lowest)}.`;
+  return '';
 }

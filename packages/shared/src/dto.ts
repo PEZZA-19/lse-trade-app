@@ -122,6 +122,11 @@ export interface QuoteDetailDto extends QuoteSummaryDto {
     'id' | 'revision' | 'revisionLetter' | 'sentAt' | 'supersededAt'
   >[];
   current: QuoteRevisionDto;
+  /**
+   * The customer's unused credit (Joe, 18 Nov 2026). Never taken off a quote; when this customer's
+   * next invoice is approved, the app asks whether to use it.
+   */
+  customerCreditPence: number;
 }
 
 export interface JobSummaryDto {

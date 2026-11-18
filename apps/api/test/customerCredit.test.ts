@@ -38,6 +38,22 @@ const draftFor = async (c: Client, jobId: string) => {
   return r.body;
 };
 
+/**
+ * A job whose invoice comes to less than £0. Quotes can't go below £0 any more (Joe, 18 Nov 2026),
+ * so the minus line goes on the draft invoice (as with Joe's imported jobs 14 and 108).
+ */
+async function creditDraft(c: Client, customerId: string, title = 'Flat works') {
+  // A time-and-materials job (no quote): an hour on the timer, then invoiced.
+  const j = (await c.req('POST', '/api/jobs', { customerId, title })).body;
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  await c.req('POST', `/api/jobs/${j.id}/timer/start`, { at: ago(120) });
+  await c.req('POST', `/api/jobs/${j.id}/timer/stop`, { at: ago(60) });
+  const d = (await c.req('POST', `/api/jobs/${j.id}/invoices`, { source: 'job' })).body;
+  const r = await c.req('PATCH', `/api/invoices/${d.id}`, { lines: RENT_JOB });
+  expect(r.status, JSON.stringify(r.body)).toBe(200);
+  return { job: j, draft: r.body };
+}
+
 /** Labour £100 less £250 rent payments: comes to −£150. */
 const RENT_JOB = [
   { kind: 'labour', description: 'Fit new consumer unit', qtyMilli: 1000, unitPricePence: 10000 },
@@ -52,8 +68,7 @@ describe('customer credit (jobs that come to less than £0)', () => {
     const c = await client();
     await ready(c);
     const cust = await seedCustomer(c);
-    const j = await job(c, cust.id, 'Flat works', RENT_JOB);
-    const draft = await draftFor(c, j.id);
+    const { job: j, draft } = await creditDraft(c, cust.id);
     expect(draft.totalPence).toBe(-15000);
     expect(draft.approvalBlockers).toEqual([]);
     expect(draft.nextNumber).toBe('CN-0001');
@@ -118,7 +133,7 @@ describe('customer credit (jobs that come to less than £0)', () => {
     const cust = await seedCustomer(c);
     const other = await seedCustomer(c, { name: 'Someone Else', email: 'else@example.com' });
 
-    const credit = await draftFor(c, (await job(c, cust.id, 'Flat works', RENT_JOB)).id);
+    const credit = (await creditDraft(c, cust.id)).draft;
     await c.req('POST', `/api/invoices/${credit.id}/approve`);
 
     // Another customer's invoice doesn't touch it.
@@ -131,7 +146,13 @@ describe('customer credit (jobs that come to less than £0)', () => {
     // Next invoice for this customer: £100. The whole £100 comes off from the £150 credit.
     const inv1 = await draftFor(c, (await job(c, cust.id, 'Lights', WORK_JOB(10000))).id);
     expect(inv1.creditToUsePence).toBe(10000);
-    const a1 = (await c.req('POST', `/api/invoices/${inv1.id}/approve`)).body;
+    // Never used silently: approving without saying is refused with a plain question.
+    const ask = await c.req('POST', `/api/invoices/${inv1.id}/approve`);
+    expect(ask.status).toBe(422);
+    expect(ask.body.error.code).toBe('credit_choice_needed');
+    expect(ask.body.error.message).toMatch(/has £150\.00 credit\. Choose whether/);
+    expect((await c.req('GET', `/api/invoices/${inv1.id}`)).body.status).toBe('draft');
+    const a1 = (await c.req('POST', `/api/invoices/${inv1.id}/approve`, { useCredit: true })).body;
     expect(a1.status).toBe('approved');
     expect(a1.creditedPence).toBe(10000);
     expect(a1.balancePence).toBe(0);
@@ -157,7 +178,7 @@ describe('customer credit (jobs that come to less than £0)', () => {
     // The next one: £80, only £50 credit left.
     const inv2 = await draftFor(c, (await job(c, cust.id, 'Sockets', WORK_JOB(8000))).id);
     expect(inv2.creditToUsePence).toBe(5000);
-    const a2 = (await c.req('POST', `/api/invoices/${inv2.id}/approve`)).body;
+    const a2 = (await c.req('POST', `/api/invoices/${inv2.id}/approve`, { useCredit: true })).body;
     expect(a2.creditedPence).toBe(5000);
     expect(a2.balancePence).toBe(3000);
     const s2 = (await c.req('POST', `/api/invoices/${inv2.id}/mark-sent`)).body;
@@ -191,7 +212,7 @@ describe('customer credit (jobs that come to less than £0)', () => {
     const c = await client();
     await ready(c);
     const cust = await seedCustomer(c);
-    const credit = await draftFor(c, (await job(c, cust.id, 'Flat works', RENT_JOB)).id);
+    const credit = (await creditDraft(c, cust.id)).draft;
     await c.req('POST', `/api/invoices/${credit.id}/approve`);
     const d = (await c.req('GET', '/api/business')).body as BusinessDto;
     const o = overview(d);
@@ -223,7 +244,7 @@ describe('customer credit (jobs that come to less than £0)', () => {
     expect(zero.approvalBlockers).toContain('An amount to invoice');
     expect((await c.req('POST', `/api/invoices/${zero.id}/approve`)).status).toBe(422);
 
-    const credit = await draftFor(c, (await job(c, cust.id, 'Flat works', RENT_JOB)).id);
+    const credit = (await creditDraft(c, cust.id)).draft;
     await c.req('POST', `/api/invoices/${credit.id}/approve`);
     const b = await client();
     expect((await b.req('GET', `/api/invoices/${credit.id}`)).status).toBe(404);
@@ -235,7 +256,7 @@ describe('customer credit dates', () => {
     const c = await client();
     await ready(c);
     const cust = await seedCustomer(c);
-    const credit = await draftFor(c, (await job(c, cust.id, 'Flat works', RENT_JOB)).id);
+    const credit = (await creditDraft(c, cust.id)).draft;
     const cr = (await c.req('POST', `/api/invoices/${credit.id}/approve`)).body;
     const earlier = await draftFor(c, (await job(c, cust.id, 'Old job', WORK_JOB(4000))).id);
     const d = new Date(`${cr.issueDate}T12:00:00Z`);
@@ -246,5 +267,71 @@ describe('customer credit dates', () => {
     expect(a.status, JSON.stringify(a.body)).toBe(200);
     expect(a.body.creditsApplied).toEqual([]);
     expect(a.body.balancePence).toBe(4000);
+  });
+});
+
+describe('customer credit: Joe’s rules (18 Nov 2026)', () => {
+  it('“keep it for later”: the invoice is approved in full and the credit stays on the account', async () => {
+    const c = await client();
+    await ready(c);
+    const cust = await seedCustomer(c);
+    const { draft: credit } = await creditDraft(c, cust.id);
+    await c.req('POST', `/api/invoices/${credit.id}/approve`);
+    const inv = await draftFor(c, (await job(c, cust.id, 'Lights', WORK_JOB(10000))).id);
+    const a = await c.req('POST', `/api/invoices/${inv.id}/approve`, { useCredit: false });
+    expect(a.status, JSON.stringify(a.body)).toBe(200);
+    expect(a.body).toMatchObject({ status: 'approved', creditedPence: 0, balancePence: 10000 });
+    expect(a.body.creditsApplied).toEqual([]);
+    expect((await c.req('GET', `/api/customers/${cust.id}`)).body.credits).toMatchObject([
+      { id: credit.id, remainingPence: 15000 },
+    ]);
+  });
+
+  it('a credit never comes off an invoice that is already approved or sent', async () => {
+    const c = await client();
+    await ready(c);
+    const cust = await seedCustomer(c);
+    // Approved and sent before the credit exists.
+    const sent = await draftFor(c, (await job(c, cust.id, 'Earlier work', WORK_JOB(6000))).id);
+    await c.req('POST', `/api/invoices/${sent.id}/approve`);
+    await c.req('POST', `/api/invoices/${sent.id}/mark-sent`);
+    const approved = await draftFor(c, (await job(c, cust.id, 'Approved', WORK_JOB(4000))).id);
+    await c.req('POST', `/api/invoices/${approved.id}/approve`);
+    const { draft: credit } = await creditDraft(c, cust.id);
+    expect((await c.req('POST', `/api/invoices/${credit.id}/approve`)).status).toBe(200);
+    const s1 = (await c.req('GET', `/api/invoices/${sent.id}`)).body;
+    const s2 = (await c.req('GET', `/api/invoices/${approved.id}`)).body;
+    expect([s1.balancePence, s2.balancePence]).toEqual([6000, 4000]);
+    expect([s1.creditToUsePence, s2.creditToUsePence]).toEqual([0, 0]);
+    // A payment on the sent one still works as normal; the credit waits for the next invoice.
+    expect((await c.req('GET', `/api/customers/${cust.id}`)).body.credits[0].remainingPence).toBe(
+      15000,
+    );
+  });
+
+  it('a quote for a customer with credit is never reduced by it, but says it’s there', async () => {
+    const c = await client();
+    await ready(c);
+    const cust = await seedCustomer(c);
+    const { draft: credit } = await creditDraft(c, cust.id);
+    await c.req('POST', `/api/invoices/${credit.id}/approve`);
+    const q = (
+      await c.req('POST', '/api/quotes', {
+        customerId: cust.id,
+        title: 'Garage lights',
+        lines: WORK_JOB(20000),
+      })
+    ).body;
+    expect(q.totalPence ?? q.revision?.totalPence).toBe(20000);
+    expect(q.customerCreditPence).toBe(15000);
+    const sent = await c.req('POST', `/api/quotes/${q.id}/send`);
+    expect(sent.status).toBe(200);
+    expect((await c.req('GET', `/api/customers/${cust.id}`)).body.credits[0].remainingPence).toBe(
+      15000,
+    );
+    // Someone without money access doesn't see it.
+    const field = await clientFor(await addMember(c.tenantId, 'subcontractor'), c);
+    const fv = await field.req('GET', `/api/quotes/${q.id}`);
+    if (fv.status === 200) expect(fv.body.customerCreditPence).toBe(0);
   });
 });

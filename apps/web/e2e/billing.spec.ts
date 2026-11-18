@@ -7,6 +7,8 @@ async function apiFor(page: Page) {
     get: async (p: string) => (await page.request.get(`/api${p}`)).json(),
     post: async (p: string, data?: unknown) =>
       (await page.request.post(`/api${p}`, { data: data ?? {}, headers })).json(),
+    patch: async (p: string, data: unknown) =>
+      (await page.request.patch(`/api${p}`, { data, headers })).json(),
   };
 }
 
@@ -328,6 +330,20 @@ test('a minus (credit) line on a quote takes money off the total', async ({ page
   const edit = page.getByRole('dialog', { name: 'Edit Line' });
   await expect(edit.getByRole('switch', { name: 'Minus line (credit)' })).toBeChecked();
   await expect(edit.getByLabel('Amount off (£)')).toHaveValue('120.00');
+  await edit.getByRole('button', { name: 'Cancel' }).click();
+
+  // A quote can never come to less than £0 (Joe, 18 Nov 2026): the line isn't added, and it says why.
+  await page.getByRole('button', { name: 'Add line' }).click();
+  const more = page.getByRole('dialog', { name: 'Add Line' });
+  await more.getByLabel('Description').fill('More rent');
+  await more.getByRole('switch', { name: 'Minus line (credit)' }).check();
+  await more.getByLabel('Amount off (£)').fill('400');
+  await more.getByRole('button', { name: 'Add' }).click();
+  await expect(
+    page.getByText(/A quote can’t come to less than £0\. This one comes to -£70\.00/),
+  ).toBeVisible();
+  await expect(page.getByLabel('Total £330.00')).toBeVisible();
+  await expect.poll(async () => (await api.get(`/quotes/${q.id}`)).current.lines.length).toBe(2);
 });
 
 test('a job below £0 is issued as a customer credit and comes off the next invoice', async ({
@@ -346,10 +362,16 @@ test('a job below £0 is issued as a customer credit and comes off the next invo
     const job = await api.post(`/quotes/${q.id}/convert`);
     return api.post(`/jobs/${job.id}/invoices`, { source: 'quote', mode: 'whole' });
   };
-  const credit = await jobFor([
+  // Quotes can't go below £0, so the minus line goes on the draft invoice (like jobs 14 and 108).
+  const work = await jobFor([
     { kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 10000 },
-    { kind: 'material', description: 'Rent payments', qtyMilli: 1000, unitPricePence: -25000 },
   ]);
+  const credit = await api.patch(`/invoices/${work.id}`, {
+    lines: [
+      { kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 10000 },
+      { kind: 'material', description: 'Rent payments', qtyMilli: 1000, unitPricePence: -25000 },
+    ],
+  });
   await page.goto(`/invoices/${credit.id}`);
   await expect(page.getByRole('heading', { name: 'Draft Credit Note' })).toBeVisible();
   await page.getByRole('button', { name: 'Issue Customer Credit…' }).click();
@@ -376,7 +398,15 @@ test('a job below £0 is issued as a customer credit and comes off the next invo
   await page.goto(`/invoices/${next.id}`);
   await page.getByRole('button', { name: 'Approve Invoice…' }).click();
   const sheet = page.getByRole('dialog', { name: 'Approve Invoice' });
-  await expect(sheet).toContainText('customer credit of £150.00 comes off it');
+  // Never silent: the sheet asks, with the credit on by default and saying what it does.
+  const use = sheet.getByRole('switch', { name: 'Use their credit on this invoice' });
+  await expect(use).toBeChecked();
+  await expect(sheet).toContainText(
+    '£150.00 of their customer credit comes off it, so they owe £50.00',
+  );
+  await use.uncheck();
+  await expect(sheet).toContainText('stays on their account for a later invoice');
+  await use.check();
   await sheet.getByRole('button', { name: 'Approve', exact: true }).last().click();
   await expect(page.getByText(/Customer credit CN-\d+ used/)).toBeVisible();
   await expect.poll(async () => (await api.get(`/invoices/${next.id}`)).balancePence).toBe(5000);

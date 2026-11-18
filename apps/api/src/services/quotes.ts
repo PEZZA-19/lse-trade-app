@@ -1,6 +1,7 @@
 import {
   quoteDisplayNumber,
   quoteTotals,
+  quoteBelowZeroProblem,
   revisionLetter,
   unitSell,
   signedLineTotal,
@@ -18,12 +19,13 @@ import {
 } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
-import { assertVersion, conflict, invalid, notFound } from '../lib/errors';
+import { AppError, assertVersion, conflict, invalid, notFound } from '../lib/errors';
 import { iso, isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { assertReadyToSendQuote } from './settings';
 import { recordCreated, stageByKey } from './stages';
 import { assertSiteOfCustomer, toSite } from './customers';
+import { availableCredits } from './invoices';
 
 type LineIn = z.output<typeof quoteLineInput>;
 
@@ -215,6 +217,10 @@ export async function getQuote(tx: Tx, id: string): Promise<QuoteDetailDto> {
       supersededAt: iso(r.supersededAt),
     })),
     current: toRevisionDto(rev, lines),
+    customerCreditPence: (await availableCredits(tx, row.customerId)).reduce(
+      (a, c) => a + c.remainingPence,
+      0,
+    ),
   };
 }
 
@@ -268,6 +274,15 @@ async function refreshTotals(tx: Tx, quoteId: string, revision: number): Promise
   await tx`UPDATE quote_revisions SET core_total_pence = ${t.corePence}, total_pence = ${t.totalPence} WHERE id = ${rev.id}`;
 }
 
+/** A quote must never total less than £0 (Joe, 18 Nov 2026); minus lines are fine above that. */
+async function assertNotBelowZero(tx: Tx, quoteId: string, revision: number): Promise<void> {
+  const { rev, lines } = await loadRevision(tx, quoteId, revision);
+  const problem = quoteBelowZeroProblem(
+    quoteTotals(lines.map(priced), { markupBp: rev.defaultMarkupBp }, []),
+  );
+  if (problem) throw new AppError(422, 'quote_below_zero', problem, { fields: { lines: problem } });
+}
+
 export async function createQuote(
   tx: Tx,
   auth: Auth,
@@ -296,6 +311,7 @@ export async function createQuote(
     RETURNING id`;
   await writeLines(tx, auth, rev!.id, normaliseLines(input.lines, defaults));
   await refreshTotals(tx, quote!.id, 1);
+  await assertNotBelowZero(tx, quote!.id, 1);
   await audit(tx, auth, 'create', 'quote', quote!.id, { number: num!.formatted });
   return getQuote(tx, quote!.id);
 }
@@ -331,6 +347,7 @@ export async function updateQuote(
   if (input.lines !== undefined) {
     await writeLines(tx, auth, rev.id, normaliseLines(input.lines, await tenantDefaults(tx)));
     await refreshTotals(tx, id, q.currentRevision);
+    await assertNotBelowZero(tx, id, q.currentRevision);
   }
   await tx`UPDATE quotes SET updated_at = now() WHERE id = ${id}`;
   await audit(tx, auth, 'update', 'quote', id, { revision: q.currentRevision });
@@ -346,8 +363,10 @@ export async function markSent(tx: Tx, auth: Auth, id: string): Promise<QuoteDet
   if (!lines.length) throw invalid('Add at least one line before sending');
   // Never record a £0 quote as sent (a known trap in other apps: see docs/REQUIREMENTS_FROM_REVIEWS.md, M8/A4).
   const totals = quoteTotals(lines.map(priced), { markupBp: rev.defaultMarkupBp }, []);
-  // Below £0 is allowed (e.g. rent payments outweigh the work): the job becomes a customer credit.
   if (totals.corePence === 0) throw invalid('This quote totals £0. Add prices before sending.');
+  // Never below £0 (Joe, 18 Nov 2026), e.g. a quote made before the rule.
+  const below = quoteBelowZeroProblem(totals);
+  if (below) throw new AppError(422, 'quote_below_zero', below);
   // Pre-send completeness check: the customer must be able to see who it's from and how to reply.
   await assertReadyToSendQuote(tx);
   await tx`UPDATE quote_revisions SET sent_at = now() WHERE id = ${rev.id}`;

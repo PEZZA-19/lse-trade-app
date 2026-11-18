@@ -35,10 +35,16 @@ describe('demo customer credit (mirrors the server)', () => {
       email: 'credit@example.com',
     });
     const before = overview(await get<BusinessDto>('/business'));
-    const d = await draft(cust.id, [
+    // Quotes can't go below £0 (Joe, 18 Nov 2026): the minus line goes on the draft invoice.
+    const rent = [
       { kind: 'labour', description: 'Work', qtyMilli: 1000, unitPricePence: 10000 },
       { kind: 'material', description: 'Rent payments', qtyMilli: 1000, unitPricePence: -25000 },
-    ]);
+    ];
+    await expect(
+      send('POST', '/quotes', { customerId: cust.id, title: 'Below zero', lines: rent }),
+    ).rejects.toThrow(/can’t come to less than £0/);
+    const w = await draft(cust.id, [rent[0]]);
+    const d = await send<InvoiceDetailDto>('PATCH', `/invoices/${w.id}`, { lines: rent });
     expect(d.totalPence).toBe(-15000);
     expect(d.approvalBlockers).toEqual([]);
     expect(d.nextNumber).toMatch(/^CN-/);
@@ -55,7 +61,13 @@ describe('demo customer credit (mirrors the server)', () => {
       { kind: 'labour', description: 'Lights', qtyMilli: 1000, unitPricePence: 20000 },
     ]);
     expect(next.creditToUsePence).toBe(15000);
-    const a = await send<InvoiceDetailDto>('POST', `/invoices/${next.id}/approve`);
+    // Never used silently: approving has to say whether to use it.
+    await expect(send('POST', `/invoices/${next.id}/approve`)).rejects.toThrow(
+      /has £150\.00 credit/,
+    );
+    const a = await send<InvoiceDetailDto>('POST', `/invoices/${next.id}/approve`, {
+      useCredit: true,
+    });
     expect(a.creditsApplied).toMatchObject([{ creditId: d.id, amountPence: 15000 }]);
     expect(a.balancePence).toBe(5000);
     expect((await get<InvoiceDetailDto>(`/invoices/${d.id}`)).balancePence).toBe(0);

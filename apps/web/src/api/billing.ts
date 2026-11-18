@@ -207,10 +207,14 @@ export function useDeleteInvoice(inv: { id: string; jobId: string }) {
 export function useInvoiceDecision(inv: { id: string; jobId: string; version: number }) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (action: 'approve' | 'mark-sent') =>
-      api<InvoiceDetailDto>('POST', `/invoices/${inv.id}/${action}`, undefined, {
-        ...(action === 'approve' ? { ifMatch: inv.version } : {}),
-      }),
+    mutationFn: (d: { action: 'approve' | 'mark-sent'; useCredit?: boolean }) =>
+      api<InvoiceDetailDto>(
+        'POST',
+        `/invoices/${inv.id}/${d.action}`,
+        // Customer credit is never used silently: the approve sheet says which (Joe, 18 Nov 2026).
+        d.useCredit === undefined ? undefined : { useCredit: d.useCredit },
+        { ...(d.action === 'approve' ? { ifMatch: inv.version } : {}) },
+      ),
     onSuccess: (r) => afterInvoiceChange(qc, r, inv.jobId),
   });
 }

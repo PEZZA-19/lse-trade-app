@@ -647,6 +647,7 @@ export async function approve(
   id: string,
   expectedVersion?: number,
   issueDate?: string,
+  useCredit?: boolean,
 ): Promise<InvoiceDetailDto> {
   assertOwnerDecision(auth, 'approve an invoice');
   const cur = await lockInvoice(tx, id);
@@ -686,6 +687,21 @@ export async function approve(
     await completeJobIfSettled(tx, auth, job.id);
     return getInvoice(tx, id);
   }
+  // Customer credit is never used silently (Joe, 18 Nov 2026): the approve sheet asks.
+  const [own] = await tx<
+    { customerId: string }[]
+  >`SELECT customer_id FROM jobs WHERE id = ${job.id}`;
+  const creditAvailable = (await availableCredits(tx, own!.customerId, false, t)).reduce(
+    (a, c) => a + c.remainingPence,
+    0,
+  );
+  if (creditAvailable > 0 && useCredit === undefined)
+    throw new AppError(
+      422,
+      'credit_choice_needed',
+      `${detail.customerName} has ${formatPence(creditAvailable)} credit. Choose whether to take it off this invoice or keep it for later.`,
+      { creditAvailablePence: creditAvailable },
+    );
   const [{ n }] = (await tx`
     UPDATE jobs SET invoice_count = invoice_count + 1 WHERE id = ${job.id} RETURNING invoice_count AS n`) as unknown as [
     { n: number },
@@ -695,11 +711,11 @@ export async function approve(
     UPDATE invoices SET status = 'approved', number = ${number}, issue_date = ${t}::date,
            due_date = ${addDaysIso(t, detail.termsDays)}::date, approved_by = ${auth.userId}, approved_at = now()
      WHERE id = ${id}`;
-  await audit(tx, auth, 'approve', 'invoice', id, { number });
-  const [own] = await tx<
-    { customerId: string }[]
-  >`SELECT customer_id FROM jobs WHERE id = ${job.id}`;
-  await applyCredits(tx, auth, id, own!.customerId, detail.totalPence, t);
+  await audit(tx, auth, 'approve', 'invoice', id, {
+    number,
+    ...(creditAvailable > 0 ? { creditKeptForLater: !useCredit } : {}),
+  });
+  if (useCredit) await applyCredits(tx, auth, id, own!.customerId, detail.totalPence, t);
   return getInvoice(tx, id);
 }
 

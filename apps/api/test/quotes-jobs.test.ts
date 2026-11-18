@@ -280,3 +280,70 @@ describe('jobs', () => {
     expect(r.body.jobs).toHaveLength(1);
   });
 });
+
+describe('a quote never totals less than £0 (Joe, 18 Nov 2026)', () => {
+  const work = { kind: 'labour', description: 'Rewire', qtyMilli: 1000, unitPricePence: 20000 };
+  const minus = (pence: number, optionLabel?: string) => ({
+    kind: 'material',
+    description: 'Rent payments',
+    qtyMilli: 1000,
+    unitPricePence: -pence,
+    ...(optionLabel ? { optionLabel } : {}),
+  });
+
+  it('minus lines are fine while the total stays at or above £0', async () => {
+    const c = await client();
+    const cust = await seedCustomer(c);
+    const r = await c.req('POST', '/api/quotes', {
+      customerId: cust.id,
+      title: 'Flat',
+      lines: [work, minus(15000)],
+    });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(r.body.totalPence).toBe(5000);
+    expect((await c.req('POST', `/api/quotes/${r.body.id}/send`)).status).toBe(200);
+  });
+
+  it('creating, editing or sending below £0 is refused with a clear reason', async () => {
+    const c = await client();
+    const cust = await seedCustomer(c);
+    const bad = await c.req('POST', '/api/quotes', {
+      customerId: cust.id,
+      title: 'Flat',
+      lines: [work, minus(25000)],
+    });
+    expect(bad.status).toBe(422);
+    expect(bad.body.error.code).toBe('quote_below_zero');
+    expect(bad.body.error.message).toMatch(
+      /can’t come to less than £0\. This one comes to -£50\.00/,
+    );
+    // Nothing was created (no number used up either).
+    expect((await c.req('GET', '/api/quotes')).body.items ?? []).toHaveLength(0);
+
+    const ok = (
+      await c.req('POST', '/api/quotes', { customerId: cust.id, title: 'Flat', lines: [work] })
+    ).body;
+    const edit = await c.req('PATCH', `/api/quotes/${ok.id}`, { lines: [work, minus(20001)] });
+    expect(edit.status).toBe(422);
+    expect((await c.req('GET', `/api/quotes/${ok.id}`)).body.totalPence).toBe(20000);
+    // Exactly £0 saves (it just can't be sent, as before).
+    expect(
+      (await c.req('PATCH', `/api/quotes/${ok.id}`, { lines: [work, minus(20000)] })).status,
+    ).toBe(200);
+    expect((await c.req('POST', `/api/quotes/${ok.id}/send`)).status).toBe(422);
+  });
+
+  it('a minus optional extra that could take it below £0 is refused too', async () => {
+    const c = await client();
+    const cust = await seedCustomer(c);
+    const r = await c.req('POST', '/api/quotes', {
+      customerId: cust.id,
+      title: 'Flat',
+      lines: [work, minus(30000, 'Rent offset')],
+    });
+    expect(r.status).toBe(422);
+    expect(r.body.error.message).toMatch(
+      /With the option “Rent offset” it would come to -£100\.00/,
+    );
+  });
+});
