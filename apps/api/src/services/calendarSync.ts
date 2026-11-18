@@ -20,7 +20,7 @@ import {
   type CalendarSyncResultDto,
   type CalendarSyncStatusDto,
   type EventLink,
-  type PullProposal,
+  type AppliedCalendarChange,
   type RemoteChange,
   type SyncAppointment,
   type CalendarActivityDto,
@@ -161,9 +161,11 @@ async function loadLinks(tx: Tx, connectionId: string): Promise<EventLink[]> {
   }));
 }
 
-function activityText(p: PullProposal, provider: CalendarProvider, job: string) {
+function activityText(p: AppliedCalendarChange, provider: CalendarProvider, job: string) {
   const where = CALENDAR_PROVIDER_LABELS[provider];
-  const clash = p.conflict ? ' It had also been changed in the app since the last sync.' : '';
+  const clash = p.conflict
+    ? ' It had also been changed in the app, but the calendar change was more recent.'
+    : '';
   if (p.type === 'cancel')
     return {
       title: `${job}: deleted in ${where}`,
@@ -192,7 +194,7 @@ async function applyFromCalendar(
   tx: Tx,
   auth: Auth,
   conn: CalendarConnection,
-  p: PullProposal,
+  p: AppliedCalendarChange,
   job: string,
   appOrigin: string | null,
   appt: SyncAppointment | undefined,
@@ -256,6 +258,12 @@ async function syncOne(
   appOrigin: string | null,
 ): Promise<CalendarSyncResultDto> {
   const rows = await feedRows(tx, auth, 'mine');
+  const changedAt = new Map(
+    (
+      await tx<{ id: string; updatedAt: Date }[]>`
+        SELECT id, updated_at FROM appointments WHERE id = ANY(${rows.map((r) => r.id)}::uuid[])`
+    ).map((r) => [r.id, new Date(r.updatedAt).toISOString()]),
+  );
   const appts = rows.map((r) => ({
     id: r.id,
     startsAt: new Date(r.startsAt).toISOString(),
@@ -265,6 +273,7 @@ async function syncOne(
     customerName: r.customerName,
     siteAddress: r.siteAddress,
     assignee: r.assignee,
+    updatedAt: changedAt.get(r.id) ?? null,
   }));
   const jobOf = new Map(rows.map((r) => [r.id, `Job ${r.jobNumber}`]));
   const result: CalendarSyncResultDto = { created: 0, updated: 0, deleted: 0, applied: 0 };
@@ -274,6 +283,15 @@ async function syncOne(
   const { changes, nextSyncToken } = await adapter.changes(conn, conn.syncToken);
   const byId = new Map(appts.map((a) => [a.id, a]));
   for (const p of planPull(changes, links, appts, appOrigin)) {
+    if (p.type === 'restore') {
+      // The app's change is newer than the calendar's delete: forget the old event; the push below
+      // puts the booking back in the calendar.
+      await tx`DELETE FROM calendar_event_links WHERE connection_id = ${conn.id} AND appointment_id = ${p.appointmentId}`;
+      await audit(tx, auth, 'calendar_conflict_app_kept', 'appointment', p.appointmentId, {
+        provider: conn.provider,
+      });
+      continue;
+    }
     const job = jobOf.get(p.appointmentId) ?? 'A job';
     if (await applyFromCalendar(tx, auth, conn, p, job, appOrigin, byId.get(p.appointmentId)))
       result.applied++;

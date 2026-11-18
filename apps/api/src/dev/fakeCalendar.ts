@@ -20,7 +20,7 @@ export class FakeCalendar implements CalendarAdapter {
   private log: RemoteChange[] = [];
   private n = 0;
 
-  private record(e: FakeEvent) {
+  private record(e: FakeEvent, at?: string) {
     this.log.push({
       remoteId: e.remoteId,
       lseId: e.lseId,
@@ -28,6 +28,7 @@ export class FakeCalendar implements CalendarAdapter {
       cancelled: e.cancelled,
       startsAt: e.cancelled ? null : e.startsAt,
       endsAt: e.cancelled ? null : e.endsAt,
+      updatedAt: at ?? new Date().toISOString(),
     });
   }
 
@@ -61,17 +62,17 @@ export class FakeCalendar implements CalendarAdapter {
     return { changes: this.log.slice(from), nextSyncToken: String(this.log.length) };
   }
 
-  /** Someone moves the event in their calendar app. */
-  move(remoteId: string, startsAt: string, endsAt: string) {
+  /** Someone moves the event in their calendar app (at: when, default now). */
+  move(remoteId: string, startsAt: string, endsAt: string, at?: string) {
     const e = this.events.get(remoteId)!;
     Object.assign(e, { startsAt, endsAt, etag: e.etag + 1 });
-    this.record(e);
+    this.record(e, at);
   }
-  /** Someone deletes the event in their calendar app. */
-  delete(remoteId: string) {
+  /** Someone deletes the event in their calendar app (at: when, default now). */
+  delete(remoteId: string, at?: string) {
     const e = this.events.get(remoteId)!;
     Object.assign(e, { cancelled: true, etag: e.etag + 1 });
-    this.record(e);
+    this.record(e, at);
   }
   /** Someone adds their own event to the calendar. */
   addByHand(startsAt: string, endsAt: string) {

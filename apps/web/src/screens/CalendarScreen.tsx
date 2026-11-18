@@ -246,7 +246,7 @@ function DemoCalendar() {
 }
 
 const TWO_WAY_NOTE =
-  'Two-way: your booked jobs go into an “LSE jobs” calendar in your Google account, and if someone moves or deletes one there, the app updates straight away. Each change is listed below with Undo. The app only sees that one calendar, not the rest of your Google Calendar. It syncs by itself every 15 minutes.';
+  'Two-way: your booked jobs go into an “LSE jobs” calendar in your Google account, and if someone moves or deletes one there, the app updates straight away. Each change is listed below with Undo. If a booking was changed in both places, the most recent change wins. The app only sees that one calendar, not the rest of your Google Calendar. It syncs by itself every 15 minutes.';
 
 /** Two-way sync with Google Calendar, per person. */
 function TwoWaySection() {

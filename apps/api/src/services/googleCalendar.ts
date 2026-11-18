@@ -278,6 +278,7 @@ interface GoogleEvent {
   id: string;
   etag?: string;
   status?: string;
+  updated?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   extendedProperties?: { private?: Record<string, string> };
@@ -295,6 +296,7 @@ function toChange(e: GoogleEvent): RemoteChange {
     // An all-day event has no times: the planner treats it as made by hand unless it's ours.
     startsAt: cancelled ? null : at(e.start),
     endsAt: cancelled ? null : at(e.end),
+    updatedAt: e.updated ? new Date(e.updated).toISOString() : null,
   };
 }
 

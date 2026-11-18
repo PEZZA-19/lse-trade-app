@@ -138,8 +138,10 @@ Then deploy (`pnpm exec wrangler deploy`). The database changes it needs are mig
   change is listed on the Calendar screen under **Changes from Google Calendar** with **Undo**,
   which puts the app and Google back. Undo works on the latest change while nothing else has
   changed that booking since.
-- If the same booking was changed in both places between syncs, Google’s change wins and the list
-  says so.
+- If the same booking was changed in both places between syncs, the **most recent change wins**
+  in both places (Joe, 18 Nov 2026). If Google’s was later, the list says so; if the app’s was
+  later, Google is updated to match (a booking deleted in Google but changed in the app since is
+  put back). Ideally make changes in the app; Google is the fallback.
 - Events you add yourself to the LSE jobs calendar are left alone.
 - If someone removes the app’s access in their Google account (or deletes the LSE jobs calendar),
   the Calendar screen says so and shows **Connect Again**. Reconnecting makes a fresh LSE jobs

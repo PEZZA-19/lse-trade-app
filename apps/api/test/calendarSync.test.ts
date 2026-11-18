@@ -166,7 +166,40 @@ describe('two-way calendar sync', () => {
     expect(fakeCalendar.live().filter((e) => e.lseId === appt.id)).toHaveLength(1);
   });
 
-  it('when both sides changed, Google’s change wins and the log says so', async () => {
+  it('changed in both: the app’s more recent change wins and goes to Google (Joe, 18 Nov 2026)', async () => {
+    const c = await client();
+    const { appt } = await bookedJob(c);
+    await connectGoogle(c);
+    await c.req('POST', '/api/calendar-sync/run');
+    const ev = fakeCalendar.live().find((e) => e.lseId === appt.id)!;
+    const earlier = new Date(Date.now() - 3_600_000).toISOString();
+    // Moved in Google an hour ago, then changed in the app now (before a sync).
+    fakeCalendar.move(ev.remoteId, isoH(50), isoH(52), earlier);
+    await c.req('PATCH', `/api/appointments/${appt.id}`, { startsAt: h(60), endsAt: h(61) });
+    const r = (await c.req('POST', '/api/calendar-sync/run')).body;
+    expect(r.applied).toBe(0);
+    expect(await apptStart(appt.id)).toBe(isoH(60));
+    expect(fakeCalendar.events.get(ev.remoteId)!.startsAt).toBe(isoH(60));
+    expect((await c.req('GET', '/api/calendar-sync/activity')).body).toEqual([]);
+
+    // Deleted in Google earlier, changed in the app since: the booking stays and is put back.
+    fakeCalendar.delete(ev.remoteId, new Date(Date.now() - 60_000).toISOString());
+    await c.req('PATCH', `/api/appointments/${appt.id}`, { startsAt: h(62), endsAt: h(63) });
+    await c.req('POST', '/api/calendar-sync/run');
+    expect(await apptStart(appt.id)).toBe(isoH(62));
+    const back = fakeCalendar.live().filter((e) => e.lseId === appt.id);
+    expect(back).toHaveLength(1);
+    expect(back[0]!.startsAt).toBe(isoH(62));
+    // And it settles: another run changes nothing.
+    expect((await c.req('POST', '/api/calendar-sync/run')).body).toMatchObject({
+      applied: 0,
+      created: 0,
+      updated: 0,
+      deleted: 0,
+    });
+  });
+
+  it('changed in both: Google’s more recent change wins and the log says so', async () => {
     const c = await client();
     const { appt } = await bookedJob(c);
     await connectGoogle(c);
@@ -178,7 +211,9 @@ describe('two-way calendar sync', () => {
     expect(await apptStart(appt.id)).toBe(isoH(50));
     const [entry] = (await c.req('GET', '/api/calendar-sync/activity')).body;
     expect(entry.conflict).toBe(true);
-    expect(entry.detail).toMatch(/also been changed in the app/);
+    expect(entry.detail).toMatch(
+      /also been changed in the app, but the calendar change was more recent/,
+    );
     // Undo goes back to the app's own change.
     await c.req('POST', `/api/calendar-sync/activity/${entry.id}/undo`);
     expect(await apptStart(appt.id)).toBe(isoH(60));

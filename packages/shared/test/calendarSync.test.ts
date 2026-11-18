@@ -128,6 +128,45 @@ describe('calendar → app', () => {
     expect(planPull([moved], [l], [appMoved])[0]).toMatchObject({ type: 'move', conflict: true });
   });
 
+  it('changed in both: the most recent change wins (Joe, 18 Nov 2026)', () => {
+    const l = linkFor(A);
+    const appMoved = {
+      ...A,
+      startsAt: '2027-01-12T13:00:00Z',
+      endsAt: '2027-01-12T15:00:00Z',
+      updatedAt: '2027-01-10T12:00:00Z',
+    };
+    const moved = {
+      remoteId: l.remoteId,
+      lseId: null,
+      etag: null,
+      cancelled: false,
+      startsAt: '2027-01-14T09:00:00Z',
+      endsAt: '2027-01-14T10:00:00Z',
+    };
+    // Calendar earlier than the app: nothing comes in (the push sends the app's version).
+    expect(planPull([{ ...moved, updatedAt: '2027-01-10T11:00:00Z' }], [l], [appMoved])).toEqual(
+      [],
+    );
+    // Calendar later: it wins.
+    expect(
+      planPull([{ ...moved, updatedAt: '2027-01-10T13:00:00Z' }], [l], [appMoved])[0],
+    ).toMatchObject({ type: 'move', conflict: true });
+    // Deleted in the calendar before the app's change: the booking is put back.
+    const del = { ...moved, cancelled: true, startsAt: null, endsAt: null };
+    expect(planPull([{ ...del, updatedAt: '2027-01-10T11:00:00Z' }], [l], [appMoved])).toEqual([
+      { type: 'restore', appointmentId: 'a1', remoteId: l.remoteId },
+    ]);
+    // No app change since the last sync: the calendar's change always comes in.
+    expect(
+      planPull(
+        [{ ...moved, updatedAt: '2027-01-10T11:00:00Z' }],
+        [l],
+        [{ ...A, updatedAt: '2027-01-10T12:00:00Z' }],
+      )[0],
+    ).toMatchObject({ type: 'move', conflict: false });
+  });
+
   it('ignores events made by hand, bad times, and appointments already gone', () => {
     const l = linkFor(A);
     const hand = {

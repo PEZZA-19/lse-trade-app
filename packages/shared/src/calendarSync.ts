@@ -30,6 +30,8 @@ export interface SyncAppointment {
   customerName: string;
   siteAddress: string | null;
   assignee: string | null;
+  /** When it was last changed in the app (for conflicts: the most recent change wins). */
+  updatedAt?: string | null;
 }
 
 /** What we write to the calendar for one appointment. */
@@ -64,6 +66,8 @@ export interface RemoteChange {
   cancelled: boolean;
   startsAt: string | null;
   endsAt: string | null;
+  /** When it was last changed in the calendar (for conflicts: the most recent change wins). */
+  updatedAt?: string | null;
 }
 
 export function eventBody(a: SyncAppointment, appOrigin: string | null = null): CalendarEventBody {
@@ -151,7 +155,15 @@ export type PullProposal =
       /** The app changed it too since the last sync: applying overwrites that. */
       conflict: boolean;
     }
-  | { type: 'cancel'; appointmentId: string; remoteId: string; conflict: boolean };
+  | { type: 'cancel'; appointmentId: string; remoteId: string; conflict: boolean }
+  /**
+   * Deleted in the calendar, but changed in the app more recently: the app's booking stays and is
+   * put back in the calendar as a new event.
+   */
+  | { type: 'restore'; appointmentId: string; remoteId: string };
+
+/** A calendar change applied to the app (a move or a delete). */
+export type AppliedCalendarChange = Exclude<PullProposal, { type: 'restore' }>;
 
 /**
  * Calendar → app: changes to apply for linked events that were moved or deleted in the calendar.
@@ -173,6 +185,18 @@ export function planPull(
     const a = appts.get(link.appointmentId);
     if (!a) continue; // already gone in the app; the push deletes the event
     const appChanged = bodyHash(eventBody(a, appOrigin)) !== link.appHash;
+    // Changed in both since the last sync (Joe, 18 Nov 2026: "If changed in either it updates
+    // both"): the most recent change wins. If the app's is newer, nothing comes in; the push then
+    // sends the app's version to the calendar. Without both times, the calendar's change wins.
+    const appNewer =
+      appChanged &&
+      !!a.updatedAt &&
+      !!c.updatedAt &&
+      new Date(a.updatedAt).getTime() > new Date(c.updatedAt).getTime();
+    if (appNewer) {
+      if (c.cancelled) out.push({ type: 'restore', appointmentId: a.id, remoteId: link.remoteId });
+      continue;
+    }
     if (c.cancelled) {
       out.push({
         type: 'cancel',
@@ -220,7 +244,7 @@ export function slotText(startsAt: string, endsAt: string, timeZone = 'Europe/Gu
 export interface CalendarChangePayload {
   provider: CalendarProvider;
   connectionId: string;
-  change: PullProposal;
+  change: AppliedCalendarChange;
 }
 
 export interface CalendarConnectionDto {

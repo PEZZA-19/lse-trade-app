@@ -682,8 +682,13 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 42. ANSWERED 18 Nov 2026, 10:36 by Joe: "Expenses just come from the profit of the company." Done:
     no "paid personally" option; every expense comes out of the business account and off profit
     (migration 0032 turned any recorded as personal into business expenses and dropped the column).
-43. If a booking is changed in the app and in Google Calendar before they sync, Google's change wins
-    (and the log says so). OK, or should the app's change win?
+43. ANSWERED 18 Nov 2026, 10:36 by Joe: "If changed in either it updates both." Done: true two-way;
+    when a booking was changed in both before a sync, the **most recent change wins** (by the app's
+    and Google's change times). App newer: nothing comes in and Google is updated (a booking
+    deleted in Google but changed in the app since is put back as a new event). Google newer: it
+    applies, and the log says the app's change was overwritten. Without Google's time, Google wins.
+    Joe (10:37): "Ideally changes will be made in app": the app is the main place, Google the
+    fallback.
 44. ANSWERED 18 Nov 2026, 10:38 by Joe: "Anyone with the correct level of access can make the
     expenses change." Done: anyone with Accounts access (Admin and Office presets; not Field worker
     or Subcontractor) can add and remove expenses and wages; the API refuses others (403). Removing
@@ -987,4 +992,5 @@ re-importing or overlapping statements adds nothing twice. No screen yet.
 
 1. Google setup with Joe, Fri 20 Nov 8pm (`docs/GOOGLE_CALENDAR_SETUP.md`).
 2. Bank statement import (CSV) and reconciliation; refunds.
-3. Answers needed: Q33, Q34, Q35, Q38.
+3. Answers needed: Q33, Q34, Q35, Q38. Q41–Q44 answered 18 Nov (credit, expenses, conflicts,
+   expense access).
