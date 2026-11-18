@@ -21,7 +21,7 @@ const appt = (
   jobNumber: '122',
   jobTitle: 'Barn rewire',
   customerName: 'Ann Example',
-  siteAddress: 'La Seigneurie, Sark',
+  siteAddress: '1 Example Lane, Sark',
   assignee: 'Sam',
   ...over,
 });
@@ -45,7 +45,7 @@ describe('event body', () => {
     expect(b).toMatchObject({
       lseId: 'a1',
       title: 'Job 122: Barn rewire',
-      location: 'La Seigneurie, Sark',
+      location: '1 Example Lane, Sark',
       startsAt: '2027-01-12T09:00:00.000Z',
     });
     expect(b.description).toContain('Customer: Ann Example');

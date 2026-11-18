@@ -665,11 +665,11 @@ Static hosting of `dist-preview`: any static host; SPA fallback is in `public/_r
 36. Jobs 14 (rent payments) and 108 (supplier credit) come to less than £0, which means you owe the
     customer. The app won't approve an invoice for £0 or less. Should these be a credit note or a
     refund to the customer instead, or carried forward onto their next invoice?
-38. Two-way calendar sync needs two one-off setups in your name: a Google Cloud project (so the app
+37. Two-way calendar sync needs two one-off setups in your name: a Google Cloud project (so the app
     can ask to use a "LSE jobs" calendar in your Google account; Google reviews the request) and a
     Microsoft (Azure) app registration for Outlook. Shall I prepare step-by-step instructions, and
     which do you use day to day: Google, Outlook, or both?
-37. Labour on kits uses the business charge-out rate. Should it use a named person's rate when the
+38. Labour on kits uses the business charge-out rate. Should it use a named person's rate when the
     job is assigned to them (ties in with Q28)?
 
 ## Next (after session 4)
