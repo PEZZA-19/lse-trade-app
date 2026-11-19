@@ -302,7 +302,12 @@ export function createApp(deps: AppDeps) {
     )
       throw new AppError(403, 'no_access', 'Prices are not available to you. Ask an admin.');
     c.set('auth', auth);
-    c.set('tx', (fn) => withTenant(sql, auth, fn));
+    c.set('tx', (fn) =>
+      withTenant(sql, auth, async (tx) => {
+        await access.assertScopedRequest(tx, c.req.method, c.req.path);
+        return fn(tx);
+      }),
+    );
     await next();
     if (!prices && c.res.headers.get('content-type')?.includes('application/json')) {
       const body: unknown = await c.res.clone().json();
@@ -1081,10 +1086,13 @@ export function createApp(deps: AppDeps) {
   });
   app.get('/api/photos/:id', async (c) => {
     const id = uuidParam(c);
-    const f = await c.var.tx((tx) => jobDetail.photoFile(tx, blobs, id));
+    const f = await c.var.tx(async (tx) => ({
+      ...(await jobDetail.photoFile(tx, blobs, id)),
+      scoped: await access.assignmentScopedIn(tx),
+    }));
     return c.body(new Uint8Array(f.bytes), 200, {
       'Content-Type': f.contentType,
-      'Cache-Control': 'private, max-age=86400, immutable',
+      'Cache-Control': f.scoped ? 'private, no-store' : 'private, max-age=86400, immutable',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'",
     });

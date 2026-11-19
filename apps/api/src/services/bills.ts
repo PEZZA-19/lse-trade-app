@@ -18,9 +18,10 @@ import {
 } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
-import { assertVersion, conflict, invalid, notFound } from '../lib/errors';
+import { AppError, assertVersion, conflict, invalid, notFound } from '../lib/errors';
 import { iso, isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
+import { assignmentScopedIn, assertJobVisible } from './access';
 import { assertOwnerDecision } from './invoices';
 import {
   ITEM_COLS,
@@ -276,6 +277,11 @@ export async function getBill(tx: Tx, id: string): Promise<BillDetailDto> {
 }
 
 async function checkJob(tx: Tx, jobId: string | null) {
+  if (await assignmentScopedIn(tx)) {
+    if (!jobId) throw new AppError(403, 'no_access', 'Pick an assigned job for this bill.');
+    await assertJobVisible(tx, jobId);
+    return;
+  }
   if (!jobId) return;
   const [j] = await tx`SELECT 1 FROM jobs WHERE id = ${jobId}`;
   if (!j) throw invalid('That job was not found', { fields: { jobId: 'Job not found' } });

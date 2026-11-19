@@ -10,7 +10,8 @@ import {
 } from '@lse/shared';
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
-import { AppError, invalid } from '../lib/errors';
+import { AppError, invalid, notFound } from '../lib/errors';
+import { isUuid } from '../lib/validate';
 import type { Auth } from '../lib/types';
 import { audit } from './audit';
 
@@ -28,6 +29,105 @@ export async function accessFor(tx: Tx, userId: string, role: string): Promise<A
 }
 
 export const accessOf = (auth: Auth): Access => auth.access ?? defaultAccess(auth.role);
+
+/** Area grants do not widen job scope. Only an explicit admin promotion does. */
+export const assignmentScoped = (auth: Auth) =>
+  auth.role === 'subcontractor' && !accessOf(auth).isAdmin;
+
+/** Use transaction identity for guards/replays too, not a role loaded before a concurrent demotion. */
+export async function assignmentScopedIn(tx: Tx): Promise<boolean> {
+  const [row] = await tx<{ scoped: boolean }[]>`SELECT app_assignment_scoped() AS scoped`;
+  return row?.scoped ?? true;
+}
+
+/** RLS supplies the live assignment predicate as well as tenant isolation. */
+export async function assertJobVisible(tx: Tx, jobId: string) {
+  const [job] = await tx`SELECT 1 FROM jobs WHERE id = ${jobId}`;
+  if (!job) throw notFound('Job');
+}
+
+/** Runs inside the route transaction, before service work and before cached responses. */
+export async function assertScopedRequest(tx: Tx, method: string, path: string) {
+  const job = /^\/api\/jobs\/([^/]+)(?:\/|$)/.exec(path);
+  if (job) {
+    if (!isUuid(job[1]!)) throw notFound('Job');
+    await assertJobVisible(tx, job[1]!);
+  }
+  if (!(await assignmentScopedIn(tx))) return;
+  if (path === '/api/supplier-bills/read')
+    throw new AppError(403, 'no_access', 'The business-wide AI inbox is not available to you.');
+  const child =
+    /^\/api\/(appointments|timesheets|job-lines|notes|photos|invoices|credit-notes|supplier-bills|quotes)\/([^/]+)(?:\/|$)/.exec(
+      path,
+    );
+  if (child) {
+    const tables: Record<string, string> = {
+      appointments: 'appointments',
+      timesheets: 'timesheets',
+      'job-lines': 'job_lines',
+      notes: 'job_notes',
+      photos: 'job_photos',
+      invoices: 'invoices',
+      'credit-notes': 'credit_notes',
+      'supplier-bills': 'supplier_bills',
+      quotes: 'quotes',
+    };
+    if (!isUuid(child[2]!)) throw notFound('Record');
+    const [record] = await tx`SELECT 1 FROM ${tx(tables[child[1]!]!)} WHERE id = ${child[2]!}`;
+    if (!record) throw notFound('Record');
+  }
+  if (
+    (method === 'POST' && path === '/api/jobs') ||
+    /\/(assignees)(\/|$)/.test(path) ||
+    /^\/api\/quotes\/[^/]+\/convert$/.test(path) ||
+    /^\/api\/(enquiries|proposals|bank)(\/|$)/.test(path) ||
+    (method !== 'GET' && /^\/api\/job-stages(?:\/|$)/.test(path)) ||
+    /^\/api\/supplier-bills\/[^/]+\/suggest-prices$/.test(path)
+  )
+    throw new AppError(
+      403,
+      'no_access',
+      'This action needs business-wide job access. Ask an admin.',
+    );
+}
+
+async function assertRecordVisible(tx: Tx, table: string, id: string) {
+  const [record] = await tx`SELECT 1 FROM ${tx(table)} WHERE id = ${id}`;
+  if (!record) throw notFound('Record');
+}
+
+/** Cached responses can outlive an assignment; never replay their old job identifiers blindly. */
+export async function assertVisibleJobReferences(tx: Tx, value: unknown): Promise<void> {
+  if (Array.isArray(value)) {
+    for (const item of value) await assertVisibleJobReferences(tx, item);
+  } else if (value && typeof value === 'object') {
+    const row = value as Record<string, unknown>;
+    for (const key of ['jobId', 'convertedJobId'])
+      if (typeof row[key] === 'string' && isUuid(row[key])) await assertJobVisible(tx, row[key]);
+    const parents: Record<string, string> = {
+      invoiceId: 'invoices',
+      creditId: 'invoices',
+      creditInvoiceId: 'invoices',
+      billId: 'supplier_bills',
+      quoteId: 'quotes',
+      jobLineId: 'job_lines',
+    };
+    for (const [key, table] of Object.entries(parents))
+      if (typeof row[key] === 'string' && isUuid(row[key]))
+        await assertRecordVisible(tx, table, row[key]);
+    // A bill may have been moved to another job since its creation response was cached.
+    if (typeof row.id === 'string' && isUuid(row.id)) {
+      if ('supplierId' in row && 'billDate' in row)
+        await assertRecordVisible(tx, 'supplier_bills', row.id);
+      if ('remainingPence' in row && 'issueDate' in row)
+        await assertRecordVisible(tx, 'invoices', row.id);
+    }
+    // Job summaries/details use `id`, rather than `jobId`.
+    if (typeof row.id === 'string' && isUuid(row.id) && 'stage' in row && 'customerId' in row)
+      await assertJobVisible(tx, row.id);
+    for (const item of Object.values(row)) await assertVisibleJobReferences(tx, item);
+  }
+}
 
 export function assertArea(auth: Auth, area: AccessArea) {
   if (!canSee(accessOf(auth), area))
