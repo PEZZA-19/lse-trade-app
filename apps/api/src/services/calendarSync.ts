@@ -84,7 +84,9 @@ export async function status(
     }[]
   >`
     SELECT c.id, c.provider, c.account_email, c.calendar_name, c.status, c.last_synced_at, c.last_error,
-           (SELECT count(*) FROM calendar_event_links l WHERE l.connection_id = c.id) AS linked
+           (SELECT count(*) FROM calendar_event_links l WHERE l.connection_id = c.id
+             AND (NOT app_assignment_scoped() OR EXISTS (
+               SELECT 1 FROM appointments a WHERE a.id = l.appointment_id))) AS linked
       FROM calendar_connections c WHERE c.user_id = ${auth.userId} ORDER BY c.provider`;
   const connections: CalendarConnectionDto[] = rows.map((r) => ({
     id: r.id,

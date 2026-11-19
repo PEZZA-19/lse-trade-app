@@ -15,8 +15,8 @@ import { canSee, minutesBetween, TIMER_MAX_AHEAD_MS, TIMER_MAX_BACKDATE_MS } fro
 import type { z } from 'zod';
 import type { Tx } from '../db/client';
 import { availableCredits } from './invoices';
-import { accessOf } from './access';
-import { assertVersion, conflict, invalid, notFound } from '../lib/errors';
+import { accessOf, assignmentScoped } from './access';
+import { AppError, assertVersion, conflict, invalid, notFound } from '../lib/errors';
 import { isoNN, type Auth } from '../lib/types';
 import { audit } from './audit';
 import { assertSiteOfCustomer, toSite } from './customers';
@@ -217,6 +217,7 @@ export async function createJob(
   auth: Auth,
   input: z.output<typeof jobCreate>,
 ): Promise<JobDetailDto> {
+  assertCanManageAssignments(auth);
   const [customer] = await tx`SELECT 1 FROM customers WHERE id = ${input.customerId}`;
   if (!customer)
     throw invalid('Pick a customer for this job', { fields: { customerId: 'Customer not found' } });
@@ -274,9 +275,15 @@ export const lockJob = async (tx: Tx, id: string) => {
   if (!j) throw notFound('Job');
 };
 
+function assertCanManageAssignments(auth: Auth) {
+  if (assignmentScoped(auth))
+    throw new AppError(403, 'no_access', 'Only business-wide users can create or assign jobs.');
+}
+
 /** Assign someone in this business. Unassigned → Assigned. */
 export async function assign(tx: Tx, auth: Auth, jobId: string, userId: string) {
   await lockJob(tx, jobId);
+  assertCanManageAssignments(auth);
   const [member] =
     await tx`SELECT 1 FROM memberships WHERE user_id = ${userId} AND tenant_id = ${auth.tenantId}`;
   if (!member)
@@ -293,6 +300,15 @@ export async function assign(tx: Tx, auth: Auth, jobId: string, userId: string) 
 
 export async function unassign(tx: Tx, auth: Auth, jobId: string, userId: string) {
   await lockJob(tx, jobId);
+  assertCanManageAssignments(auth);
+  // Losing access must not leave a hidden running timer that prevents work on assigned jobs.
+  const [timer] = await tx<{ id: string; jobId: string; startedAt: Date }[]>`
+    SELECT t.id, t.job_id, t.started_at FROM job_timers t
+      JOIN memberships m ON m.tenant_id = t.tenant_id AND m.user_id = t.user_id
+      LEFT JOIN member_access a ON a.tenant_id = m.tenant_id AND a.user_id = m.user_id
+     WHERE t.job_id = ${jobId} AND t.user_id = ${userId} AND t.stopped_at IS NULL
+       AND m.role = 'subcontractor' AND NOT coalesce(a.is_admin, false) FOR UPDATE OF t`;
+  if (timer) await finishTimer(tx, timer, new Date());
   await tx`DELETE FROM job_assignees WHERE job_id = ${jobId} AND user_id = ${userId}`;
   await audit(tx, auth, 'unassign', 'job', jobId, { userId });
   await applyEvent(tx, auth, jobId, 'last_unassigned');

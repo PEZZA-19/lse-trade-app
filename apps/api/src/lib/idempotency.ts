@@ -1,6 +1,7 @@
 import type { Tx } from '../db/client';
 import { AppError } from './errors';
 import type { Auth } from './types';
+import { assignmentScopedIn, assertVisibleJobReferences } from '../services/access';
 
 async function sha256(text: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -23,6 +24,10 @@ export async function idempotent<T>(
   if (key.length < 8 || key.length > 200)
     throw new AppError(400, 'bad_idempotency_key', 'Idempotency-Key must be 8-200 characters');
   const hash = await sha256(request);
+  // Tenant-wide cached bodies may contain another person's jobs. Keep legacy staff/admin keys,
+  // but place scoped users in a person-specific namespace (including maximum-length client keys).
+  const scoped = await assignmentScopedIn(tx);
+  if (scoped) key = await sha256(`${auth.userId}:${key}`);
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${auth.tenantId + ':' + key}, 0))`;
   const [hit] = await tx<{ requestHash: string; statusCode: number; response: T }[]>`
     SELECT request_hash, status_code, response FROM idempotency_keys WHERE key = ${key}`;
@@ -33,6 +38,9 @@ export async function idempotent<T>(
         'idempotency_mismatch',
         'This Idempotency-Key was already used for a different request',
       );
+    // Recheck live scope after waiting for another request's advisory lock as well.
+    if (scoped || (await assignmentScopedIn(tx)))
+      await assertVisibleJobReferences(tx, hit.response);
     return { status: hit.statusCode, body: hit.response, replayed: true };
   }
   const result = await run();
